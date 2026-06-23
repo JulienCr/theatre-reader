@@ -51,6 +51,14 @@ export function Preview({
     }
   }, []);
 
+  // On écrit le corps impérativement (et non via dangerouslySetInnerHTML) pour
+  // que React ne « possède » pas ce DOM : sinon un re-render réécrit l'innerHTML
+  // et efface les surlignages d'annotation insérés ensuite. Cet effet est déclaré
+  // avant useAnnotations : il s'exécute en premier, puis la décoration enrobe.
+  useEffect(() => {
+    if (sheetRef.current) sheetRef.current.innerHTML = body;
+  }, [body]);
+
   useAnnotations(sheetRef, notes, {
     editable,
     redecorateKey: body,
@@ -62,7 +70,7 @@ export function Preview({
   return (
     <div className="preview">
       <style>{css}</style>
-      <div className="preview-sheet" ref={sheetRef} dangerouslySetInnerHTML={{ __html: body }} />
+      <div className="preview-sheet" ref={sheetRef} />
     </div>
   );
 }

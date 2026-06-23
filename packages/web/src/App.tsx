@@ -188,7 +188,7 @@ export function App() {
     if (!play) return;
     setBusy('Export lecteur mobile…');
     try {
-      const { blob, filename } = await api.exportReader(play.fountain, play.characters, play.template);
+      const { blob, filename } = await api.exportReader(play.fountain, play.characters, play.template, notes);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

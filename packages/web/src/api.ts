@@ -69,11 +69,12 @@ export async function exportReader(
   fountain: string,
   characters: Character[],
   template: Template,
+  notes: Note[] = [],
 ): Promise<{ blob: Blob; filename: string }> {
   const res = await fetch('/api/export/reader', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ fountain, characters, template }),
+    body: JSON.stringify({ fountain, characters, template, notes }),
   });
   if (!res.ok) throw new Error(`Échec de l'export lecteur (${res.status})`);
   const disposition = res.headers.get('content-disposition') ?? '';
