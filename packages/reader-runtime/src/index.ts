@@ -82,7 +82,7 @@ const STYLE = `
 .reader-search input { flex: 1; font: inherit; font-size: 16px; padding: 10px; border: 1px solid #cfd4dc; border-radius: 10px; }
 .reader-backdrop { position: fixed; inset: 0; z-index: 15; background: rgba(0,0,0,.25); display: none; }
 .reader-backdrop.open { display: block; }
-.line.rehearse .speech { filter: blur(5px); transition: filter .12s; cursor: pointer; }
+.line.rehearse .speech { display: inline-block; filter: blur(5px); transition: filter .12s; cursor: pointer; }
 .line.rehearse.revealed .speech { filter: none; }
 mark.reader-hit { background: #fde68a; }
 mark.reader-hit--current { background: #fb923c; }
