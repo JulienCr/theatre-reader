@@ -20,6 +20,8 @@ mark.note-anchor {
 mark.note-anchor:hover { background: #ffe8a3; }
 `;
 
+export { enableCreation, type AnchorDraft } from './creation';
+
 const NOTE_ATTR = 'data-note-id';
 
 /** Retire toutes les marques d'annotation et restaure le texte du conteneur. */
