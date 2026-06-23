@@ -50,7 +50,7 @@ function renderLine(node: LineNode, play: Play, template: Template): string {
 
   const flagged = node.flagged ? ' line--flagged' : '';
   const styleAttr = lineBg ? ` style="background-color:${lineBg}"` : '';
-  return `<p class="line${flagged}"${styleAttr}>${cue}${sep}${body}</p>`;
+  return `<p class="line${flagged}" data-cid="${escapeHtml(node.characterId)}"${styleAttr}>${cue}${sep}${body}</p>`;
 }
 
 function renderNode(node: Node, play: Play, template: Template): string {
