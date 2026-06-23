@@ -113,6 +113,26 @@ export function App() {
     }
   };
 
+  const onExportReader = async () => {
+    if (!play) return;
+    setBusy('Export lecteur mobile…');
+    try {
+      const blob = await api.exportReader(play.fountain, play.characters, play.template);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'lecteur-mobile.html';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      flash(String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const setTemplate = (template: Template) => setPlay((p) => (p ? { ...p, template } : p));
   const setCharacters = (characters: Character[]) =>
     setPlay((p) => (p ? { ...p, characters } : p));
@@ -145,6 +165,7 @@ export function App() {
     if (play) {
       cmds.push({ id: 'save', label: 'Sauvegarder', hint: '', run: onSave });
       cmds.push({ id: 'export', label: 'Exporter en PDF', run: onExport });
+      cmds.push({ id: 'export-reader', label: 'Exporter le lecteur mobile', run: onExportReader });
       cmds.push({
         id: 'reader',
         label: mode === 'read' ? 'Quitter le lecteur' : 'Ouvrir le lecteur',
@@ -249,6 +270,7 @@ export function App() {
             <button className="primary" onClick={onExport}>
               Exporter en PDF
             </button>
+            <button onClick={onExportReader}>Lecteur mobile</button>
           </>
         )}
         {busy && <span className="busy">{busy}</span>}
