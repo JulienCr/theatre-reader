@@ -117,11 +117,11 @@ export function App() {
     if (!play) return;
     setBusy('Export lecteur mobile…');
     try {
-      const blob = await api.exportReader(play.fountain, play.characters, play.template);
+      const { blob, filename } = await api.exportReader(play.fountain, play.characters, play.template);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'lecteur-mobile.html';
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();

@@ -17,6 +17,9 @@ describe('exportReaderHtml', () => {
     // auto-suffisant : aucune ressource réseau externe
     expect(html).not.toMatch(/(src|href)="https?:\/\//);
     expect(filename).toMatch(/^lecteur-.+\.html$/);
+    // pas de séparateur de ligne JS brut dans le bloc de données inliné
+    expect(html).not.toContain("\u2028");
+    expect(html).not.toContain("\u2029");
   });
 
   it('pré-sélectionne les surlignages du template', async () => {

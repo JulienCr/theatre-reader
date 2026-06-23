@@ -77,7 +77,8 @@ export async function exportReaderHtml(
   };
 
   // Échappe </script> et < pour une inclusion sûre dans une balise <script>.
-  const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
+  // Échappe aussi U+2028/2029 (séparateurs de ligne JS interdits bruts dans un string littéral).
+  const dataJson = JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   const runtime = await readerRuntime();
 
   const html = `<!doctype html>
