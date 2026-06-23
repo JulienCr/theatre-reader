@@ -48,7 +48,15 @@ importers:
         specifier: ^26.0.0
         version: 26.0.0
 
-  packages/reader-runtime: {}
+  packages/reader-runtime:
+    dependencies:
+      '@theatre/annotations':
+        specifier: workspace:*
+        version: link:../annotations
+    devDependencies:
+      '@theatre/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/server:
     dependencies:

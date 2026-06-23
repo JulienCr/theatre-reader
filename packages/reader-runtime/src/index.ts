@@ -4,14 +4,18 @@
  * Bundlé par esbuild (IIFE, globalName `TheatreReader`) et inliné dans le .html
  * exporté. Pilote le HTML rendu par @theatre/core en flux continu (reflow) :
  * surlignage multi-perso, mode « mes répliques », saut de scène, recherche,
- * taille de texte. Aucune dépendance runtime à @theatre/core : les données
+ * taille de texte, et affichage des notes (figées) en lecture seule. Les données
  * arrivent par window.__THEATRE_READER_DATA__.
  */
+
+import { decorate, annotationCss } from '@theatre/annotations';
+import type { Note } from '@theatre/core';
 
 export interface ReaderData {
   characters: { id: string; name: string }[];
   toc: { id: string; label: string; scene: boolean }[];
   highlightsDefault: { characterId: string; color: string }[];
+  notes?: Note[];
   storageKey: string;
 }
 
@@ -349,6 +353,30 @@ function init(d: ReaderData): void {
   buildBar(buildCharactersSheet(), buildScenesSheet(), buildSearchSheet());
   applyFont();
   applyHighlights();
+
+  // Notes (figées dans l'export) : surlignage + bulle en lecture seule.
+  if (d.notes && d.notes.length) {
+    const noteStyle = el('style', {});
+    noteStyle.textContent = annotationCss;
+    document.head.appendChild(noteStyle);
+    const byId = new Map(d.notes.map((n) => [n.id, n]));
+    decorate(play, d.notes, {
+      onActivate: (id) => showNoteBubble(byId.get(id)?.body ?? ''),
+    });
+  }
+}
+
+/** Bulle d'une note en lecture seule (mobile : pas de création/édition). */
+function showNoteBubble(body: string): void {
+  closeSheets();
+  const sheet = el('div', { class: 'reader-sheet open' });
+  sheet.appendChild(el('h2', {}, 'Note'));
+  const p = el('p', {});
+  p.textContent = body;
+  p.style.whiteSpace = 'pre-wrap';
+  sheet.appendChild(p);
+  document.body.appendChild(sheet);
+  backdrop.classList.add('open');
 }
 
 export function boot(): void {

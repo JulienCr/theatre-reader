@@ -8,5 +8,11 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@theatre/annotations": "workspace:*"
+  },
+  "devDependencies": {
+    "@theatre/core": "workspace:*"
   }
 }
