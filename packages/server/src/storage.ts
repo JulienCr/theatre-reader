@@ -9,7 +9,7 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { Character, Template, slugify } from '@theatre/core';
+import { Character, Note, Template, slugify } from '@theatre/core';
 
 export interface PlayMeta {
   name: string;
@@ -61,6 +61,22 @@ export async function savePlay(slug: string, fountain: string, meta: PlayMeta): 
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'play.fountain'), fountain, 'utf8');
   await writeFile(join(dir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8');
+}
+
+/** Charge les notes d'une pièce (liste vide si le fichier n'existe pas). */
+export async function loadNotes(slug: string): Promise<Note[]> {
+  try {
+    return JSON.parse(await readFile(join(DATA_DIR, slug, 'notes.json'), 'utf8')) as Note[];
+  } catch {
+    return [];
+  }
+}
+
+/** Écrit les notes d'une pièce dans data/<slug>/notes.json. */
+export async function saveNotes(slug: string, notes: Note[]): Promise<void> {
+  const dir = join(DATA_DIR, slug);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'notes.json'), JSON.stringify(notes, null, 2), 'utf8');
 }
 
 /** Slug unique dérivé d'un titre, en évitant les collisions de dossiers existants. */

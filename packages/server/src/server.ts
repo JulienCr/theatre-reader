@@ -9,11 +9,11 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import { actorReadingTemplate, cloneTemplate } from '@theatre/core';
+import { actorReadingTemplate, cloneTemplate, type Note } from '@theatre/core';
 import { importPdf } from '@theatre/import';
 import { exportPdf } from './export';
 import { exportReaderHtml } from './reader-export';
-import { listPlays, loadPlay, savePlay, uniqueSlug, PlayMeta } from './storage';
+import { listPlays, loadNotes, loadPlay, savePlay, saveNotes, uniqueSlug, PlayMeta } from './storage';
 
 interface SavBody {
   fountain: string;
@@ -46,6 +46,20 @@ export async function buildServer(): Promise<FastifyInstance> {
     await savePlay(req.params.slug, fountain, meta);
     return { ok: true };
   });
+
+  app.get<{ Params: { slug: string } }>('/api/plays/:slug/notes', async (req) => ({
+    notes: await loadNotes(req.params.slug),
+  }));
+
+  app.put<{ Params: { slug: string }; Body: { notes: Note[] } }>(
+    '/api/plays/:slug/notes',
+    async (req, reply) => {
+      const { notes } = req.body;
+      if (!Array.isArray(notes)) return reply.code(400).send({ error: 'notes (tableau) requis' });
+      await saveNotes(req.params.slug, notes);
+      return { ok: true };
+    },
+  );
 
   app.post('/api/import', async (req, reply) => {
     const file = await req.file();
