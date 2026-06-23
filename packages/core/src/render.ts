@@ -24,7 +24,7 @@ function highlightFor(
   return template.highlights.find((h) => h.characterId === characterId);
 }
 
-function renderLine(node: LineNode, play: Play, template: Template): string {
+function renderLine(node: LineNode, play: Play, template: Template, nodeIndex: number): string {
   const character = play.characters.find((c) => c.id === node.characterId);
   const name = character?.canonicalName ?? node.characterId;
   const hl = highlightFor(template, node.characterId);
@@ -50,10 +50,10 @@ function renderLine(node: LineNode, play: Play, template: Template): string {
 
   const flagged = node.flagged ? ' line--flagged' : '';
   const styleAttr = lineBg ? ` style="background-color:${lineBg}"` : '';
-  return `<p class="line${flagged}" data-cid="${escapeHtml(node.characterId)}"${styleAttr}>${cue}${sep}${body}</p>`;
+  return `<p class="line${flagged}" data-cid="${escapeHtml(node.characterId)}" data-ni="${nodeIndex}"${styleAttr}>${cue}${sep}${body}</p>`;
 }
 
-function renderNode(node: Node, play: Play, template: Template): string {
+function renderNode(node: Node, play: Play, template: Template, nodeIndex: number): string {
   switch (node.type) {
     case 'act':
       return `<h2 class="act">${escapeHtml(node.label)}</h2>`;
@@ -62,10 +62,10 @@ function renderNode(node: Node, play: Play, template: Template): string {
     case 'stage': {
       if (template.stageDirection.hidden) return '';
       const flagged = node.flagged ? ' stage--flagged' : '';
-      return `<p class="stage${flagged}">${escapeHtml(node.text)}</p>`;
+      return `<p class="stage${flagged}" data-ni="${nodeIndex}">${escapeHtml(node.text)}</p>`;
     }
     case 'line':
-      return renderLine(node, play, template);
+      return renderLine(node, play, template, nodeIndex);
   }
 }
 
@@ -142,11 +142,11 @@ export function renderBody(play: Play, template: Template): string {
     const entry = byIndex.get(i);
     if (node.type === 'act') {
       if (!entry) continue; // acte masqué (suivi d'une scène en mode showAct)
-      out.push(`<h2 class="act" id="${entry.id}">${escapeHtml(node.label)}</h2>`);
+      out.push(`<h2 class="act" id="${entry.id}" data-ni="${i}">${escapeHtml(node.label)}</h2>`);
     } else if (node.type === 'scene') {
-      out.push(`<h3 class="scene" id="${entry!.id}">${escapeHtml(entry!.label)}</h3>`);
+      out.push(`<h3 class="scene" id="${entry!.id}" data-ni="${i}">${escapeHtml(entry!.label)}</h3>`);
     } else {
-      out.push(renderNode(node, play, template));
+      out.push(renderNode(node, play, template, i));
     }
   }
 
