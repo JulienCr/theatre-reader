@@ -64,3 +64,20 @@ export async function exportPdf(
   if (!res.ok) throw new Error(`Échec de l'export (${res.status})`);
   return res.blob();
 }
+
+export async function exportReader(
+  fountain: string,
+  characters: Character[],
+  template: Template,
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch('/api/export/reader', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ fountain, characters, template }),
+  });
+  if (!res.ok) throw new Error(`Échec de l'export lecteur (${res.status})`);
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match?.[1] ?? 'lecteur-mobile.html';
+  return { blob: await res.blob(), filename };
+}

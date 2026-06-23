@@ -39,6 +39,8 @@ importers:
         specifier: ^26.0.0
         version: 26.0.0
 
+  packages/reader-runtime: {}
+
   packages/server:
     dependencies:
       '@fastify/multipart':
@@ -53,6 +55,12 @@ importers:
       '@theatre/import':
         specifier: workspace:*
         version: link:../import
+      '@theatre/reader-runtime':
+        specifier: workspace:*
+        version: link:../reader-runtime
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       fastify:
         specifier: ^5.2.1
         version: 5.8.5

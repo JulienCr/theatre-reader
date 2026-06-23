@@ -138,3 +138,17 @@ describe('renderBody', () => {
     expect(html).toContain('&lt;bonjour&gt; &amp; adieu');
   });
 });
+
+describe('data-cid', () => {
+  it('marque chaque réplique avec l_id du personnage', () => {
+    const src = `MICHEL\nBonjour.\n\nBENJI\nSalut.\n`;
+    const p = parseFountain(src);
+    const html = renderBody(p, actorReadingTemplate);
+    // Un data-cid par réplique, valant l_id résolu du personnage.
+    for (const c of p.characters) {
+      expect(html).toContain(`data-cid="${c.id}"`);
+    }
+    const count = (html.match(/<p class="line[^"]*" data-cid=/g) ?? []).length;
+    expect(count).toBe(2);
+  });
+});
