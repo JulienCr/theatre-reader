@@ -86,6 +86,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@theatre/annotations':
+        specifier: workspace:*
+        version: link:../annotations
       '@theatre/core':
         specifier: workspace:*
         version: link:../core

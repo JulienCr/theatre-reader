@@ -1,6 +1,6 @@
 /** Client HTTP du serveur local (proxifié via Vite en dev). */
 
-import type { Character, Template } from '@theatre/core';
+import type { Character, Note, Template } from '@theatre/core';
 
 export interface PlaySummary {
   slug: string;
@@ -80,4 +80,20 @@ export async function exportReader(
   const match = /filename="([^"]+)"/.exec(disposition);
   const filename = match?.[1] ?? 'lecteur-mobile.html';
   return { blob: await res.blob(), filename };
+}
+
+export async function loadNotes(slug: string): Promise<Note[]> {
+  const { notes } = await json<{ notes: Note[] }>(
+    await fetch(`/api/plays/${encodeURIComponent(slug)}/notes`),
+  );
+  return notes;
+}
+
+export async function saveNotes(slug: string, notes: Note[]): Promise<void> {
+  const res = await fetch(`/api/plays/${encodeURIComponent(slug)}/notes`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ notes }),
+  });
+  if (!res.ok) throw new Error(`Échec de la sauvegarde des notes (${res.status})`);
 }

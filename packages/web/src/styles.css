@@ -617,3 +617,34 @@ kbd {
 .char-hl select {
   flex: 1;
 }
+
+/* Annotations : surlignage (importé de @theatre/annotations via JS), popover, tooltip. */
+.note-popover {
+  position: absolute;
+  z-index: 70;
+  width: 280px;
+  max-width: 90vw;
+  background: #fff;
+  border: 1px solid #cfd4dc;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  padding: 10px;
+}
+.note-popover-text {
+  width: 100%;
+  min-height: 70px;
+  resize: vertical;
+  font: inherit;
+  border: 1px solid #cfd4dc;
+  border-radius: 6px;
+  padding: 6px;
+}
+.note-popover-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+.note-popover-actions .spacer { flex: 1; }
+.note-popover-readonly { white-space: pre-wrap; }
+.note-del { color: #c92a2a; }
