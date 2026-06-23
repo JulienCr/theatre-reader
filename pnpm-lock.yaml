@@ -39,6 +39,8 @@ importers:
         specifier: ^26.0.0
         version: 26.0.0
 
+  packages/reader-runtime: {}
+
   packages/server:
     dependencies:
       '@fastify/multipart':
