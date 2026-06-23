@@ -16,8 +16,11 @@ import {
   renderBody,
   renderCSS,
   type Character,
+  type Note,
   type Template,
 } from '@theatre/core';
+import { annotationCss, type AnchorDraft } from '@theatre/annotations';
+import { useAnnotations } from '../useAnnotations';
 
 type Status = 'paginating' | 'ready';
 
@@ -39,6 +42,10 @@ export function Reader({
   navTarget,
   isFullscreen,
   onToggleFullscreen,
+  notes,
+  onActivate,
+  onRequestCreate,
+  onOrphans,
 }: {
   fountain: string;
   characters: Character[];
@@ -47,6 +54,10 @@ export function Reader({
   navTarget: NavTarget | null;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  notes: Note[];
+  onActivate: (id: string, rect: DOMRect) => void;
+  onRequestCreate: (anchor: AnchorDraft, rect: DOMRect) => void;
+  onOrphans?: (orphans: Note[]) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -65,6 +76,27 @@ export function Reader({
 
   const play = useMemo(() => parseFountain(fountain, characters), [fountain, characters]);
   const toc = useMemo(() => buildToc(play, template), [play, template]);
+
+  // CSS de surlignage des notes (injecté une fois).
+  useEffect(() => {
+    const id = 'annotation-css';
+    if (!document.getElementById(id)) {
+      const style = document.createElement('style');
+      style.id = id;
+      style.textContent = annotationCss;
+      document.head.appendChild(style);
+    }
+  }, []);
+
+  // Décoration des notes sur le DOM paginé : relancée à chaque fin de pagination
+  // (status → ready) ou re-pagination (totalPages varie).
+  useAnnotations(containerRef, notes, {
+    editable: true,
+    redecorateKey: `${status}:${totalPages}`,
+    onActivate,
+    onRequestCreate,
+    onOrphans,
+  });
 
   // Pagination (debounce) à l'ouverture et sur changement de contenu/template.
   useEffect(() => {

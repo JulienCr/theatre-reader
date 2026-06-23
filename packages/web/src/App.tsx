@@ -356,6 +356,10 @@ export function App() {
             navTarget={navTarget}
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
+            notes={notes}
+            onActivate={onActivateNote}
+            onRequestCreate={onRequestCreate}
+            onOrphans={setOrphans}
           />
         </Suspense>
       ) : (
