@@ -29,7 +29,16 @@ export interface DidascalieStyle {
 export interface HeadingStyle {
   bold: boolean;
   caps: boolean;
-  align: 'left' | 'center';
+  align: 'left' | 'center' | 'right';
+  /** Couleur du texte (sinon couleur du corps). */
+  color?: string;
+  /** Couleur de fond (encadré plein). */
+  background?: string;
+  /** Encadrer d'une bordure. */
+  border?: boolean;
+  borderColor?: string;
+  /** Taille relative au corps (1 = taille normale). */
+  fontSizeEm?: number;
 }
 
 export interface SceneHeadingStyle extends HeadingStyle {

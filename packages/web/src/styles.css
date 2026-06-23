@@ -94,6 +94,31 @@ input[type='number'] {
   color: var(--muted);
 }
 
+/* Toggle segmenté de mode (Édition / Lecture) */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.seg-btn {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  padding: 6px 16px;
+  font-weight: 500;
+}
+.seg-btn + .seg-btn {
+  border-left: 1px solid var(--border);
+}
+.seg-btn:hover:not(.seg-on) {
+  background: #f0f1f4;
+}
+.seg-on {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ---- Empty state ---- */
 .empty {
   flex: 1;
@@ -224,6 +249,15 @@ input[type='number'] {
   background: none;
   cursor: pointer;
 }
+.ctrl-togglecolor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ctrl-togglecolor .ctrl-check {
+  margin: 0;
+}
 
 /* ---- Character list ---- */
 .char-list {
@@ -319,6 +353,249 @@ input[type='number'] {
   background: #eef0f3;
   border-radius: 10px;
   color: #555;
+}
+
+/* Plein écran immersif : on masque toutes les barres d'outils.
+   Navigation 100 % clavier (⌘K palette, +/-/0, n/p, f/Échap, ?). */
+.app.fullscreen .topbar,
+.app.fullscreen .reader-toolbar {
+  display: none;
+}
+
+/* ---- Mode Lecteur ---- */
+.reader {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.reader-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.reader-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.reader-search input[type='search'] {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  min-width: 180px;
+}
+.reader-search button {
+  padding: 4px 9px;
+}
+.reader-count {
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 34px;
+  text-align: center;
+}
+.reader-page {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.reader-page input {
+  width: 64px;
+}
+.reader-status {
+  font-size: 13px;
+  color: var(--accent);
+}
+.reader-scroll {
+  flex: 1;
+  position: relative;
+  overflow-y: auto;
+  background: #e8eaee;
+  padding: 28px 16px 60px;
+}
+.reader-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(232, 234, 238, 0.85);
+  color: #555;
+  font-size: 14px;
+  z-index: 5;
+}
+
+/* Aplatissement de la sortie Paged.js : pages enchaînées + repère « — page N — ». */
+.reader-pages .pagedjs_pages {
+  display: block;
+}
+.reader-pages .pagedjs_page {
+  position: relative;
+  margin: 30px auto 0;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.reader-pages .pagedjs_page:first-child {
+  margin-top: 0;
+}
+.reader-pages .pagedjs_page::before {
+  content: '— page ' attr(data-page-number) ' —';
+  position: absolute;
+  top: -22px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: 12px system-ui, sans-serif;
+  color: #9aa0ad;
+}
+
+mark.reader-hit {
+  background: #ffe082;
+  color: inherit;
+  border-radius: 2px;
+}
+mark.reader-hit--current {
+  background: #ffb300;
+}
+
+/* Réglette de taille (zoom) */
+.reader-zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.reader-zoom input[type='range'] {
+  width: 110px;
+}
+.reader-zoom-big {
+  font-size: 18px;
+}
+.reader-zoom-val {
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+button.ghost {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Palette de commandes ---- */
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 24, 33, 0.32);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 50;
+}
+.palette {
+  width: min(560px, 92vw);
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.palette-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+  font-size: 15px;
+  outline: none;
+}
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.palette-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.palette-item--active {
+  background: var(--accent);
+  color: #fff;
+}
+.palette-group {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  opacity: 0.6;
+}
+.palette-label {
+  flex: 1;
+}
+.palette-hint {
+  font-size: 12px;
+  opacity: 0.65;
+}
+.palette-empty {
+  padding: 14px 16px;
+  color: var(--muted);
+}
+
+/* ---- Aide raccourcis ---- */
+.help-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 24, 33, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+}
+.help-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  padding: 20px 24px;
+  min-width: 340px;
+}
+.help-card h3 {
+  margin: 0 0 12px;
+}
+.help-card dl {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.help-row dt {
+  flex: 0 0 130px;
+}
+.help-row dd {
+  margin: 0;
+  color: #444;
+}
+kbd {
+  font: 12px ui-monospace, monospace;
+  background: #f0f1f4;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 2px 6px;
 }
 .badge {
   display: inline-grid;

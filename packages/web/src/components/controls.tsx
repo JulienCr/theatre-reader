@@ -79,6 +79,27 @@ export function ColorField({
   );
 }
 
+/** Case à cocher qui, lorsqu'elle est active, expose un sélecteur de couleur. */
+export function ToggleColor({
+  label,
+  value,
+  defaultColor,
+  onChange,
+}: {
+  label: string;
+  value: string | undefined;
+  defaultColor: string;
+  onChange: (v: string | undefined) => void;
+}) {
+  const on = value != null;
+  return (
+    <div className="ctrl-togglecolor">
+      <Check label={label} checked={on} onChange={(c) => onChange(c ? defaultColor : undefined)} />
+      {on && <ColorField value={value} onChange={(v) => onChange(v)} />}
+    </div>
+  );
+}
+
 export function Select<T extends string>({
   value,
   options,

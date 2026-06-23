@@ -72,6 +72,9 @@ importers:
       '@theatre/core':
         specifier: workspace:*
         version: link:../core
+      pagedjs:
+        specifier: ^0.4.3
+        version: 0.4.3
       react:
         specifier: ^19.0.0
         version: 19.2.7

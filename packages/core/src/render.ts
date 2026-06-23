@@ -8,7 +8,7 @@
  */
 
 import { LineNode, Node, Play } from './ast';
-import { Highlight, Template } from './template';
+import { HeadingStyle, Highlight, Template } from './template';
 
 function escapeHtml(s: string): string {
   return s
@@ -86,6 +86,44 @@ function renderDistribution(play: Play, template: Template): string {
   return `<section class="distribution${breakClass}"><h2 class="dist-heading">Distribution</h2>${entries}</section>`;
 }
 
+/** Une entrée de sommaire / navigation (acte ou scène). */
+export interface TocEntry {
+  /** id de l'en-tête correspondant dans le rendu (`h-<index de nœud>`). */
+  id: string;
+  label: string;
+  scene: boolean;
+  nodeIndex: number;
+}
+
+/**
+ * Construit la table des actes/scènes : source unique des en-têtes (id, libellé,
+ * masquage d'acte en mode `showAct`), réutilisée par `renderBody`, le sommaire et
+ * le mode lecteur — pour garantir des `id` cohérents.
+ */
+export function buildToc(play: Play, template: Template): TocEntry[] {
+  const entries: TocEntry[] = [];
+  let currentAct = '';
+  const nodes = play.nodes;
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]!;
+    if (node.type === 'act') {
+      currentAct = node.label;
+      // En mode « acte avec chaque scène », l'en-tête d'acte autonome est
+      // redondant lorsqu'il précède immédiatement une scène — on le masque.
+      const next = nodes[i + 1];
+      if (template.sceneHeading.showAct && next?.type === 'scene') continue;
+      entries.push({ id: `h-${i}`, label: node.label, scene: false, nodeIndex: i });
+    } else if (node.type === 'scene') {
+      const label =
+        template.sceneHeading.showAct && currentAct
+          ? `${currentAct} ${node.label}`
+          : node.label;
+      entries.push({ id: `h-${i}`, label, scene: true, nodeIndex: i });
+    }
+  }
+  return entries;
+}
+
 /** Fragment HTML du corps de la pièce (sans <html>/<head>). */
 export function renderBody(play: Play, template: Template): string {
   const header: string[] = [];
@@ -94,46 +132,34 @@ export function renderBody(play: Play, template: Template): string {
   const headerHtml = header.length ? `<header class="play-header">${header.join('')}</header>` : '';
   const distributionHtml = renderDistribution(play, template);
 
+  const entries = buildToc(play, template);
+  const byIndex = new Map(entries.map((e) => [e.nodeIndex, e]));
+
   const out: string[] = [];
-  const toc: { href: string; label: string; scene: boolean }[] = [];
-  let currentAct = '';
   const nodes = play.nodes;
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i]!;
-    const id = `h-${i}`;
+    const entry = byIndex.get(i);
     if (node.type === 'act') {
-      currentAct = node.label;
-      // En mode « acte avec chaque scène », l'en-tête d'acte autonome est
-      // redondant lorsqu'il précède immédiatement une scène — on le masque.
-      const next = nodes[i + 1];
-      if (template.sceneHeading.showAct && next?.type === 'scene') continue;
-      out.push(`<h2 class="act" id="${id}">${escapeHtml(node.label)}</h2>`);
-      toc.push({ href: `#${id}`, label: node.label, scene: false });
+      if (!entry) continue; // acte masqué (suivi d'une scène en mode showAct)
+      out.push(`<h2 class="act" id="${entry.id}">${escapeHtml(node.label)}</h2>`);
     } else if (node.type === 'scene') {
-      const label =
-        template.sceneHeading.showAct && currentAct
-          ? `${currentAct} ${node.label}`
-          : node.label;
-      out.push(`<h3 class="scene" id="${id}">${escapeHtml(label)}</h3>`);
-      toc.push({ href: `#${id}`, label, scene: true });
+      out.push(`<h3 class="scene" id="${entry!.id}">${escapeHtml(entry!.label)}</h3>`);
     } else {
       out.push(renderNode(node, play, template));
     }
   }
 
-  const tocHtml = renderToc(toc, template);
+  const tocHtml = renderToc(entries, template);
   return `<article class="play">${headerHtml}${distributionHtml}${tocHtml}${out.join('\n')}</article>`;
 }
 
 /**
  * Sommaire (actes/scènes). Les numéros de page sont injectés par le moteur de
- * pagination (Paged.js) à l'export via `target-counter` ; à l'écran (flux
- * continu), seuls les intitulés s'affichent.
+ * pagination (Paged.js) via `target-counter` ; à l'écran en flux continu, seuls
+ * les intitulés s'affichent.
  */
-function renderToc(
-  entries: { href: string; label: string; scene: boolean }[],
-  template: Template,
-): string {
+function renderToc(entries: TocEntry[], template: Template): string {
   if (template.showToc === false || !entries.length) return '';
   // En mode « acte avec chaque scène », chaque ligne porte déjà son acte :
   // pas d'en-tête d'acte parent → sommaire à plat (sans indentation des scènes).
@@ -142,7 +168,7 @@ function renderToc(
     .map(
       (e) =>
         `<li class="toc-item ${e.scene ? 'toc-item--scene' : 'toc-item--act'}">` +
-        `<a href="${e.href}"><span class="toc-title">${escapeHtml(e.label)}</span></a></li>`,
+        `<a href="#${e.id}"><span class="toc-title">${escapeHtml(e.label)}</span></a></li>`,
     )
     .join('');
   return `<nav class="toc${flat}"><h2 class="toc-heading">Sommaire</h2><ul class="toc-list">${items}</ul></nav>`;
@@ -152,6 +178,31 @@ const PAGE_SIZE: Record<Template['page']['format'], string> = {
   A4: '210mm 297mm',
   Letter: '8.5in 11in',
 };
+
+/** CSS d'un en-tête (acte/scène) : style + fond/encadré qui épouse le texte. */
+function headingRules(selector: string, s: HeadingStyle, mTop: string, mBottom: string): string {
+  const decl: string[] = [
+    `font-weight: ${s.bold ? 'bold' : 'normal'}`,
+    `text-transform: ${s.caps ? 'uppercase' : 'none'}`,
+  ];
+  if (s.color) decl.push(`color: ${s.color}`);
+  if (s.fontSizeEm) decl.push(`font-size: ${s.fontSizeEm}em`);
+
+  const boxed = Boolean(s.background || s.border);
+  if (s.background) decl.push(`background: ${s.background}`);
+  if (s.border) decl.push(`border: 1.5px solid ${s.borderColor ?? 'currentColor'}`);
+
+  if (boxed) {
+    // Le cadre épouse le texte ; l'alignement se fait via les marges auto.
+    decl.push('display: table', 'padding: .2em .6em', 'border-radius: 5px');
+    const ml = s.align === 'center' || s.align === 'right' ? 'auto' : '0';
+    const mr = s.align === 'center' || s.align === 'left' ? 'auto' : '0';
+    decl.push(`margin: ${mTop} ${mr} ${mBottom} ${ml}`);
+  } else {
+    decl.push(`text-align: ${s.align}`, `margin: ${mTop} 0 ${mBottom}`);
+  }
+  return `${selector} { ${decl.join('; ')}; }`;
+}
 
 /** Feuille de style dérivée du template. */
 export function renderCSS(template: Template): string {
@@ -210,18 +261,8 @@ export function renderCSS(template: Template): string {
   margin-left: auto;
   padding-left: .5em;
 }
-.act {
-  text-align: ${template.actHeading.align};
-  font-weight: ${template.actHeading.bold ? 'bold' : 'normal'};
-  text-transform: ${template.actHeading.caps ? 'uppercase' : 'none'};
-  margin: 1.6em 0 .8em;
-}
-.scene {
-  text-align: ${template.sceneHeading.align};
-  font-weight: ${template.sceneHeading.bold ? 'bold' : 'normal'};
-  text-transform: ${template.sceneHeading.caps ? 'uppercase' : 'none'};
-  margin: 1.2em 0 .6em;
-}
+${headingRules('.act', template.actHeading, '1.6em', '.8em')}
+${headingRules('.scene', template.sceneHeading, '1.2em', '.6em')}
 .line { margin: 0 0 .5em; }
 .cue {
   font-weight: ${name.bold ? 'bold' : 'normal'};

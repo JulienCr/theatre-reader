@@ -50,6 +50,20 @@ l'import (badge « ? »), p.ex. fusionner `DIRECTEUR` dans `GERALD`. Le surligna
 > « page x/y » et la pagination réelle n'apparaissent qu'à l'export PDF**, où
 > Paged.js pagine le document.
 
+## Mode lecteur (tout au clavier)
+
+Bouton **Lecteur** (ou palette) : lecture en défilement continu, paginée par
+Paged.js (mêmes numéros de page que le PDF), avec repères « — page N — ». Aides :
+recherche, aller à un acte/scène, aller à une page, réglette de taille (zoom).
+
+- **⌘K / Ctrl+K** — palette de commandes (import, sauvegarde, export, lecteur,
+  plein écran, « aller à » chaque acte/scène). Filtre au clavier, ↑/↓, Entrée.
+- Dans le lecteur : **`/`** recherche · **`n`/`p`** résultat suivant/précédent ·
+  **`g`** aller à une page · **`+` `-` `0`** zoom · **`f`** plein écran ·
+  **`?`** aide · **Échap** fermer.
+- **Plein écran** : masque toutes les barres d'outils pour une lecture immersive
+  (navigation 100 % clavier ; ⌘K reste accessible).
+
 ## Comment marche l'import (hybride)
 
 ```

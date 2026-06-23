@@ -1,6 +1,60 @@
 /** Panneau template : mise en forme (nom, didascalies, en-têtes, page). */
-import type { PageStyle, Template } from '@theatre/core';
-import { Check, ColorField, NumberField, Row, Select, TextField } from './controls';
+import type { HeadingStyle, PageStyle, Template } from '@theatre/core';
+import { Check, ColorField, NumberField, Row, Select, TextField, ToggleColor } from './controls';
+
+/** Contrôles de style d'un en-tête (acte ou scène) : typo, alignement, fond, encadré. */
+function HeadingControls({
+  style,
+  onChange,
+}: {
+  style: HeadingStyle;
+  onChange: (patch: Partial<HeadingStyle>) => void;
+}) {
+  return (
+    <>
+      <Check label="Gras" checked={style.bold} onChange={(v) => onChange({ bold: v })} />
+      <Check label="Majuscules" checked={style.caps} onChange={(v) => onChange({ caps: v })} />
+      <Row label="Alignement">
+        <Select<HeadingStyle['align']>
+          value={style.align}
+          options={[
+            { value: 'left', label: 'Gauche' },
+            { value: 'center', label: 'Centre' },
+            { value: 'right', label: 'Droite' },
+          ]}
+          onChange={(align) => onChange({ align })}
+        />
+      </Row>
+      <ToggleColor
+        label="Couleur du texte"
+        value={style.color}
+        defaultColor="#1a3c6e"
+        onChange={(color) => onChange({ color })}
+      />
+      <ToggleColor
+        label="Fond"
+        value={style.background}
+        defaultColor="#ffebc8"
+        onChange={(background) => onChange({ background })}
+      />
+      <ToggleColor
+        label="Encadré"
+        value={style.border ? (style.borderColor ?? '#333333') : undefined}
+        defaultColor="#333333"
+        onChange={(v) => onChange({ border: v != null, borderColor: v ?? style.borderColor })}
+      />
+      <Row label="Taille">
+        <NumberField
+          value={style.fontSizeEm ?? 1}
+          min={0.8}
+          max={3}
+          step={0.1}
+          onChange={(v) => onChange({ fontSizeEm: v })}
+        />
+      </Row>
+    </>
+  );
+}
 
 export function TemplatePanel({
   template,
@@ -18,6 +72,8 @@ export function TemplatePanel({
     onChange({ ...t, inlineStageDirection: { ...t.inlineStageDirection, ...patch } });
   const setScene = (patch: Partial<Template['sceneHeading']>) =>
     onChange({ ...t, sceneHeading: { ...t.sceneHeading, ...patch } });
+  const setAct = (patch: Partial<Template['actHeading']>) =>
+    onChange({ ...t, actHeading: { ...t.actHeading, ...patch } });
   const setPage = (patch: Partial<PageStyle>) => onChange({ ...t, page: { ...t.page, ...patch } });
 
   return (
@@ -80,7 +136,7 @@ export function TemplatePanel({
         />
       </Row>
 
-      <h4>Actes &amp; scènes</h4>
+      <h4>Structure</h4>
       <Check
         label="Afficher la présentation des personnages"
         checked={t.showDistribution !== false}
@@ -108,6 +164,12 @@ export function TemplatePanel({
         checked={t.sceneHeading.showAct}
         onChange={(v) => setScene({ showAct: v })}
       />
+
+      <h4>En-tête d'acte</h4>
+      <HeadingControls style={t.actHeading} onChange={setAct} />
+
+      <h4>En-tête de scène</h4>
+      <HeadingControls style={t.sceneHeading} onChange={setScene} />
 
       <h4>Page</h4>
       <Row label="Format">

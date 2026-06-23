@@ -7,7 +7,8 @@ import { useState } from 'react';
 import type { Character, HighlightScope, Template } from '@theatre/core';
 import { ColorField, Select } from './controls';
 
-const PALETTE = ['#fff176', '#a5d6a7', '#90caf9', '#f48fb1', '#ffcc80', '#ce93d8', '#80deea'];
+// Teintes pâles (fond de surlignage lisible) — p.ex. orange = rgb(255,235,200).
+const PALETTE = ['#fff6c8', '#ffebc8', '#ddf0d2', '#d7e9fb', '#fbdce8', '#ecdcf5', '#d5f0ec'];
 
 export function CharactersPanel({
   characters,

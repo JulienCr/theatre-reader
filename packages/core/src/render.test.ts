@@ -1,7 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import { parseFountain } from './fountain';
-import { renderBody, renderCSS } from './render';
+import { buildToc, renderBody, renderCSS } from './render';
 import { actorReadingTemplate, cloneTemplate } from './template';
+
+describe('buildToc', () => {
+  const src = `# ACTE I.\n\nNoir total.\n\n# ACTE II.\n\n## SCENE I.\n\nGERALD\nBonjour.\n\n## SCENE II.\n\nBENJI\nSalut.\n`;
+
+  it('liste actes et scènes avec des id stables', () => {
+    const p = parseFountain(src);
+    const toc = buildToc(p, actorReadingTemplate);
+    expect(toc.map((e) => e.label)).toEqual(['ACTE I.', 'ACTE II.', 'SCENE I.', 'SCENE II.']);
+    expect(toc.every((e) => /^h-\d+$/.test(e.id))).toBe(true);
+    // Les id correspondent aux en-têtes rendus.
+    const html = renderBody(p, actorReadingTemplate);
+    for (const e of toc) expect(html).toContain(`id="${e.id}"`);
+  });
+
+  it('préfixe les scènes et masque l\'acte en mode showAct', () => {
+    const p = parseFountain(src);
+    const tpl = cloneTemplate(actorReadingTemplate);
+    tpl.sceneHeading.showAct = true;
+    const toc = buildToc(p, tpl);
+    // ACTE I (sans scène) conservé ; ACTE II masqué ; scènes préfixées.
+    expect(toc.map((e) => e.label)).toEqual([
+      'ACTE I.',
+      'ACTE II. SCENE I.',
+      'ACTE II. SCENE II.',
+    ]);
+  });
+});
 
 const SAMPLE = `# ACTE I.
 
@@ -91,6 +118,18 @@ describe('renderBody', () => {
     const tpl = cloneTemplate(actorReadingTemplate);
     tpl.showDistribution = false;
     expect(renderBody(p, tpl)).not.toContain('class="distribution');
+  });
+
+  it('applique fond, encadré et couleur aux en-têtes', () => {
+    const tpl = cloneTemplate(actorReadingTemplate);
+    tpl.actHeading = { ...tpl.actHeading, background: '#ffebc8', border: true, borderColor: '#333', align: 'center' };
+    tpl.sceneHeading = { ...tpl.sceneHeading, color: '#1a3c6e', fontSizeEm: 1.2 };
+    const css = renderCSS(tpl);
+    expect(css).toMatch(/\.act \{[^}]*background: #ffebc8/);
+    expect(css).toMatch(/\.act \{[^}]*border: 1\.5px solid #333/);
+    expect(css).toMatch(/\.act \{[^}]*margin: 1\.6em auto \.8em auto/); // centré via marges auto
+    expect(css).toMatch(/\.scene \{[^}]*color: #1a3c6e/);
+    expect(css).toMatch(/\.scene \{[^}]*font-size: 1\.2em/);
   });
 
   it('échappe le HTML du texte', () => {

@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import type { Character, Template } from '@theatre/core';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { buildToc, parseFountain, type Character, type Template } from '@theatre/core';
 import * as api from './api';
 import { Preview } from './components/Preview';
 import { CharactersPanel } from './components/CharactersPanel';
 import { TemplatePanel } from './components/TemplatePanel';
+import { CommandPalette, type Command } from './components/CommandPalette';
+import type { NavTarget } from './components/Reader';
+
+// Paged.js (~500 Ko) chargé à la demande, uniquement à l'ouverture du lecteur.
+const Reader = lazy(() => import('./components/Reader').then((m) => ({ default: m.Reader })));
 
 interface PlayState {
   slug: string;
@@ -19,6 +24,10 @@ export function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showEditor, setShowEditor] = useState(true);
+  const [mode, setMode] = useState<'edit' | 'read'>('edit');
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -108,8 +117,76 @@ export function App() {
   const setCharacters = (characters: Character[]) =>
     setPlay((p) => (p ? { ...p, characters } : p));
 
+  // ---- Plein écran (toute l'app) ----
+  useEffect(() => {
+    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void document.documentElement.requestFullscreen?.();
+  };
+
+  // Navigation pilotée par la palette (ouvre le lecteur puis cible l'ancre/page).
+  const navTo = (kind: NavTarget['kind'], value: string | number) => {
+    setMode('read');
+    setNavTarget((p) => ({ kind, value, nonce: (p?.nonce ?? 0) + 1 }));
+  };
+
+  // ---- Registre de commandes (palette ⌘K / Ctrl+K) ----
+  const toc = useMemo(
+    () => (play ? buildToc(parseFountain(play.fountain, play.characters), play.template) : []),
+    [play],
+  );
+  const commands = useMemo<Command[]>(() => {
+    const cmds: Command[] = [];
+    cmds.push({ id: 'import', label: 'Importer un PDF', run: () => fileInput.current?.click() });
+    if (play) {
+      cmds.push({ id: 'save', label: 'Sauvegarder', hint: '', run: onSave });
+      cmds.push({ id: 'export', label: 'Exporter en PDF', run: onExport });
+      cmds.push({
+        id: 'reader',
+        label: mode === 'read' ? 'Quitter le lecteur' : 'Ouvrir le lecteur',
+        run: () => setMode(mode === 'read' ? 'edit' : 'read'),
+      });
+      cmds.push({
+        id: 'editor',
+        label: showEditor ? 'Masquer la source (Fountain)' : 'Afficher la source (Fountain)',
+        run: () => setShowEditor((v) => !v),
+      });
+      cmds.push({
+        id: 'fullscreen',
+        label: isFullscreen ? 'Quitter le plein écran' : 'Plein écran',
+        run: toggleFullscreen,
+      });
+      for (const e of toc) {
+        cmds.push({
+          id: `nav-${e.id}`,
+          group: 'Aller à',
+          label: e.label,
+          run: () => navTo('entry', e.id),
+        });
+      }
+    }
+    return cmds;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [play, mode, showEditor, isFullscreen, toc]);
+
+  // Raccourci global d'ouverture de la palette.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
-    <div className="app">
+    <div className={`app${isFullscreen ? ' fullscreen' : ''}`}>
       <header className="topbar">
         <div className="brand">Theatre&nbsp;Reader</div>
         <select
@@ -136,17 +213,38 @@ export function App() {
           }}
         />
         <button onClick={() => fileInput.current?.click()}>Importer un PDF</button>
+        <button className="ghost" title="Palette de commandes (⌘K / Ctrl+K)" onClick={() => setPaletteOpen(true)}>
+          ⌘K
+        </button>
         <div className="spacer" />
         {play && (
           <>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={showEditor}
-                onChange={(e) => setShowEditor(e.target.checked)}
-              />
-              Éditeur
-            </label>
+            <div className="seg" role="tablist" aria-label="Mode">
+              <button
+                className={`seg-btn${mode === 'edit' ? ' seg-on' : ''}`}
+                aria-selected={mode === 'edit'}
+                onClick={() => setMode('edit')}
+              >
+                Édition
+              </button>
+              <button
+                className={`seg-btn${mode === 'read' ? ' seg-on' : ''}`}
+                aria-selected={mode === 'read'}
+                onClick={() => setMode('read')}
+              >
+                Lecture
+              </button>
+            </div>
+            {mode === 'edit' && (
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={showEditor}
+                  onChange={(e) => setShowEditor(e.target.checked)}
+                />
+                Source
+              </label>
+            )}
             <button onClick={onSave}>Sauvegarder</button>
             <button className="primary" onClick={onExport}>
               Exporter en PDF
@@ -167,6 +265,18 @@ export function App() {
             </button>
           </div>
         </div>
+      ) : mode === 'read' ? (
+        <Suspense fallback={<div className="empty">Chargement du lecteur…</div>}>
+          <Reader
+            fountain={play.fountain}
+            characters={play.characters}
+            template={play.template}
+            onClose={() => setMode('edit')}
+            navTarget={navTarget}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={toggleFullscreen}
+          />
+        </Suspense>
       ) : (
         <main className="workspace">
           <aside className="sidebar">
@@ -201,6 +311,12 @@ export function App() {
           </section>
         </main>
       )}
+
+      <CommandPalette
+        open={paletteOpen}
+        commands={commands}
+        onClose={() => setPaletteOpen(false)}
+      />
     </div>
   );
 }
