@@ -12,6 +12,7 @@ import fastifyStatic from '@fastify/static';
 import { actorReadingTemplate, cloneTemplate } from '@theatre/core';
 import { importPdf } from '@theatre/import';
 import { exportPdf } from './export';
+import { exportReaderHtml } from './reader-export';
 import { listPlays, loadPlay, savePlay, uniqueSlug, PlayMeta } from './storage';
 
 interface SavBody {
@@ -78,6 +79,18 @@ export async function buildServer(): Promise<FastifyInstance> {
       .type('application/pdf')
       .header('Content-Disposition', 'inline; filename="piece.pdf"')
       .send(pdf);
+  });
+
+  app.post<{ Body: ExportBody }>('/api/export/reader', async (req, reply) => {
+    const { fountain, characters, template } = req.body;
+    if (typeof fountain !== 'string' || !template) {
+      return reply.code(400).send({ error: 'fountain et template requis' });
+    }
+    const { html, filename } = await exportReaderHtml(fountain, characters ?? [], template);
+    return reply
+      .type('text/html; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(html);
   });
 
   // Front statique (production). En dev, Vite sert le front et proxifie /api.
