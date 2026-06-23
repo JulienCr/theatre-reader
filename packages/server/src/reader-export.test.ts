@@ -28,4 +28,13 @@ describe('exportReaderHtml', () => {
     const { html } = await exportReaderHtml(SRC, [], tpl);
     expect(html).toContain('"highlightsDefault"');
   });
+
+  it('inline les notes fournies (figées) dans le bloc de données', async () => {
+    const notes = [
+      { id: 'a', nodeIndex: 0, start: 0, end: 3, quote: 'MIC', body: 'note-test-xyz', createdAt: '', updatedAt: '' },
+    ];
+    const { html } = await exportReaderHtml(SRC, [], actorReadingTemplate, notes);
+    expect(html).toContain('"notes"');
+    expect(html).toContain('note-test-xyz');
+  });
 });

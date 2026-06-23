@@ -16,6 +16,7 @@ import {
   renderBody,
   renderCSS,
   type Character,
+  type Note,
   type Template,
 } from '@theatre/core';
 
@@ -58,6 +59,7 @@ export async function exportReaderHtml(
   fountain: string,
   characters: Character[],
   template: Template,
+  notes: Note[] = [],
 ): Promise<{ html: string; filename: string }> {
   const play = parseFountain(fountain, characters);
   const body = renderBody(play, template);
@@ -73,6 +75,7 @@ export async function exportReaderHtml(
       characterId: h.characterId,
       color: h.color,
     })),
+    notes,
     storageKey: `theatre-reader:${slug}`,
   };
 

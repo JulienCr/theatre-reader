@@ -24,6 +24,7 @@ interface ExportBody {
   fountain: string;
   characters: PlayMeta['characters'];
   template: PlayMeta['template'];
+  notes?: Note[];
 }
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -96,11 +97,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   app.post<{ Body: ExportBody }>('/api/export/reader', async (req, reply) => {
-    const { fountain, characters, template } = req.body;
+    const { fountain, characters, template, notes } = req.body;
     if (typeof fountain !== 'string' || !template) {
       return reply.code(400).send({ error: 'fountain et template requis' });
     }
-    const { html, filename } = await exportReaderHtml(fountain, characters ?? [], template);
+    const { html, filename } = await exportReaderHtml(fountain, characters ?? [], template, notes ?? []);
     return reply
       .type('text/html; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="${filename}"`)
