@@ -4,6 +4,7 @@ import type { AnchorDraft } from '@theatre/annotations';
 import * as api from './api';
 import { Preview } from './components/Preview';
 import { NotePopover, type PopoverTarget } from './components/NotePopover';
+import { NotesPanel } from './components/NotesPanel';
 import { CharactersPanel } from './components/CharactersPanel';
 import { TemplatePanel } from './components/TemplatePanel';
 import { CommandPalette, type Command } from './components/CommandPalette';
@@ -155,6 +156,17 @@ export function App() {
     const id = popover?.target.note?.id;
     if (id) void persistNotes(notes.filter((n) => n.id !== id));
     setPopover(null);
+  };
+
+  const onJumpNote = (note: Note) => {
+    const el =
+      document.querySelector<HTMLElement>(`[data-note-id="${note.id}"]`) ??
+      document.querySelector<HTMLElement>(`[data-ni="${note.nodeIndex}"]`);
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } else if (mode === 'read') {
+      navTo('entry', `h-${note.nodeIndex}`);
+    }
   };
 
   const onExport = async () => {
@@ -372,6 +384,7 @@ export function App() {
               onCharactersChange={setCharacters}
             />
             <TemplatePanel template={play.template} onChange={setTemplate} />
+            <NotesPanel notes={notes} orphans={orphans} onJump={onJumpNote} />
           </aside>
 
           {showEditor && (
