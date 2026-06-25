@@ -11,7 +11,7 @@ const { buildServer } = await import('./server');
 type App = Awaited<ReturnType<typeof buildServer>>;
 
 const sample: Note[] = [
-  { id: 'a', nodeIndex: 3, start: 0, end: 7, quote: 'Bonjour', body: 'plus fort', createdAt: '2026-06-23T00:00:00.000Z', updatedAt: '2026-06-23T00:00:00.000Z' },
+  { id: 'a', nodeId: 'abc#0', start: 0, end: 7, quote: 'Bonjour', body: 'plus fort', createdAt: '2026-06-23T00:00:00.000Z', updatedAt: '2026-06-23T00:00:00.000Z' },
 ];
 
 describe('endpoints notes', () => {

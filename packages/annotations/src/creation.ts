@@ -7,20 +7,20 @@
  */
 
 export interface AnchorDraft {
-  nodeIndex: number;
+  nodeId: string;
   start: number;
   end: number;
   quote: string;
 }
 
-/** Bloc annotable ancêtre (`[data-ni]`) d'un nœud, borné au conteneur. */
+/** Bloc annotable ancêtre (`[data-nid]`) d'un nœud, borné au conteneur. */
 function blockOf(container: HTMLElement, node: Node | null): HTMLElement | null {
   let el: HTMLElement | null =
     node && node.nodeType === Node.TEXT_NODE
       ? (node.parentElement as HTMLElement | null)
       : (node as HTMLElement | null);
   while (el && el !== container) {
-    if (el.hasAttribute?.('data-ni')) return el;
+    if (el.hasAttribute?.('data-nid')) return el;
     el = el.parentElement;
   }
   return null;
@@ -70,7 +70,7 @@ export function enableCreation(
     pre.setEnd(range.startContainer, range.startOffset);
     const start = pre.toString().length;
     pending = {
-      nodeIndex: Number(startBlock.getAttribute('data-ni')),
+      nodeId: startBlock.getAttribute('data-nid') ?? '',
       start,
       end: start + quote.length,
       quote,

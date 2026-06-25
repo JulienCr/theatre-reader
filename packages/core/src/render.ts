@@ -8,6 +8,7 @@
  */
 
 import { LineNode, Node, Play } from './ast';
+import { buildNodeIds } from './notes';
 import { HeadingStyle, Highlight, Template } from './template';
 
 function escapeHtml(s: string): string {
@@ -24,7 +25,7 @@ function highlightFor(
   return template.highlights.find((h) => h.characterId === characterId);
 }
 
-function renderLine(node: LineNode, play: Play, template: Template, nodeIndex: number): string {
+function renderLine(node: LineNode, play: Play, template: Template, nodeId: string): string {
   const character = play.characters.find((c) => c.id === node.characterId);
   const name = character?.canonicalName ?? node.characterId;
   const hl = highlightFor(template, node.characterId);
@@ -50,10 +51,10 @@ function renderLine(node: LineNode, play: Play, template: Template, nodeIndex: n
 
   const flagged = node.flagged ? ' line--flagged' : '';
   const styleAttr = lineBg ? ` style="background-color:${lineBg}"` : '';
-  return `<p class="line${flagged}" data-cid="${escapeHtml(node.characterId)}" data-ni="${nodeIndex}"${styleAttr}>${cue}${sep}${body}</p>`;
+  return `<p class="line${flagged}" data-cid="${escapeHtml(node.characterId)}" data-nid="${nodeId}"${styleAttr}>${cue}${sep}${body}</p>`;
 }
 
-function renderNode(node: Node, play: Play, template: Template, nodeIndex: number): string {
+function renderNode(node: Node, play: Play, template: Template, nodeId: string): string {
   switch (node.type) {
     case 'act':
       return `<h2 class="act">${escapeHtml(node.label)}</h2>`;
@@ -62,10 +63,10 @@ function renderNode(node: Node, play: Play, template: Template, nodeIndex: numbe
     case 'stage': {
       if (template.stageDirection.hidden) return '';
       const flagged = node.flagged ? ' stage--flagged' : '';
-      return `<p class="stage${flagged}" data-ni="${nodeIndex}">${escapeHtml(node.text)}</p>`;
+      return `<p class="stage${flagged}" data-nid="${nodeId}">${escapeHtml(node.text)}</p>`;
     }
     case 'line':
-      return renderLine(node, play, template, nodeIndex);
+      return renderLine(node, play, template, nodeId);
   }
 }
 
@@ -134,19 +135,21 @@ export function renderBody(play: Play, template: Template): string {
 
   const entries = buildToc(play, template);
   const byIndex = new Map(entries.map((e) => [e.nodeIndex, e]));
+  const nodeIds = buildNodeIds(play);
 
   const out: string[] = [];
   const nodes = play.nodes;
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i]!;
     const entry = byIndex.get(i);
+    const nid = nodeIds[i]!;
     if (node.type === 'act') {
       if (!entry) continue; // acte masqué (suivi d'une scène en mode showAct)
-      out.push(`<h2 class="act" id="${entry.id}" data-ni="${i}">${escapeHtml(node.label)}</h2>`);
+      out.push(`<h2 class="act" id="${entry.id}" data-nid="${nid}">${escapeHtml(node.label)}</h2>`);
     } else if (node.type === 'scene') {
-      out.push(`<h3 class="scene" id="${entry!.id}" data-ni="${i}">${escapeHtml(entry!.label)}</h3>`);
+      out.push(`<h3 class="scene" id="${entry!.id}" data-nid="${nid}">${escapeHtml(entry!.label)}</h3>`);
     } else {
-      out.push(renderNode(node, play, template, i));
+      out.push(renderNode(node, play, template, nid));
     }
   }
 

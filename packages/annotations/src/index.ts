@@ -86,7 +86,7 @@ export function decorate(
   clearAnnotations(container);
   const orphans: Note[] = [];
   for (const note of notes) {
-    const block = container.querySelector<HTMLElement>(`[data-ni="${note.nodeIndex}"]`);
+    const block = container.querySelector<HTMLElement>(`[data-nid="${note.nodeId}"]`);
     const range = block ? resolveNote(block.textContent ?? '', note) : null;
     if (!block || !range) {
       orphans.push(note);

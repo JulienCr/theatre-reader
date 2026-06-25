@@ -123,7 +123,7 @@ export function App() {
   const onRequestCreate = useCallback((anchor: AnchorDraft, rect: DOMRect) => {
     const draftNote: Note = {
       id: crypto.randomUUID(),
-      nodeIndex: anchor.nodeIndex,
+      nodeId: anchor.nodeId,
       start: anchor.start,
       end: anchor.end,
       quote: anchor.quote,
@@ -161,12 +161,8 @@ export function App() {
   const onJumpNote = (note: Note) => {
     const el =
       document.querySelector<HTMLElement>(`[data-note-id="${note.id}"]`) ??
-      document.querySelector<HTMLElement>(`[data-ni="${note.nodeIndex}"]`);
-    if (el) {
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    } else if (mode === 'read') {
-      navTo('entry', `h-${note.nodeIndex}`);
-    }
+      document.querySelector<HTMLElement>(`[data-nid="${note.nodeId}"]`);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   };
 
   const onExport = async () => {

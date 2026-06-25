@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFountain } from './fountain';
 import { buildToc, renderBody, renderCSS } from './render';
+import { buildNodeIds } from './notes';
 import { actorReadingTemplate, cloneTemplate } from './template';
 
 describe('buildToc', () => {
@@ -139,16 +140,16 @@ describe('renderBody', () => {
   });
 });
 
-describe('data-ni', () => {
-  it('numérote chaque bloc annotable par son index de nœud', () => {
-    // nœuds : 0=acte, 1=scène, 2=didascalie, 3=réplique
+describe('data-nid', () => {
+  it('ancre chaque bloc annotable par un id de contenu stable', () => {
     const src = `# ACTE I.\n\n## SCENE I.\n\nLe rideau se lève.\n\nMICHEL\nBonjour.\n`;
     const p = parseFountain(src);
+    const ids = buildNodeIds(p);
     const html = renderBody(p, actorReadingTemplate);
-    expect(html).toContain('class="act" id="h-0" data-ni="0"');
-    expect(html).toContain('class="scene" id="h-1" data-ni="1"');
-    expect(html).toMatch(/<p class="stage[^"]*" data-ni="2"/);
-    expect(html).toMatch(/<p class="line[^"]*" data-cid="[^"]*" data-ni="3"/);
+    expect(html).toContain(`class="act" id="h-0" data-nid="${ids[0]}"`);
+    expect(html).toContain(`class="scene" id="h-1" data-nid="${ids[1]}"`);
+    expect(html).toContain(`<p class="stage" data-nid="${ids[2]}"`);
+    expect(html).toMatch(new RegExp(`<p class="line" data-cid="[^"]*" data-nid="${ids[3]}"`));
   });
 });
 

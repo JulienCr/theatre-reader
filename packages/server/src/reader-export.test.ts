@@ -31,7 +31,7 @@ describe('exportReaderHtml', () => {
 
   it('inline les notes fournies (figées) dans le bloc de données', async () => {
     const notes = [
-      { id: 'a', nodeIndex: 0, start: 0, end: 3, quote: 'MIC', body: 'note-test-xyz', createdAt: '', updatedAt: '' },
+      { id: 'a', nodeId: 'abc#0', start: 0, end: 3, quote: 'MIC', body: 'note-test-xyz', createdAt: '', updatedAt: '' },
     ];
     const { html } = await exportReaderHtml(SRC, [], actorReadingTemplate, notes);
     expect(html).toContain('"notes"');
