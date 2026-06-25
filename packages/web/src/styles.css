@@ -622,14 +622,15 @@ kbd {
 .note-popover {
   position: absolute;
   z-index: 70;
-  width: 280px;
-  max-width: 90vw;
+  width: 340px;
+  max-width: 92vw;
   background: #fff;
   border: 1px solid #cfd4dc;
   border-radius: 10px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
   padding: 10px;
 }
+.note-popover * { box-sizing: border-box; }
 .note-popover-text {
   width: 100%;
   min-height: 70px;
@@ -641,11 +642,13 @@ kbd {
 }
 .note-popover-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
   margin-top: 8px;
 }
-.note-popover-actions .spacer { flex: 1; }
+.note-popover-actions button { white-space: nowrap; }
+.note-popover-actions .spacer { flex: 1 1 0; min-width: 0; }
 .note-popover-readonly { white-space: pre-wrap; }
 .note-del { color: #c92a2a; }
 
