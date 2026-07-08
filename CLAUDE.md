@@ -55,6 +55,14 @@ pnpm monorepo, TypeScript everywhere, **"internal packages" pattern**: each pack
 
 `importPdf` chains: `extract.ts` (pdfjs-dist, reconstructs lines + **best-effort italic detection** via `page.commonObjs` font flags) → `heuristics.ts` (DISTRIBUTION → declared characters; `MAJUSCULES :` cues; italic/parenthetical → didascalies; collapses the source's repeated `ACTE II.` before each scene) → character resolution: **LLM** (`llm.ts`, Anthropic, when `ANTHROPIC_API_KEY` is set) else **fuzzy Levenshtein merge** (`characters.ts`) to fold OCR spelling variants (GIUSEPPPE/GISUEPPE → GIUSEPPE). Cues absent from the DISTRIBUTION are `flagged` for review.
 
+### Audio cache (ElevenLabs TTS)
+
+Clips live at `data/<slug>/audio/<key>.mp3`; the key is `sha1(model + voiceId + outputFormat + JSON(settings) + text)` (`server/src/storage.ts` `audioCacheKey`). The disk cache is the only dedup — there is no ElevenLabs "multi-text" API, so bulk features still make one `convert` call per uncached tirade; the win is skipping cache hits. Two non-obvious traps when adding audio features:
+- **Text parity**: the reader/audio-player sends DOM-scraped text collapsed with `.replace(/\s+/g,' ').trim()` (`audio-player/src/index.ts` `collectTirades`), while core `speechText()` joins speech segments but does **not** collapse internal whitespace. Anything that warms the cache for the reader to consume (e.g. bulk pre-generation) must feed `speechText(n).replace(/\s+/g,' ').trim()` plus the same `model`/`settings` as `play.audio`, or it writes a different key → silent cache miss → wasted API calls. Verify parity offline (no key/browser needed) by recomputing keys and checking them against on-disk `.mp3`s.
+- **Format namespaces**: online playback + `/tts` + `/tts/batch` use `mp3_44100_128`; the reader HTML export uses `mp3_44100_64` (`reader-export.ts`). Since `outputFormat` is in the key, playback clips do **not** satisfy the export cache and vice-versa.
+
+`POST /api/plays/:slug/tts/batch` pre-warms the cache with 3 concurrent workers (quota-friendly), cache-first, returning `{ manifest: nodeId->{key,cached}, characters }` in one response (no streaming — drive progress client-side by chunking).
+
 ### Paged.js (pagination engine)
 
 Used in two places, must stay behaviourally identical:
@@ -71,4 +79,5 @@ Used in two places, must stay behaviourally identical:
 
 - `ANTHROPIC_API_KEY` — enables LLM character normalization at import (default model `claude-sonnet-4-6`, override `THEATRE_LLM_MODEL`). `THEATRE_DATA_DIR` overrides `./data`; `PORT` overrides `3001`.
 - pnpm 10 blocks build scripts: only `esbuild` is allowlisted in `pnpm-workspace.yaml` (`onlyBuiltDependencies`). Playwright browsers are NOT auto-downloaded — run `pnpm setup:browser`.
-- `textes/` (source PDFs, third-party copyright) and `data/` are gitignored; never commit them.
+- `textes/` (source PDFs, third-party copyright) and `data/` are gitignored **in this repo**; never commit them here. **`data/` has its own independent git repo** (nested, for versioning the plays themselves — Fountain + meta + notes + the ElevenLabs audio cache, which is costly to regenerate). Backups matching `*.bak-*` are ignored there.
+- **Updating a play from an author's revised PDF**: use `scripts/update-text/` (see its README). It diffs the red-stripped PDF text against `play.fountain` to find every change — it does not rely on the author's red-dash/bold markers.
