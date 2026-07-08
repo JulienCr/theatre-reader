@@ -9,11 +9,36 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import { actorReadingTemplate, cloneTemplate, type Note } from '@theatre/core';
+import {
+  actorReadingTemplate,
+  cloneTemplate,
+  type AudioConfig,
+  type Note,
+  type VoiceSettings,
+} from '@theatre/core';
 import { importPdf } from '@theatre/import';
 import { exportPdf } from './export';
 import { exportReaderHtml } from './reader-export';
-import { listPlays, loadNotes, loadPlay, savePlay, saveNotes, uniqueSlug, PlayMeta } from './storage';
+import {
+  listPlays,
+  loadNotes,
+  loadPlay,
+  savePlay,
+  saveNotes,
+  uniqueSlug,
+  audioCacheKey,
+  readAudioCache,
+  writeAudioCache,
+  PlayMeta,
+} from './storage';
+import {
+  hasElevenLabsKey,
+  listVoices,
+  synthesize,
+  ttsErrorMessage,
+  DEFAULT_TTS_MODEL,
+  DEFAULT_OUTPUT_FORMAT,
+} from './tts';
 
 interface SavBody {
   fountain: string;
@@ -25,6 +50,25 @@ interface ExportBody {
   characters: PlayMeta['characters'];
   template: PlayMeta['template'];
   notes?: Note[];
+  // Export lecteur mobile : audio embarqué (opt-in).
+  slug?: string;
+  audio?: AudioConfig;
+  includeAudio?: boolean;
+  bitrate?: string;
+  roles?: 'all' | 'others';
+}
+
+interface TtsBody {
+  text: string;
+  voiceId: string;
+  model?: string;
+  settings?: VoiceSettings;
+}
+
+interface TtsBatchBody {
+  items: { nodeId: string; text: string; voiceId: string }[];
+  model?: string;
+  settings?: VoiceSettings;
 }
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -97,16 +141,99 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   app.post<{ Body: ExportBody }>('/api/export/reader', async (req, reply) => {
-    const { fountain, characters, template, notes } = req.body;
+    const { fountain, characters, template, notes, slug, audio, includeAudio, bitrate, roles } =
+      req.body;
     if (typeof fountain !== 'string' || !template) {
       return reply.code(400).send({ error: 'fountain et template requis' });
     }
-    const { html, filename } = await exportReaderHtml(fountain, characters ?? [], template, notes ?? []);
+    let result;
+    try {
+      result = await exportReaderHtml(fountain, characters ?? [], template, notes ?? [], {
+        audio,
+        slug,
+        includeAudio,
+        bitrate,
+        roles,
+      });
+    } catch (e) {
+      return reply.code(502).send({ error: ttsErrorMessage(e) });
+    }
     return reply
       .type('text/html; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="${filename}"`)
-      .send(html);
+      .header('Content-Disposition', `attachment; filename="${result.filename}"`)
+      .send(result.html);
   });
+
+  // ---- Synthèse vocale ElevenLabs (clé côté serveur uniquement) ----
+
+  app.get('/api/voices', async (_req, reply) => {
+    if (!hasElevenLabsKey()) return reply.code(503).send({ error: 'ELEVENLABS_API_KEY absente' });
+    try {
+      return { voices: await listVoices() };
+    } catch (e) {
+      return reply.code(502).send({ error: ttsErrorMessage(e) });
+    }
+  });
+
+  app.post<{ Params: { slug: string }; Body: TtsBody }>(
+    '/api/plays/:slug/tts',
+    async (req, reply) => {
+      if (!hasElevenLabsKey()) return reply.code(503).send({ error: 'ELEVENLABS_API_KEY absente' });
+      const { text, voiceId, model, settings } = req.body;
+      if (typeof text !== 'string' || !text.trim() || typeof voiceId !== 'string' || !voiceId) {
+        return reply.code(400).send({ error: 'text et voiceId requis' });
+      }
+      const mdl = model ?? DEFAULT_TTS_MODEL;
+      const key = audioCacheKey(mdl, voiceId, DEFAULT_OUTPUT_FORMAT, settings ?? null, text);
+      let buf = await readAudioCache(req.params.slug, key);
+      if (!buf) {
+        try {
+          buf = await synthesize({ text, voiceId, model: mdl, settings });
+        } catch (e) {
+          return reply.code(502).send({ error: ttsErrorMessage(e) });
+        }
+        await writeAudioCache(req.params.slug, key, buf);
+      }
+      return reply.type('audio/mpeg').header('Cache-Control', 'no-cache').send(buf);
+    },
+  );
+
+  // Pré-génération (chauffe le cache disque) : rend un manifeste nodeId -> clé.
+  app.post<{ Params: { slug: string }; Body: TtsBatchBody }>(
+    '/api/plays/:slug/tts/batch',
+    async (req, reply) => {
+      if (!hasElevenLabsKey()) return reply.code(503).send({ error: 'ELEVENLABS_API_KEY absente' });
+      const { items, model, settings } = req.body;
+      if (!Array.isArray(items)) return reply.code(400).send({ error: 'items (tableau) requis' });
+      const mdl = model ?? DEFAULT_TTS_MODEL;
+      const manifest: Record<string, { key: string; cached: boolean }> = {};
+      let characters = 0;
+      let cursor = 0;
+      const worker = async (): Promise<void> => {
+        while (cursor < items.length) {
+          const item = items[cursor++];
+          if (!item || !item.text?.trim() || !item.voiceId) continue;
+          const key = audioCacheKey(mdl, item.voiceId, DEFAULT_OUTPUT_FORMAT, settings ?? null, item.text);
+          let buf = await readAudioCache(req.params.slug, key);
+          let cached = true;
+          if (!buf) {
+            cached = false;
+            buf = await synthesize({ text: item.text, voiceId: item.voiceId, model: mdl, settings });
+            await writeAudioCache(req.params.slug, key, buf);
+            characters += item.text.length;
+          }
+          manifest[item.nodeId] = { key, cached };
+        }
+      };
+      try {
+        // Concurrence limitée pour ménager les quotas ElevenLabs (429).
+        await Promise.all([worker(), worker(), worker()]);
+      } catch (e) {
+        return reply.code(502).send({ error: ttsErrorMessage(e) });
+      }
+      return { manifest, characters };
+    },
+  );
 
   // Front statique (production). En dev, Vite sert le front et proxifie /api.
   const webDist = fileURLToPath(new URL('../../web/dist/', import.meta.url));

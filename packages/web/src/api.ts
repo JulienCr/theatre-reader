@@ -1,6 +1,6 @@
 /** Client HTTP du serveur local (proxifié via Vite en dev). */
 
-import type { Character, Note, Template } from '@theatre/core';
+import type { AudioConfig, Character, Note, Template, VoiceSettings } from '@theatre/core';
 
 export interface PlaySummary {
   slug: string;
@@ -11,6 +11,13 @@ export interface PlayMeta {
   name: string;
   characters: Character[];
   template: Template;
+  audio?: AudioConfig;
+}
+
+export interface VoiceSummary {
+  voiceId: string;
+  name: string;
+  category?: string;
 }
 
 export interface ImportResponse {
@@ -65,22 +72,58 @@ export async function exportPdf(
   return res.blob();
 }
 
+export interface ReaderExportAudio {
+  slug: string;
+  audio: AudioConfig;
+  includeAudio: boolean;
+  bitrate?: string;
+  roles?: 'all' | 'others';
+}
+
 export async function exportReader(
   fountain: string,
   characters: Character[],
   template: Template,
   notes: Note[] = [],
+  audioOpts?: ReaderExportAudio,
 ): Promise<{ blob: Blob; filename: string }> {
   const res = await fetch('/api/export/reader', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ fountain, characters, template, notes }),
+    body: JSON.stringify({ fountain, characters, template, notes, ...(audioOpts ?? {}) }),
   });
-  if (!res.ok) throw new Error(`Échec de l'export lecteur (${res.status})`);
+  if (!res.ok) {
+    const msg = await res.json().catch(() => null);
+    throw new Error(msg?.error ?? `Échec de l'export lecteur (${res.status})`);
+  }
   const disposition = res.headers.get('content-disposition') ?? '';
   const match = /filename="([^"]+)"/.exec(disposition);
   const filename = match?.[1] ?? 'lecteur-mobile.html';
   return { blob: await res.blob(), filename };
+}
+
+/** Voix ElevenLabs disponibles, ou null si la synthèse est désactivée (pas de clé). */
+export async function listVoices(): Promise<VoiceSummary[] | null> {
+  const res = await fetch('/api/voices');
+  if (res.status === 503) return null;
+  return (await json<{ voices: VoiceSummary[] }>(res)).voices;
+}
+
+/** Synthétise une tirade (MP3) via ElevenLabs — mise en cache disque côté serveur. */
+export async function tts(
+  slug: string,
+  body: { text: string; voiceId: string; model?: string; settings?: VoiceSettings },
+): Promise<Blob> {
+  const res = await fetch(`/api/plays/${encodeURIComponent(slug)}/tts`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => null);
+    throw new Error(msg?.error ?? `Échec de la synthèse (${res.status})`);
+  }
+  return res.blob();
 }
 
 export async function loadNotes(slug: string): Promise<Note[]> {

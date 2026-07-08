@@ -101,5 +101,26 @@ les types de tous les packages.
 |----------|-------|
 | `ANTHROPIC_API_KEY` | Active la normalisation des noms par Claude à l'import |
 | `THEATRE_LLM_MODEL` | Modèle utilisé (défaut `claude-sonnet-4-6`) |
+| `ELEVENLABS_API_KEY` | Active la lecture audio des tirades (voix ElevenLabs par personnage) |
+| `THEATRE_TTS_MODEL` | Modèle ElevenLabs (défaut `eleven_multilingual_v2`) |
 | `THEATRE_DATA_DIR`  | Dossier de stockage des pièces (défaut `./data`) |
 | `PORT`              | Port du serveur (défaut `3001`) |
+
+### Lecture audio (ElevenLabs)
+
+Attribue une voix à chaque personnage dans le panneau **Voix** (mode Édition), coche
+« moi » sur ton rôle, puis en mode **Lecture** utilise la barre de transport
+(▶/⏸, réplique suiv./préc., **Répétition**) ou clique une réplique pour l'écouter.
+En mode Répétition, le lecteur lit les autres rôles et se met en pause sur le tien.
+
+La clé reste côté serveur (jamais envoyée au navigateur) ; les MP3 sont mis en cache
+dans `data/<pièce>/audio/`. `pnpm dev` injecte automatiquement la clé depuis 1Password
+(item `Elevenlabs-api-key`) :
+
+```bash
+op signin                 # une fois par session
+pnpm dev                  # op → ELEVENLABS_API_KEY → serveur + web
+```
+
+Sans clé (pas de `op`/session), la synthèse est simplement désactivée : `pnpm dev`
+tourne normalement, le reste de l'app fonctionne.

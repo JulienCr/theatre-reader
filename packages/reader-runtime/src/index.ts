@@ -9,6 +9,7 @@
  */
 
 import { decorate, annotationCss } from '@theatre/annotations';
+import { createPlayer, type Player, type PlayerState } from '@theatre/audio-player';
 import type { Note } from '@theatre/core';
 
 export interface ReaderData {
@@ -17,6 +18,8 @@ export interface ReaderData {
   highlightsDefault: { characterId: string; color: string }[];
   notes?: Note[];
   storageKey: string;
+  /** Audio embarqué (export opt-in) : nodeId -> data URI, + mon rôle. */
+  audio?: { clips: Record<string, string>; myCharacterId?: string };
 }
 
 interface PersistedState {
@@ -90,6 +93,7 @@ const STYLE = `
 .line.rehearse.revealed .speech { filter: none; }
 mark.reader-hit { background: #fde68a; }
 mark.reader-hit--current { background: #fb923c; }
+.line--speaking { outline: 2px solid #2b6cb0; outline-offset: 3px; border-radius: 4px; scroll-margin: 40vh; }
 .play { padding-bottom: 96px; }
 `;
 
@@ -99,6 +103,9 @@ let fontPct = 100;
 let data: ReaderData;
 let play: HTMLElement;
 let key: string;
+let player: Player | null = null;
+let audioPlayBtn: HTMLButtonElement | null = null;
+let lastPlayerState: PlayerState | null = null;
 
 function persist(): void {
   saveState(key, { selected, fontPct });
@@ -223,6 +230,11 @@ function buildSheet(title: string): { sheet: HTMLElement; open: () => void } {
   };
 }
 
+function updateAudioBar(s: PlayerState): void {
+  lastPlayerState = s;
+  if (audioPlayBtn) audioPlayBtn.textContent = s.playing && !s.waitingForUser ? '⏸' : '▶';
+}
+
 let backdrop: HTMLElement;
 function closeSheets(): void {
   document.querySelectorAll('.reader-sheet.open').forEach((s) => s.classList.remove('open'));
@@ -319,8 +331,18 @@ function buildBar(openChars: () => void, openScenes: () => void, openSearch: () 
     rehearsal = !rehearsal;
     reh.setAttribute('aria-pressed', String(rehearsal));
     applyHighlights();
+    player?.setMode(rehearsal ? 'rehearsal' : 'continuous');
   });
   reh.setAttribute('aria-pressed', 'false');
+  // Transport audio (uniquement si des clips sont embarqués).
+  if (player) {
+    audioPlayBtn = mk('▶', () => {
+      if (!player) return;
+      if (lastPlayerState?.waitingForUser) player.next();
+      else player.toggle();
+    });
+    mk('⏭', () => player?.next());
+  }
   document.body.appendChild(bar);
 }
 
@@ -345,10 +367,28 @@ function init(d: ReaderData): void {
   document.body.appendChild(backdrop);
 
   play.addEventListener('click', (e) => {
-    if (!rehearsal) return;
-    const line = (e.target as HTMLElement).closest('.line');
-    if (line) line.classList.toggle('revealed');
+    const line = (e.target as HTMLElement).closest('.line') as HTMLElement | null;
+    if (rehearsal) {
+      if (line) line.classList.toggle('revealed');
+      return;
+    }
+    // Hors répétition : cliquer une réplique la joue (si audio embarqué).
+    if (player && line) {
+      const nid = line.getAttribute('data-nid');
+      if (nid) player.playFrom(nid);
+    }
   });
+
+  // Lecture audio si l'export a embarqué des clips.
+  if (d.audio && Object.keys(d.audio.clips).length) {
+    player = createPlayer({
+      container: play,
+      resolveAudio: (t) => Promise.resolve(d.audio!.clips[t.nodeId] ?? null),
+      isMine: (cid) => cid === d.audio!.myCharacterId,
+      onState: updateAudioBar,
+      speakingClass: 'line--speaking',
+    });
+  }
 
   buildBar(buildCharactersSheet(), buildScenesSheet(), buildSearchSheet());
   applyFont();

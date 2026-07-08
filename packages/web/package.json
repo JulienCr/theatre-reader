@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@theatre/annotations": "workspace:*",
+    "@theatre/audio-player": "workspace:*",
     "@theatre/core": "workspace:*",
     "pagedjs": "^0.4.3",
     "react": "^19.0.0",

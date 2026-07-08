@@ -7,14 +7,17 @@
  */
 
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { Character, Note, Template, slugify } from '@theatre/core';
+import { AudioConfig, Character, Note, Template, slugify } from '@theatre/core';
 
 export interface PlayMeta {
   name: string;
   characters: Character[];
   template: Template;
+  /** Config audio (voix ElevenLabs par personnage) — optionnelle, rétro-compatible. */
+  audio?: AudioConfig;
 }
 
 const DATA_DIR =
@@ -77,6 +80,39 @@ export async function saveNotes(slug: string, notes: Note[]): Promise<void> {
   const dir = join(DATA_DIR, slug);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'notes.json'), JSON.stringify(notes, null, 2), 'utf8');
+}
+
+/**
+ * Clé de cache audio = hash du contenu qui détermine le rendu (modèle, voix,
+ * réglages, texte). Éditer une réplique change le texte → nouvelle clé →
+ * régénération naturelle (l'ancien fichier devient orphelin).
+ */
+export function audioCacheKey(
+  model: string,
+  voiceId: string,
+  outputFormat: string,
+  settings: unknown,
+  text: string,
+): string {
+  return createHash('sha1')
+    .update(`${model} ${voiceId} ${outputFormat} ${JSON.stringify(settings ?? {})} ${text}`)
+    .digest('hex');
+}
+
+/** Lit un MP3 en cache (data/<slug>/audio/<key>.mp3), ou null si absent. */
+export async function readAudioCache(slug: string, key: string): Promise<Buffer | null> {
+  try {
+    return await readFile(join(DATA_DIR, slug, 'audio', `${key}.mp3`));
+  } catch {
+    return null;
+  }
+}
+
+/** Écrit un MP3 en cache pour une pièce. */
+export async function writeAudioCache(slug: string, key: string, buf: Buffer): Promise<void> {
+  const dir = join(DATA_DIR, slug, 'audio');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${key}.mp3`), buf);
 }
 
 /** Slug unique dérivé d'un titre, en évitant les collisions de dossiers existants. */

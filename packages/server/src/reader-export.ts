@@ -11,16 +11,78 @@
 import { createRequire } from 'node:module';
 import * as esbuild from 'esbuild';
 import {
+  buildNodeIds,
   buildToc,
   parseFountain,
   renderBody,
   renderCSS,
+  speechText,
+  type AudioConfig,
   type Character,
   type Note,
   type Template,
 } from '@theatre/core';
+import { DEFAULT_TTS_MODEL, hasElevenLabsKey, synthesize } from './tts';
+import { audioCacheKey, readAudioCache, writeAudioCache } from './storage';
 
 const require = createRequire(import.meta.url);
+
+export interface ExportAudioOptions {
+  audio?: AudioConfig;
+  /** Slug de la pièce (pour réutiliser le cache disque). */
+  slug?: string;
+  includeAudio?: boolean;
+  /** Format ElevenLabs (défaut 'mp3_44100_64' — fichier plus léger). */
+  bitrate?: string;
+  /** 'all' = tous les rôles, 'others' = tout sauf mon rôle (défaut). */
+  roles?: 'all' | 'others';
+}
+
+/** Pré-génère (cache-first) les MP3 des tirades et les embarque en data URI. */
+async function buildAudioClips(
+  fountain: string,
+  characters: Character[],
+  fallbackSlug: string,
+  opts: ExportAudioOptions,
+): Promise<{ clips: Record<string, string>; myCharacterId?: string } | undefined> {
+  if (!opts.includeAudio || !opts.audio?.voices || !hasElevenLabsKey()) return undefined;
+  const play = parseFountain(fountain, characters);
+  const ids = buildNodeIds(play);
+  const model = opts.audio.model ?? DEFAULT_TTS_MODEL;
+  const bitrate = opts.bitrate ?? 'mp3_44100_64';
+  const roles = opts.roles ?? 'others';
+  const settings = opts.audio.settings;
+  const myId = opts.audio.myCharacterId;
+  const slug = opts.slug ?? fallbackSlug;
+
+  const tasks: { nodeId: string; voiceId: string; text: string }[] = [];
+  play.nodes.forEach((node, i) => {
+    if (node.type !== 'line') return;
+    if (roles === 'others' && myId && node.characterId === myId) return;
+    const voiceId = opts.audio!.voices![node.characterId];
+    if (!voiceId) return;
+    const text = speechText(node);
+    if (text) tasks.push({ nodeId: ids[i]!, voiceId, text });
+  });
+
+  const clips: Record<string, string> = {};
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < tasks.length) {
+      const t = tasks[cursor++];
+      if (!t) continue;
+      const key = audioCacheKey(model, t.voiceId, bitrate, settings ?? null, t.text);
+      let buf = await readAudioCache(slug, key);
+      if (!buf) {
+        buf = await synthesize({ text: t.text, voiceId: t.voiceId, model, outputFormat: bitrate, settings });
+        await writeAudioCache(slug, key, buf);
+      }
+      clips[t.nodeId] = `data:audio/mpeg;base64,${buf.toString('base64')}`;
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  return { clips, myCharacterId: myId };
+}
 
 let runtimeCache: string | null = null;
 async function readerRuntime(): Promise<string> {
@@ -60,6 +122,7 @@ export async function exportReaderHtml(
   characters: Character[],
   template: Template,
   notes: Note[] = [],
+  audioOpts: ExportAudioOptions = {},
 ): Promise<{ html: string; filename: string }> {
   const play = parseFountain(fountain, characters);
   const body = renderBody(play, template);
@@ -67,6 +130,8 @@ export async function exportReaderHtml(
   const toc = buildToc(play, template).map((e) => ({ id: e.id, label: e.label, scene: e.scene }));
   const title = play.title ?? 'Pièce';
   const slug = slugify(title);
+
+  const audio = await buildAudioClips(fountain, characters, slug, audioOpts);
 
   const data = {
     characters: play.characters.map((c) => ({ id: c.id, name: c.canonicalName })),
@@ -77,6 +142,7 @@ export async function exportReaderHtml(
     })),
     notes,
     storageKey: `theatre-reader:${slug}`,
+    ...(audio ? { audio } : {}),
   };
 
   // Échappe </script> et < pour une inclusion sûre dans une balise <script>.

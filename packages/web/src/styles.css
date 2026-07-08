@@ -485,6 +485,80 @@ mark.reader-hit--current {
   font-variant-numeric: tabular-nums;
 }
 
+/* Barre de lecture audio (ElevenLabs) */
+.reader-audio {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.reader-audio button {
+  font: inherit;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+}
+.reader-audio button.reader-rehearse.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.reader-speaker {
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-audio-error {
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+/* Tirade en cours de lecture audio */
+.line--speaking {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+  scroll-margin: 40vh;
+}
+
+/* Panneau Voix */
+.voices-actions {
+  margin-bottom: 8px;
+}
+.voice-item {
+  padding: 8px 0;
+}
+.voice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voice-row + .voice-row {
+  margin-top: 6px;
+}
+.voice-row select {
+  flex: 1;
+  min-width: 0;
+}
+.voice-mine {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.voice-preview {
+  padding: 2px 8px;
+}
+.hint.error {
+  color: #b91c1c;
+}
+
 button.ghost {
   color: var(--muted);
   font-variant-numeric: tabular-nums;

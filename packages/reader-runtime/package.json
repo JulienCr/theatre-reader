@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@theatre/annotations": "workspace:*"
+    "@theatre/annotations": "workspace:*",
+    "@theatre/audio-player": "workspace:*"
   },
   "devDependencies": {
     "@theatre/core": "workspace:*"
