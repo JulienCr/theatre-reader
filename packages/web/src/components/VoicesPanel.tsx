@@ -69,8 +69,14 @@ export function VoicesPanel({
       const blob = await api.tts(slug, { text: PREVIEW_TEXT, voiceId, model: audio.model });
       const url = URL.createObjectURL(blob);
       const a = new Audio(url);
-      a.onended = () => URL.revokeObjectURL(url);
-      await a.play();
+      const revoke = () => URL.revokeObjectURL(url);
+      a.onended = revoke;
+      a.onerror = revoke;
+      // play() rejette si l'autoplay est bloqué : révoquer aussi dans ce cas.
+      await a.play().catch((e) => {
+        revoke();
+        throw e;
+      });
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {

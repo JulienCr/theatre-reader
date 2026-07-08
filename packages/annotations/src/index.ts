@@ -2,7 +2,7 @@
  * Couche d'annotation DOM, sans framework — partagée par l'app web (aperçu +
  * lecteur) et le runtime mobile en lecture seule.
  *
- * Décore les passages annotés : pour chaque note, retrouve le bloc `[data-ni]`,
+ * Décore les passages annotés : pour chaque note, retrouve le bloc `[data-nid]`,
  * résout sa plage via le `resolveNote` de @theatre/core, et enrobe la plage
  * dans des `<mark class="note-anchor" data-note-id>`. La création par sélection
  * est dans `creation.ts`.

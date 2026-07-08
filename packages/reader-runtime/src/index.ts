@@ -367,7 +367,9 @@ function init(d: ReaderData): void {
   document.body.appendChild(backdrop);
 
   play.addEventListener('click', (e) => {
-    const line = (e.target as HTMLElement).closest('.line') as HTMLElement | null;
+    const t = e.target;
+    if (!(t instanceof Element)) return; // ex. clic sur un nœud texte
+    const line = t.closest('.line') as HTMLElement | null;
     if (rehearsal) {
       if (line) line.classList.toggle('revealed');
       return;
@@ -409,13 +411,18 @@ function init(d: ReaderData): void {
 /** Bulle d'une note en lecture seule (mobile : pas de création/édition). */
 function showNoteBubble(body: string): void {
   closeSheets();
-  const sheet = el('div', { class: 'reader-sheet open' });
-  sheet.appendChild(el('h2', {}, 'Note'));
-  const p = el('p', {});
-  p.textContent = body;
-  p.style.whiteSpace = 'pre-wrap';
-  sheet.appendChild(p);
-  document.body.appendChild(sheet);
+  // Réutilise une bulle unique : sinon un .reader-sheet s'accumule à chaque clic.
+  let sheet = document.getElementById('reader-note');
+  if (!sheet) {
+    sheet = el('div', { class: 'reader-sheet', id: 'reader-note' });
+    sheet.appendChild(el('h2', {}, 'Note'));
+    const p = el('p', { class: 'reader-note-body' });
+    p.style.whiteSpace = 'pre-wrap';
+    sheet.appendChild(p);
+    document.body.appendChild(sheet);
+  }
+  sheet.querySelector<HTMLElement>('.reader-note-body')!.textContent = body;
+  sheet.classList.add('open');
   backdrop.classList.add('open');
 }
 

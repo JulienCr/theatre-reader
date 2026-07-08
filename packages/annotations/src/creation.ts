@@ -1,6 +1,6 @@
 /**
  * Création d'une note par sélection : à la fin d'une sélection contenue dans un
- * seul bloc `[data-ni]`, affiche un tooltip flottant « ➕ Note ». Au clic,
+ * seul bloc `[data-nid]`, affiche un tooltip flottant « ➕ Note ». Au clic,
  * calcule l'ancre (nodeIndex + décalages dans le textContent du bloc + citation)
  * et la remonte via `onRequestCreate`. Interactif (Selection API) — vérifié par
  * Playwright, pas en unit.

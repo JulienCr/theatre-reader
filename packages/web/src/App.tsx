@@ -312,7 +312,7 @@ export function App() {
     }
     return cmds;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [play, mode, showEditor, isFullscreen, toc]);
+  }, [play, mode, showEditor, isFullscreen, toc, notes, exportWithAudio]);
 
   // Raccourci global d'ouverture de la palette.
   useEffect(() => {

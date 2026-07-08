@@ -253,7 +253,8 @@ export function Reader({
       if (!player) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) return; // sélection en cours → notes
-      const target = e.target as HTMLElement;
+      const target = e.target;
+      if (!(target instanceof Element)) return; // ex. clic sur un nœud texte
       if (target.closest('.note-anchor')) return; // activation d'une note
       const line = target.closest('p.line') as HTMLElement | null;
       const nid = line?.getAttribute('data-nid');
@@ -444,6 +445,7 @@ export function Reader({
         {hasVoices && (
           <div className="reader-audio">
             <button
+              aria-label={pstate?.playing && !pstate?.waitingForUser ? 'Pause' : 'Lecture'}
               title={pstate?.playing && !pstate?.waitingForUser ? 'Pause (Espace)' : 'Lecture (Espace)'}
               onClick={() => {
                 const p = playerRef.current;
@@ -454,10 +456,18 @@ export function Reader({
             >
               {pstate?.playing && !pstate?.waitingForUser ? '⏸' : '▶'}
             </button>
-            <button title="Réplique précédente ( , )" onClick={() => playerRef.current?.prev()}>
+            <button
+              aria-label="Réplique précédente"
+              title="Réplique précédente ( , )"
+              onClick={() => playerRef.current?.prev()}
+            >
               ⏮
             </button>
-            <button title="Réplique suivante ( . )" onClick={() => playerRef.current?.next()}>
+            <button
+              aria-label="Réplique suivante"
+              title="Réplique suivante ( . )"
+              onClick={() => playerRef.current?.next()}
+            >
               ⏭
             </button>
             <button

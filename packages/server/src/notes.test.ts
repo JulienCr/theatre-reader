@@ -1,4 +1,5 @@
 import { mkdtempSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -8,6 +9,7 @@ import type { Note } from '@theatre/core';
 process.env.THEATRE_DATA_DIR = mkdtempSync(join(tmpdir(), 'theatre-notes-'));
 
 const { buildServer } = await import('./server');
+const { loadNotes } = await import('./storage');
 type App = Awaited<ReturnType<typeof buildServer>>;
 
 const sample: Note[] = [
@@ -35,5 +37,19 @@ describe('endpoints notes', () => {
   it('PUT 400 si notes n_est pas un tableau', async () => {
     const res = await app.inject({ method: 'PUT', url: '/api/plays/piece/notes', payload: { notes: 'x' } });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('loadNotes (robustesse)', () => {
+  it('renvoie [] quand le fichier est absent', async () => {
+    expect(await loadNotes('vraiment-inconnue')).toEqual([]);
+  });
+
+  it('relance (au lieu de renvoyer []) si notes.json est corrompu', async () => {
+    const dir = join(process.env.THEATRE_DATA_DIR!, 'corrompue');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'notes.json'), '{ pas du json', 'utf8');
+    // Sinon un saveNotes() ultérieur écraserait des notes bien réelles.
+    await expect(loadNotes('corrompue')).rejects.toThrow();
   });
 });

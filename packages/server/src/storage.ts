@@ -70,8 +70,11 @@ export async function savePlay(slug: string, fountain: string, meta: PlayMeta): 
 export async function loadNotes(slug: string): Promise<Note[]> {
   try {
     return JSON.parse(await readFile(join(DATA_DIR, slug, 'notes.json'), 'utf8')) as Note[];
-  } catch {
-    return [];
+  } catch (e) {
+    // Fichier absent → pas encore de notes. Toute autre erreur (JSON corrompu,
+    // I/O) doit remonter : sinon un saveNotes() ultérieur écraserait les notes.
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw e;
   }
 }
 
