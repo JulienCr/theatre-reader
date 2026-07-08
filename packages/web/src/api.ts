@@ -126,6 +126,41 @@ export async function tts(
   return res.blob();
 }
 
+export interface TtsBatchItem {
+  nodeId: string;
+  text: string;
+  voiceId: string;
+}
+
+export interface TtsBatchResult {
+  /** nodeId -> { clé de cache, déjà présent avant cet appel }. */
+  manifest: Record<string, { key: string; cached: boolean }>;
+  /** Caractères ElevenLabs réellement synthétisés (hors cache). */
+  characters: number;
+}
+
+/**
+ * Pré-génère l'audio d'un lot de tirades (chauffe le cache disque).
+ * Le serveur est cache-first (skip ce qui existe déjà) et concurrent (3 workers).
+ */
+export async function ttsBatch(
+  slug: string,
+  items: TtsBatchItem[],
+  opts?: { model?: string; settings?: VoiceSettings; signal?: AbortSignal },
+): Promise<TtsBatchResult> {
+  const res = await fetch(`/api/plays/${encodeURIComponent(slug)}/tts/batch`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ items, model: opts?.model, settings: opts?.settings }),
+    signal: opts?.signal,
+  });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => null);
+    throw new Error(msg?.error ?? `Échec de la génération (${res.status})`);
+  }
+  return json<TtsBatchResult>(res);
+}
+
 export async function loadNotes(slug: string): Promise<Note[]> {
   const { notes } = await json<{ notes: Note[] }>(
     await fetch(`/api/plays/${encodeURIComponent(slug)}/notes`),

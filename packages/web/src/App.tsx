@@ -17,6 +17,7 @@ import { CharactersPanel } from './components/CharactersPanel';
 import { VoicesPanel } from './components/VoicesPanel';
 import { TemplatePanel } from './components/TemplatePanel';
 import { CommandPalette, type Command } from './components/CommandPalette';
+import { AudioProgressModal, type AudioGenState } from './components/AudioProgressModal';
 import type { NavTarget } from './components/Reader';
 
 // Paged.js (~500 Ko) chargé à la demande, uniquement à l'ouverture du lecteur.
@@ -45,6 +46,9 @@ export function App() {
   const [orphans, setOrphans] = useState<Note[]>([]);
   const [voices, setVoices] = useState<api.VoiceSummary[] | null>(null);
   const [exportWithAudio, setExportWithAudio] = useState(false);
+  const [audioGen, setAudioGen] = useState<(AudioGenState & { controller: AbortController }) | null>(
+    null,
+  );
   const [popover, setPopover] = useState<{ target: PopoverTarget } | null>(null);
   const pendingDraft = useRef<Note | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -279,6 +283,72 @@ export function App() {
     }
     return { chars, lines };
   }, [play?.fountain, play?.characters, play?.audio]);
+
+  // Toutes les tirades à pré-générer : tout personnage ayant une voix (y compris le mien).
+  // `text` normalisé EXACTEMENT comme le lecteur (audio-player collectTirades) pour taper la
+  // même clé de cache disque ; sinon on régénère dans le vide. `nodeId` synthétique (index) :
+  // il ne sert qu'à compter cached/generated dans le manifeste renvoyé.
+  const audioBatchItems = useMemo<api.TtsBatchItem[]>(() => {
+    const cfg = play?.audio;
+    if (!play || !cfg?.voices || !Object.keys(cfg.voices).length) return [];
+    const parsed = parseFountain(play.fountain, play.characters);
+    const items: api.TtsBatchItem[] = [];
+    parsed.nodes.forEach((n, i) => {
+      if (n.type !== 'line') return;
+      const voiceId = cfg.voices?.[n.characterId];
+      if (!voiceId) return;
+      const text = speechText(n).replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      items.push({ nodeId: String(i), text, voiceId });
+    });
+    return items;
+  }, [play?.fountain, play?.characters, play?.audio]);
+
+  // Pré-génère l'audio de toutes les tirades, par lots, en réutilisant le cache disque.
+  const onGenerateAllAudio = useCallback(async () => {
+    if (!play) return;
+    const items = audioBatchItems;
+    if (!items.length) {
+      setMessage('Aucune voix assignée : rien à générer.');
+      return;
+    }
+    const controller = new AbortController();
+    setAudioGen({
+      total: items.length,
+      done: 0,
+      generated: 0,
+      cached: 0,
+      error: null,
+      running: true,
+      controller,
+    });
+    let done = 0;
+    let generated = 0;
+    let cached = 0;
+    const CHUNK = 10;
+    try {
+      for (let i = 0; i < items.length; i += CHUNK) {
+        if (controller.signal.aborted) break;
+        const chunk = items.slice(i, i + CHUNK);
+        const { manifest } = await api.ttsBatch(play.slug, chunk, {
+          model: play.audio.model,
+          settings: play.audio.settings,
+          signal: controller.signal,
+        });
+        for (const v of Object.values(manifest)) v.cached ? (cached += 1) : (generated += 1);
+        done += chunk.length;
+        setAudioGen((s) => (s ? { ...s, done, generated, cached } : s));
+      }
+      setAudioGen((s) => (s ? { ...s, running: false } : s));
+    } catch (e) {
+      if (controller.signal.aborted) {
+        setAudioGen((s) => (s ? { ...s, running: false } : s));
+      } else {
+        setAudioGen((s) => (s ? { ...s, running: false, error: (e as Error).message } : s));
+      }
+    }
+  }, [play, audioBatchItems]);
+
   const commands = useMemo<Command[]>(() => {
     const cmds: Command[] = [];
     cmds.push({ id: 'import', label: 'Importer un PDF', run: () => fileInput.current?.click() });
@@ -391,6 +461,15 @@ export function App() {
               Exporter en PDF
             </button>
             <button onClick={onExportReader}>Lecteur mobile</button>
+            {audioBatchItems.length > 0 && (
+              <button
+                onClick={onGenerateAllAudio}
+                disabled={Boolean(audioGen?.running)}
+                title={`Pré-générer l'audio de ${audioBatchItems.length} tirades (réutilise le cache)`}
+              >
+                🎙️ Générer l'audio
+              </button>
+            )}
             {audioEstimate && (
               <label
                 className="toggle"
@@ -501,6 +580,14 @@ export function App() {
         commands={commands}
         onClose={() => setPaletteOpen(false)}
       />
+
+      {audioGen && (
+        <AudioProgressModal
+          {...audioGen}
+          onCancel={() => audioGen.controller.abort()}
+          onClose={() => setAudioGen(null)}
+        />
+      )}
     </div>
   );
 }
