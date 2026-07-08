@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFountain } from './fountain';
 import { buildToc, renderBody, renderCSS } from './render';
+import { buildNodeIds } from './notes';
 import { actorReadingTemplate, cloneTemplate } from './template';
 
 describe('buildToc', () => {
@@ -136,5 +137,32 @@ describe('renderBody', () => {
     const play2 = parseFountain('NARRATEUR\nIl a dit <bonjour> & adieu.');
     const html = renderBody(play2, actorReadingTemplate);
     expect(html).toContain('&lt;bonjour&gt; &amp; adieu');
+  });
+});
+
+describe('data-nid', () => {
+  it('ancre chaque bloc annotable par un id de contenu stable', () => {
+    const src = `# ACTE I.\n\n## SCENE I.\n\nLe rideau se lève.\n\nMICHEL\nBonjour.\n`;
+    const p = parseFountain(src);
+    const ids = buildNodeIds(p);
+    const html = renderBody(p, actorReadingTemplate);
+    expect(html).toContain(`class="act" id="h-0" data-nid="${ids[0]}"`);
+    expect(html).toContain(`class="scene" id="h-1" data-nid="${ids[1]}"`);
+    expect(html).toContain(`<p class="stage" data-nid="${ids[2]}"`);
+    expect(html).toMatch(new RegExp(`<p class="line" data-cid="[^"]*" data-nid="${ids[3]}"`));
+  });
+});
+
+describe('data-cid', () => {
+  it('marque chaque réplique avec l_id du personnage', () => {
+    const src = `MICHEL\nBonjour.\n\nBENJI\nSalut.\n`;
+    const p = parseFountain(src);
+    const html = renderBody(p, actorReadingTemplate);
+    // Un data-cid par réplique, valant l_id résolu du personnage.
+    for (const c of p.characters) {
+      expect(html).toContain(`data-cid="${c.id}"`);
+    }
+    const count = (html.match(/<p class="line[^"]*" data-cid=/g) ?? []).length;
+    expect(count).toBe(2);
   });
 });

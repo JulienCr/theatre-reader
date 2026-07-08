@@ -15,9 +15,15 @@ import {
   parseFountain,
   renderBody,
   renderCSS,
+  type AudioConfig,
   type Character,
+  type Note,
   type Template,
 } from '@theatre/core';
+import { annotationCss, type AnchorDraft } from '@theatre/annotations';
+import { createPlayer, type AudioTirade, type Player, type PlayerState } from '@theatre/audio-player';
+import { useAnnotations } from '../useAnnotations';
+import * as api from '../api';
 
 type Status = 'paginating' | 'ready';
 
@@ -32,21 +38,33 @@ const ZOOM_MAX = 2.2;
 const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 10) / 10));
 
 export function Reader({
+  slug,
   fountain,
   characters,
   template,
+  audio,
   onClose,
   navTarget,
   isFullscreen,
   onToggleFullscreen,
+  notes,
+  onActivate,
+  onRequestCreate,
+  onOrphans,
 }: {
+  slug: string;
   fountain: string;
   characters: Character[];
   template: Template;
+  audio: AudioConfig;
   onClose: () => void;
   navTarget: NavTarget | null;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  notes: Note[];
+  onActivate: (id: string, rect: DOMRect) => void;
+  onRequestCreate: (anchor: AnchorDraft, rect: DOMRect) => void;
+  onOrphans?: (orphans: Note[]) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -62,9 +80,85 @@ export function Reader({
   const [matchCount, setMatchCount] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [showHelp, setShowHelp] = useState(false);
+  const [pstate, setPstate] = useState<PlayerState | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
   const play = useMemo(() => parseFountain(fountain, characters), [fountain, characters]);
   const toc = useMemo(() => buildToc(play, template), [play, template]);
+
+  // ---- Lecture audio (ElevenLabs) ----
+  const playerRef = useRef<Player | null>(null);
+  const pstateRef = useRef<PlayerState | null>(null);
+  const urlCacheRef = useRef<Map<string, string>>(new Map());
+  // Refs pour que resolveAudio/isMine lisent toujours l'état courant sans se recréer.
+  const audioCfgRef = useRef<AudioConfig>(audio);
+  const slugRef = useRef<string>(slug);
+  audioCfgRef.current = audio;
+  slugRef.current = slug;
+  pstateRef.current = pstate;
+
+  const nameOf = useCallback(
+    (cid: string | null) => (cid ? play.characters.find((c) => c.id === cid)?.canonicalName ?? cid : ''),
+    [play],
+  );
+
+  const hasVoices = Boolean(audio.voices && Object.keys(audio.voices).length > 0);
+
+  // Récupère (et mémoïse) l'audio d'une tirade ; null si le perso n'a pas de voix.
+  const resolveAudio = useCallback(async (t: AudioTirade): Promise<string | null> => {
+    const cfg = audioCfgRef.current;
+    const voiceId = cfg.voices?.[t.characterId];
+    if (!voiceId) return null;
+    const cacheKey = `${t.nodeId}|${voiceId}`;
+    const cached = urlCacheRef.current.get(cacheKey);
+    if (cached) return cached;
+    const blob = await api.tts(slugRef.current, {
+      text: t.text,
+      voiceId,
+      model: cfg.model,
+      settings: cfg.settings,
+    });
+    const url = URL.createObjectURL(blob);
+    urlCacheRef.current.set(cacheKey, url);
+    return url;
+  }, []);
+
+  // Libère les object URLs à la fermeture du lecteur.
+  useEffect(() => {
+    const cache = urlCacheRef.current;
+    return () => {
+      cache.forEach((u) => URL.revokeObjectURL(u));
+      cache.clear();
+    };
+  }, []);
+
+  // Efface l'erreur audio après quelques secondes.
+  useEffect(() => {
+    if (!audioError) return;
+    const id = setTimeout(() => setAudioError(null), 5000);
+    return () => clearTimeout(id);
+  }, [audioError]);
+
+  // CSS de surlignage des notes (injecté une fois).
+  useEffect(() => {
+    const id = 'annotation-css';
+    if (!document.getElementById(id)) {
+      const style = document.createElement('style');
+      style.id = id;
+      style.textContent = annotationCss;
+      document.head.appendChild(style);
+    }
+  }, []);
+
+  // Décoration des notes sur le DOM paginé : relancée à chaque fin de pagination
+  // (status → ready) ou re-pagination (totalPages varie).
+  useAnnotations(containerRef, notes, {
+    editable: true,
+    redecorateKey: `${status}:${totalPages}`,
+    onActivate,
+    onRequestCreate,
+    onOrphans,
+  });
 
   // Pagination (debounce) à l'ouverture et sur changement de contenu/template.
   useEffect(() => {
@@ -126,6 +220,49 @@ export function Reader({
     pages.forEach((p) => observer.observe(p));
     return () => observer.disconnect();
   }, [status, totalPages, zoom]);
+
+  // Instancie le moteur audio sur le DOM paginé (recréé après chaque pagination).
+  // Seulement si des voix sont attribuées, sinon transport/clavier restent inertes.
+  useEffect(() => {
+    if (status !== 'ready' || !hasVoices) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const player = createPlayer({
+      container,
+      resolveAudio,
+      isMine: (cid) => cid === audioCfgRef.current.myCharacterId,
+      onState: setPstate,
+      onError: setAudioError,
+      speakingClass: 'line--speaking',
+    });
+    playerRef.current = player;
+    return () => {
+      player.destroy();
+      playerRef.current = null;
+      setPstate(null);
+    };
+  }, [status, totalPages, resolveAudio, hasVoices]);
+
+  // Clic sur une réplique → l'écouter (sans gêner sélection de notes / ancres).
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const container = containerRef.current;
+    if (!container) return;
+    const onClick = (e: MouseEvent) => {
+      const player = playerRef.current;
+      if (!player) return;
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return; // sélection en cours → notes
+      const target = e.target;
+      if (!(target instanceof Element)) return; // ex. clic sur un nœud texte
+      if (target.closest('.note-anchor')) return; // activation d'une note
+      const line = target.closest('p.line') as HTMLElement | null;
+      const nid = line?.getAttribute('data-nid');
+      if (nid) player.playFrom(nid);
+    };
+    container.addEventListener('click', onClick);
+    return () => container.removeEventListener('click', onClick);
+  }, [status]);
 
   // Navigation pilotée de l'extérieur (command palette).
   useEffect(() => {
@@ -210,6 +347,26 @@ export function Reader({
           pageRef.current?.focus();
           pageRef.current?.select();
           break;
+        case ' ': {
+          const player = playerRef.current;
+          if (!player) break;
+          e.preventDefault();
+          if (pstateRef.current?.waitingForUser) player.next();
+          else player.toggle();
+          break;
+        }
+        case '.':
+          playerRef.current?.next();
+          break;
+        case ',':
+          playerRef.current?.prev();
+          break;
+        case 'r': {
+          const player = playerRef.current;
+          if (!player) break;
+          player.setMode(pstateRef.current?.mode === 'rehearsal' ? 'continuous' : 'rehearsal');
+          break;
+        }
       }
     };
     window.addEventListener('keydown', onKey);
@@ -285,6 +442,55 @@ export function Reader({
           <span className="reader-zoom-val">{Math.round(zoom * 100)}%</span>
         </label>
 
+        {hasVoices && (
+          <div className="reader-audio">
+            <button
+              aria-label={pstate?.playing && !pstate?.waitingForUser ? 'Pause' : 'Lecture'}
+              title={pstate?.playing && !pstate?.waitingForUser ? 'Pause (Espace)' : 'Lecture (Espace)'}
+              onClick={() => {
+                const p = playerRef.current;
+                if (!p) return;
+                if (pstate?.waitingForUser) p.next();
+                else p.toggle();
+              }}
+            >
+              {pstate?.playing && !pstate?.waitingForUser ? '⏸' : '▶'}
+            </button>
+            <button
+              aria-label="Réplique précédente"
+              title="Réplique précédente ( , )"
+              onClick={() => playerRef.current?.prev()}
+            >
+              ⏮
+            </button>
+            <button
+              aria-label="Réplique suivante"
+              title="Réplique suivante ( . )"
+              onClick={() => playerRef.current?.next()}
+            >
+              ⏭
+            </button>
+            <button
+              className={`reader-rehearse${pstate?.mode === 'rehearsal' ? ' on' : ''}`}
+              aria-pressed={pstate?.mode === 'rehearsal'}
+              title="Mode répétition (r) : pause sur ton rôle"
+              onClick={() =>
+                playerRef.current?.setMode(
+                  pstate?.mode === 'rehearsal' ? 'continuous' : 'rehearsal',
+                )
+              }
+            >
+              Répétition
+            </button>
+            <span className="reader-speaker">
+              {pstate?.waitingForUser
+                ? `À toi — ${nameOf(pstate.currentCharacterId)}`
+                : nameOf(pstate?.currentCharacterId ?? null)}
+            </span>
+            {audioError && <span className="reader-audio-error">{audioError}</span>}
+          </div>
+        )}
+
         <div className="spacer" />
         <button onClick={onToggleFullscreen} title="Plein écran (f)">
           {isFullscreen ? '⤢ Quitter' : '⤢ Plein écran'}
@@ -310,6 +516,9 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
     ['n  ·  p', 'Résultat suivant · précédent'],
     ['g', 'Aller à une page'],
     ['+  ·  -  ·  0', 'Zoom avant · arrière · réinitialiser'],
+    ['Espace', 'Lecture audio / pause (répétition : réplique suivante)'],
+    ['.  ·  ,', 'Réplique audio suivante · précédente'],
+    ['r', 'Mode répétition (pause sur ton rôle)'],
     ['f', 'Plein écran'],
     ['?', 'Afficher / masquer cette aide'],
     ['Échap', 'Fermer le lecteur'],

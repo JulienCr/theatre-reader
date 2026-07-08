@@ -1,0 +1,19 @@
+{
+  "name": "@theatre/reader-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@theatre/annotations": "workspace:*",
+    "@theatre/audio-player": "workspace:*"
+  },
+  "devDependencies": {
+    "@theatre/core": "workspace:*"
+  }
+}

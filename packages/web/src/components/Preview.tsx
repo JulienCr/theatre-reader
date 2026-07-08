@@ -1,22 +1,36 @@
 /** Aperçu live : parse le Fountain et rend le même HTML/CSS que l'export PDF. */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   parseFountain,
   renderBody,
   renderCSS,
   type Character,
+  type Note,
   type Template,
 } from '@theatre/core';
+import { annotationCss, type AnchorDraft } from '@theatre/annotations';
+import { useAnnotations } from '../useAnnotations';
 
 export function Preview({
   fountain,
   characters,
   template,
+  notes,
+  editable,
+  onActivate,
+  onRequestCreate,
+  onOrphans,
 }: {
   fountain: string;
   characters: Character[];
   template: Template;
+  notes: Note[];
+  editable: boolean;
+  onActivate: (id: string, rect: DOMRect) => void;
+  onRequestCreate: (anchor: AnchorDraft, rect: DOMRect) => void;
+  onOrphans?: (orphans: Note[]) => void;
 }) {
+  const sheetRef = useRef<HTMLDivElement>(null);
   const { css, body } = useMemo(() => {
     try {
       const play = parseFountain(fountain, characters);
@@ -26,10 +40,37 @@ export function Preview({
     }
   }, [fountain, characters, template]);
 
+  // Injecte le CSS d'annotation une seule fois.
+  useEffect(() => {
+    const id = 'annotation-css';
+    if (!document.getElementById(id)) {
+      const style = document.createElement('style');
+      style.id = id;
+      style.textContent = annotationCss;
+      document.head.appendChild(style);
+    }
+  }, []);
+
+  // On écrit le corps impérativement (et non via dangerouslySetInnerHTML) pour
+  // que React ne « possède » pas ce DOM : sinon un re-render réécrit l'innerHTML
+  // et efface les surlignages d'annotation insérés ensuite. Cet effet est déclaré
+  // avant useAnnotations : il s'exécute en premier, puis la décoration enrobe.
+  useEffect(() => {
+    if (sheetRef.current) sheetRef.current.innerHTML = body;
+  }, [body]);
+
+  useAnnotations(sheetRef, notes, {
+    editable,
+    redecorateKey: body,
+    onActivate,
+    onRequestCreate,
+    onOrphans,
+  });
+
   return (
     <div className="preview">
       <style>{css}</style>
-      <div className="preview-sheet" dangerouslySetInnerHTML={{ __html: body }} />
+      <div className="preview-sheet" ref={sheetRef} />
     </div>
   );
 }

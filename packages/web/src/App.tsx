@@ -1,8 +1,20 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { buildToc, parseFountain, type Character, type Template } from '@theatre/core';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  buildToc,
+  parseFountain,
+  speechText,
+  type AudioConfig,
+  type Character,
+  type Note,
+  type Template,
+} from '@theatre/core';
+import type { AnchorDraft } from '@theatre/annotations';
 import * as api from './api';
 import { Preview } from './components/Preview';
+import { NotePopover, type PopoverTarget } from './components/NotePopover';
+import { NotesPanel } from './components/NotesPanel';
 import { CharactersPanel } from './components/CharactersPanel';
+import { VoicesPanel } from './components/VoicesPanel';
 import { TemplatePanel } from './components/TemplatePanel';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import type { NavTarget } from './components/Reader';
@@ -16,6 +28,7 @@ interface PlayState {
   fountain: string;
   characters: Character[];
   template: Template;
+  audio: AudioConfig;
 }
 
 export function App() {
@@ -28,10 +41,18 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [orphans, setOrphans] = useState<Note[]>([]);
+  const [voices, setVoices] = useState<api.VoiceSummary[] | null>(null);
+  const [exportWithAudio, setExportWithAudio] = useState(false);
+  const [popover, setPopover] = useState<{ target: PopoverTarget } | null>(null);
+  const pendingDraft = useRef<Note | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.listPlays().then(setSummaries).catch(() => setMessage('Serveur injoignable.'));
+    // Voix ElevenLabs (null = synthèse désactivée, pas de clé).
+    api.listVoices().then(setVoices).catch(() => setVoices(null));
   }, []);
 
   // Aperçu débattu : on évite de re-parser à chaque frappe.
@@ -56,7 +77,9 @@ export function App() {
         fountain: r.fountain,
         characters: r.meta.characters,
         template: r.meta.template,
+        audio: r.meta.audio ?? {},
       });
+      setNotes([]);
       setSummaries(await api.listPlays());
       flash(
         `Importé : ${r.characterCount} personnages · normalisation ${r.usedLlm ? 'LLM' : 'heuristique'}.`,
@@ -73,7 +96,15 @@ export function App() {
     setBusy('Chargement…');
     try {
       const { fountain, meta } = await api.loadPlay(slug);
-      setPlay({ slug, name: meta.name, fountain, characters: meta.characters, template: meta.template });
+      setPlay({
+        slug,
+        name: meta.name,
+        fountain,
+        characters: meta.characters,
+        template: meta.template,
+        audio: meta.audio ?? {},
+      });
+      setNotes(await api.loadNotes(slug).catch(() => []));
     } catch (e) {
       flash(`Échec du chargement : ${String(e)}`);
     } finally {
@@ -89,6 +120,7 @@ export function App() {
         name: play.name,
         characters: play.characters,
         template: play.template,
+        audio: play.audio,
       });
       flash('Sauvegardé.');
     } catch (e) {
@@ -96,6 +128,64 @@ export function App() {
     } finally {
       setBusy(null);
     }
+  };
+
+  const persistNotes = async (next: Note[]) => {
+    setNotes(next);
+    if (play) await api.saveNotes(play.slug, next).catch((e) => flash(String(e)));
+  };
+
+  const onActivateNote = useCallback(
+    (id: string, rect: DOMRect) => {
+      const note = notes.find((n) => n.id === id) ?? null;
+      if (note) setPopover({ target: { note, rect } });
+    },
+    [notes],
+  );
+
+  const onRequestCreate = useCallback((anchor: AnchorDraft, rect: DOMRect) => {
+    const draftNote: Note = {
+      id: crypto.randomUUID(),
+      nodeId: anchor.nodeId,
+      start: anchor.start,
+      end: anchor.end,
+      quote: anchor.quote,
+      body: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    pendingDraft.current = draftNote;
+    setPopover({ target: { note: { ...draftNote }, rect } });
+  }, []);
+
+  const onPopoverSave = (body: string) => {
+    const target = popover?.target;
+    if (!target) return;
+    const existing = target.note && notes.some((n) => n.id === target.note!.id);
+    if (existing) {
+      void persistNotes(
+        notes.map((n) =>
+          n.id === target.note!.id ? { ...n, body, updatedAt: new Date().toISOString() } : n,
+        ),
+      );
+    } else if (pendingDraft.current) {
+      void persistNotes([...notes, { ...pendingDraft.current, body }]);
+      pendingDraft.current = null;
+    }
+    setPopover(null);
+  };
+
+  const onPopoverDelete = () => {
+    const id = popover?.target.note?.id;
+    if (id) void persistNotes(notes.filter((n) => n.id !== id));
+    setPopover(null);
+  };
+
+  const onJumpNote = (note: Note) => {
+    const el =
+      document.querySelector<HTMLElement>(`[data-note-id="${note.id}"]`) ??
+      document.querySelector<HTMLElement>(`[data-nid="${note.nodeId}"]`);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   };
 
   const onExport = async () => {
@@ -113,9 +203,40 @@ export function App() {
     }
   };
 
+  const onExportReader = async () => {
+    if (!play) return;
+    setBusy(exportWithAudio ? 'Export lecteur mobile (audio)…' : 'Export lecteur mobile…');
+    try {
+      const audioOpts =
+        exportWithAudio && play.audio.voices && Object.keys(play.audio.voices).length
+          ? { slug: play.slug, audio: play.audio, includeAudio: true, roles: 'others' as const }
+          : undefined;
+      const { blob, filename } = await api.exportReader(
+        play.fountain,
+        play.characters,
+        play.template,
+        notes,
+        audioOpts,
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      flash(String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const setTemplate = (template: Template) => setPlay((p) => (p ? { ...p, template } : p));
   const setCharacters = (characters: Character[]) =>
     setPlay((p) => (p ? { ...p, characters } : p));
+  const setAudio = (audio: AudioConfig) => setPlay((p) => (p ? { ...p, audio } : p));
 
   // ---- Plein écran (toute l'app) ----
   useEffect(() => {
@@ -139,12 +260,32 @@ export function App() {
     () => (play ? buildToc(parseFountain(play.fountain, play.characters), play.template) : []),
     [play],
   );
+
+  // Estimation du coût audio de l'export (caractères ElevenLabs pour les rôles « autres »).
+  const audioEstimate = useMemo(() => {
+    const cfg = play?.audio;
+    if (!play || !cfg?.voices || !Object.keys(cfg.voices).length) return null;
+    const parsed = parseFountain(play.fountain, play.characters);
+    let chars = 0;
+    let lines = 0;
+    for (const n of parsed.nodes) {
+      if (n.type !== 'line') continue;
+      if (cfg.myCharacterId && n.characterId === cfg.myCharacterId) continue;
+      if (!cfg.voices[n.characterId]) continue;
+      const t = speechText(n);
+      if (!t) continue;
+      chars += t.length;
+      lines += 1;
+    }
+    return { chars, lines };
+  }, [play?.fountain, play?.characters, play?.audio]);
   const commands = useMemo<Command[]>(() => {
     const cmds: Command[] = [];
     cmds.push({ id: 'import', label: 'Importer un PDF', run: () => fileInput.current?.click() });
     if (play) {
       cmds.push({ id: 'save', label: 'Sauvegarder', hint: '', run: onSave });
       cmds.push({ id: 'export', label: 'Exporter en PDF', run: onExport });
+      cmds.push({ id: 'export-reader', label: 'Exporter le lecteur mobile', run: onExportReader });
       cmds.push({
         id: 'reader',
         label: mode === 'read' ? 'Quitter le lecteur' : 'Ouvrir le lecteur',
@@ -171,7 +312,7 @@ export function App() {
     }
     return cmds;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [play, mode, showEditor, isFullscreen, toc]);
+  }, [play, mode, showEditor, isFullscreen, toc, notes, exportWithAudio]);
 
   // Raccourci global d'ouverture de la palette.
   useEffect(() => {
@@ -249,6 +390,20 @@ export function App() {
             <button className="primary" onClick={onExport}>
               Exporter en PDF
             </button>
+            <button onClick={onExportReader}>Lecteur mobile</button>
+            {audioEstimate && (
+              <label
+                className="toggle"
+                title={`Embarquer l'audio des autres rôles (~${audioEstimate.chars} caractères ElevenLabs, ${audioEstimate.lines} répliques)`}
+              >
+                <input
+                  type="checkbox"
+                  checked={exportWithAudio}
+                  onChange={(e) => setExportWithAudio(e.target.checked)}
+                />
+                🔊 audio
+              </label>
+            )}
           </>
         )}
         {busy && <span className="busy">{busy}</span>}
@@ -268,13 +423,19 @@ export function App() {
       ) : mode === 'read' ? (
         <Suspense fallback={<div className="empty">Chargement du lecteur…</div>}>
           <Reader
+            slug={play.slug}
             fountain={play.fountain}
             characters={play.characters}
             template={play.template}
+            audio={play.audio}
             onClose={() => setMode('edit')}
             navTarget={navTarget}
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
+            notes={notes}
+            onActivate={onActivateNote}
+            onRequestCreate={onRequestCreate}
+            onOrphans={setOrphans}
           />
         </Suspense>
       ) : (
@@ -286,7 +447,15 @@ export function App() {
               onChange={setTemplate}
               onCharactersChange={setCharacters}
             />
+            <VoicesPanel
+              characters={play.characters}
+              audio={play.audio}
+              voices={voices}
+              slug={play.slug}
+              onChange={setAudio}
+            />
             <TemplatePanel template={play.template} onChange={setTemplate} />
+            <NotesPanel notes={notes} orphans={orphans} onJump={onJumpNote} />
           </aside>
 
           {showEditor && (
@@ -307,9 +476,24 @@ export function App() {
               fountain={previewFountain}
               characters={play.characters}
               template={play.template}
+              notes={notes}
+              editable={true}
+              onActivate={onActivateNote}
+              onRequestCreate={onRequestCreate}
+              onOrphans={setOrphans}
             />
           </section>
         </main>
+      )}
+
+      {popover && play && (
+        <NotePopover
+          target={popover.target}
+          editable={true}
+          onSave={onPopoverSave}
+          onDelete={onPopoverDelete}
+          onClose={() => setPopover(null)}
+        />
       )}
 
       <CommandPalette
