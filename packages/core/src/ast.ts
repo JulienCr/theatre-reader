@@ -88,3 +88,15 @@ export function speechText(line: LineNode): string {
     .join(' ')
     .trim();
 }
+
+/**
+ * Texte d'une réplique normalisé pour la synthèse / le cache TTS.
+ * DOIT reproduire à l'octet près la normalisation DOM de `collectTirades`
+ * (@theatre/audio-player, qui scrape le rendu puis `.replace(/\s+/g,' ').trim()`) :
+ * c'est l'ancre de parité du cache audio. Toute génération/consommation de clip
+ * basée sur l'AST (lecture en ligne, pré-génération en masse, export mobile) doit
+ * passer par ce helper, sinon les clés de cache divergent → miss silencieux.
+ */
+export function speechTextForTts(line: LineNode): string {
+  return speechText(line).replace(/\s+/g, ' ').trim();
+}

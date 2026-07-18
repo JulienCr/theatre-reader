@@ -51,7 +51,11 @@ export interface SynthesizeInput {
   text: string;
   voiceId: string;
   model?: string;
-  /** Format ElevenLabs, ex. 'mp3_44100_128' (en ligne) ou 'mp3_44100_64' (export). */
+  /**
+   * Format ElevenLabs. Défaut `DEFAULT_OUTPUT_FORMAT` ('mp3_44100_128'), partagé par
+   * la lecture en ligne, la pré-génération en masse et l'export mobile (namespace de
+   * cache unique). 'mp3_44100_64' n'est utilisé que si l'export surcharge `bitrate`.
+   */
   outputFormat?: string;
   settings?: VoiceSettings;
 }
