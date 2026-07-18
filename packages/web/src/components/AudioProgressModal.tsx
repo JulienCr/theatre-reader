@@ -22,9 +22,16 @@ export function AudioProgressModal({
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const finished = !running;
   return (
-    <div className="progress-overlay">
-      <div className="progress-card">
-        <h3>Génération audio</h3>
+    // Clic hors carte : ferme uniquement une fois terminé (ne coupe pas une génération en cours).
+    <div className="progress-overlay" onClick={finished ? onClose : undefined}>
+      <div
+        className="progress-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="audio-progress-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 id="audio-progress-title">Génération audio</h3>
         <progress className="progress-bar" value={done} max={total} />
         <div className="progress-line">
           {done} / {total} tirades traitées ({pct}%)

@@ -661,8 +661,7 @@ button.ghost {
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
   padding: 20px 24px;
-  min-width: 340px;
-  max-width: 440px;
+  width: min(440px, 92vw);
 }
 .progress-card h3 {
   margin: 0 0 14px;

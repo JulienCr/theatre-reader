@@ -260,16 +260,23 @@ export function App() {
   };
 
   // ---- Registre de commandes (palette ⌘K / Ctrl+K) ----
+  // AST partagé : parseFountain est coûteux (split + re-parse complet). On le mémoïse une seule
+  // fois et on le réutilise pour la TOC, l'estimation et le batch audio plutôt que de re-parser
+  // dans chaque calcul.
+  const parsed = useMemo(
+    () => (play ? parseFountain(play.fountain, play.characters) : null),
+    [play?.fountain, play?.characters],
+  );
+
   const toc = useMemo(
-    () => (play ? buildToc(parseFountain(play.fountain, play.characters), play.template) : []),
-    [play],
+    () => (parsed && play ? buildToc(parsed, play.template) : []),
+    [parsed, play?.template],
   );
 
   // Estimation du coût audio de l'export (caractères ElevenLabs pour les rôles « autres »).
   const audioEstimate = useMemo(() => {
     const cfg = play?.audio;
-    if (!play || !cfg?.voices || !Object.keys(cfg.voices).length) return null;
-    const parsed = parseFountain(play.fountain, play.characters);
+    if (!parsed || !cfg?.voices || !Object.keys(cfg.voices).length) return null;
     let chars = 0;
     let lines = 0;
     for (const n of parsed.nodes) {
@@ -282,27 +289,33 @@ export function App() {
       lines += 1;
     }
     return { chars, lines };
-  }, [play?.fountain, play?.characters, play?.audio]);
+  }, [parsed, play?.audio]);
 
   // Toutes les tirades à pré-générer : tout personnage ayant une voix (y compris le mien).
   // `text` normalisé EXACTEMENT comme le lecteur (audio-player collectTirades) pour taper la
   // même clé de cache disque ; sinon on régénère dans le vide. `nodeId` synthétique (index) :
   // il ne sert qu'à compter cached/generated dans le manifeste renvoyé.
+  // Dédup par identité de cache (voix + texte) : deux tirades identiques partagent la même clé
+  // disque. Sans dédup, deux occurrences dans un même lot (workers concurrents, cache-first)
+  // manquent toutes deux le cache et déclenchent deux appels ElevenLabs pour la même clé.
   const audioBatchItems = useMemo<api.TtsBatchItem[]>(() => {
     const cfg = play?.audio;
-    if (!play || !cfg?.voices || !Object.keys(cfg.voices).length) return [];
-    const parsed = parseFountain(play.fountain, play.characters);
+    if (!parsed || !cfg?.voices || !Object.keys(cfg.voices).length) return [];
     const items: api.TtsBatchItem[] = [];
+    const seen = new Set<string>();
     parsed.nodes.forEach((n, i) => {
       if (n.type !== 'line') return;
       const voiceId = cfg.voices?.[n.characterId];
       if (!voiceId) return;
       const text = speechText(n).replace(/\s+/g, ' ').trim();
       if (!text) return;
+      const identity = `${voiceId}\n${text}`;
+      if (seen.has(identity)) return;
+      seen.add(identity);
       items.push({ nodeId: String(i), text, voiceId });
     });
     return items;
-  }, [play?.fountain, play?.characters, play?.audio]);
+  }, [parsed, play?.audio]);
 
   // Pré-génère l'audio de toutes les tirades, par lots, en réutilisant le cache disque.
   const onGenerateAllAudio = useCallback(async () => {
@@ -344,7 +357,9 @@ export function App() {
       if (controller.signal.aborted) {
         setAudioGen((s) => (s ? { ...s, running: false } : s));
       } else {
-        setAudioGen((s) => (s ? { ...s, running: false, error: (e as Error).message } : s));
+        setAudioGen((s) =>
+          s ? { ...s, running: false, error: e instanceof Error ? e.message : String(e) } : s,
+        );
       }
     }
   }, [play, audioBatchItems]);
@@ -576,7 +591,7 @@ export function App() {
       )}
 
       <CommandPalette
-        open={paletteOpen}
+        open={paletteOpen && !audioGen}
         commands={commands}
         onClose={() => setPaletteOpen(false)}
       />
