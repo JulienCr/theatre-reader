@@ -13,16 +13,16 @@ import { dirname } from 'node:path';
 import * as esbuild from 'esbuild';
 import {
   buildNodeIds,
-  buildToc,
   parseFountain,
-  renderBody,
-  renderCSS,
   speechTextForTts,
   type AudioConfig,
   type Character,
   type Note,
   type Template,
 } from '@theatre/core';
+// Sous-chemin et non le baril : `@theatre/reader-ui` expose aussi des composants
+// React (DOM + JSX), que le tsconfig du serveur — Node pur — ne sait pas typer.
+import { buildReaderDocument } from '@theatre/reader-ui/document';
 import { DEFAULT_OUTPUT_FORMAT, DEFAULT_TTS_MODEL, hasElevenLabsKey, synthesize } from './tts';
 import { audioCacheKey, readAudioCache, writeAudioCache } from './storage';
 
@@ -161,26 +161,21 @@ export async function exportReaderHtml(
   notes: Note[] = [],
   audioOpts: ExportAudioOptions = {},
 ): Promise<{ html: string; filename: string }> {
-  const play = parseFountain(fountain, characters);
-  const body = renderBody(play, template);
-  const css = renderCSS(template);
-  const toc = buildToc(play, template).map((e) => ({ id: e.id, label: e.label, scene: e.scene }));
-  const title = play.title ?? 'Pièce';
-  const slug = slugify(title);
+  // Le slug dépend du titre : on parse une première fois pour l'obtenir, car il
+  // nomme le cache disque audio (donc avant `buildAudioClips`) et le fichier.
+  const slug = slugify(parseFountain(fountain, characters).title ?? 'Pièce');
 
   const audio = await buildAudioClips(fountain, characters, slug, audioOpts);
 
-  const data = {
-    characters: play.characters.map((c) => ({ id: c.id, name: c.canonicalName })),
-    toc,
-    highlightsDefault: template.highlights.map((h) => ({
-      characterId: h.characterId,
-      color: h.color,
-    })),
+  const { body, css, data, title } = buildReaderDocument({
+    fountain,
+    characters,
+    template,
     notes,
     storageKey: `theatre-reader:${slug}`,
-    ...(audio ? { audio } : {}),
-  };
+    clips: audio?.clips,
+    myCharacterId: audio?.myCharacterId,
+  });
 
   // Échappe </script> et < pour une inclusion sûre dans une balise <script>.
   // Échappe aussi U+2028/2029 (séparateurs de ligne JS interdits bruts dans un string littéral).
