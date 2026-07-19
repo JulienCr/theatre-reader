@@ -18,6 +18,7 @@ import {
 } from '@theatre/core';
 import { importPdf } from '@theatre/import';
 import { exportPdf } from './export';
+import { createLogger, formatRequestLine } from './logger';
 import { exportReaderHtml } from './reader-export';
 import {
   listPlays,
@@ -72,7 +73,27 @@ interface TtsBatchBody {
 }
 
 export async function buildServer(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true, bodyLimit: 25 * 1024 * 1024 });
+  const app = Fastify({
+    loggerInstance: createLogger(),
+    // Le couple « incoming request » / « request completed » de Fastify est
+    // remplacé par une seule ligne compacte (hook onResponse ci-dessous).
+    disableRequestLogging: true,
+    bodyLimit: 25 * 1024 * 1024,
+  });
+
+  app.addHook('onResponse', async (req, reply) => {
+    const line = formatRequestLine(
+      req.method,
+      req.url,
+      reply.statusCode,
+      reply.elapsedTime,
+    );
+    // Les requêtes hors /api (front buildé, favicon…) ne sont que du bruit :
+    // visibles seulement en THEATRE_LOG_LEVEL=debug, sauf si elles échouent.
+    if (req.url.startsWith('/api/') || reply.statusCode >= 400) app.log.info(line);
+    else app.log.debug(line);
+  });
+
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
 
   app.get('/api/plays', async () => ({ plays: await listPlays() }));
