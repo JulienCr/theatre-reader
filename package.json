@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "bash scripts/with-elevenlabs.sh concurrently -n server,web -c blue,green \"pnpm --filter @theatre/server dev\" \"pnpm --filter @theatre/web dev\"",
     "build": "pnpm --filter @theatre/web build",
-    "start": "pnpm --filter @theatre/server start",
+    "start": "bash scripts/with-elevenlabs.sh pnpm --filter @theatre/server start",
     "test": "vitest run",
     "typecheck": "pnpm -r --if-present typecheck",
     "setup:browser": "pnpm exec playwright install chromium"
