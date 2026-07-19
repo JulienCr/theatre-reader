@@ -70,7 +70,7 @@ les pièces et les notes.
 - **Fastify reste sur `127.0.0.1`** — ne pas ouvrir le LAN. Tailscale = transport HTTPS (satisfait l'ATS iOS).
 - **Contenu synchronisé à l'exécution**, jamais bundlé au build (l'app reste « pas figée »).
 - **`@theatre/ui` expose son CSS en chaînes** (`uiCss`) : l'injecter, ne pas viser des fichiers `.css`.
-- UI en français. `pnpm`. Node ≥ 20. `\rm` au lieu de `rm`. Typecheck par paquet.
+- UI en français. `pnpm`. Node ≥ 22 (exigé par `@capacitor/cli`). `\rm` au lieu de `rm`. Typecheck par paquet.
 - Multi-pièces : l'app liste les pièces (serveur si joignable, sinon locales).
 
 **Baseline au moment de la révision : 86 tests verts (12 fichiers).**
