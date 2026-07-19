@@ -10,6 +10,34 @@
 > `reader-runtime`.** `Reader.tsx` reste le lecteur *desktop* (Paged.js = parité PDF) et
 > n'est **pas** embarqué sur le téléphone — on n'y expédie ni Paged.js ni l'UI d'édition.
 
+## État d'avancement (livré en PR empilées)
+
+| PR | Étape | État |
+|---|---|---|
+| #20 | docs (spec + plan) | ouverte |
+| #21 | T1 · `GET /api/plays/:slug/audio/:key` | ✅ 88 tests |
+| #22 | T2 · `buildReaderDocument` partagé | ✅ 90 tests, export inchangé |
+| #23 | T3 · paquet `@theatre/mobile-app` (en ligne) | ✅ bundle 70 461 o — rendu KO à ce stade |
+| #24 | **T3bis · CORS serveur** *(non prévu au plan)* | ✅ 95 tests · rendu prouvé : 1243 `p.line`, chrome monté, « directeur » = 91 |
+| — | T4-T5 · store FS + « Préparer hors-ligne » | à faire |
+| — | T6 · local-first + écran de choix | à faire |
+| — | T7 · Capacitor iOS + validation device | **à faire par l'utilisateur** (Xcode) |
+| — | T8 · doc · T9 · retrait différé de l'export | à faire |
+
+### T3bis — la pièce manquante du plan initial
+
+Ni le spec ni le plan n'avaient prévu le **CORS**. L'app mobile appelle le serveur en
+cross-origin : depuis `capacitor://localhost` sur device, depuis `localhost:5174/4173` en
+dev. Sans en-têtes CORS, **rien ne s'affiche et aucune erreur JS n'est levée** (`boot()`
+retourne en silence). Corrigé en **liste blanche** — jamais `*` : le serveur est sur la
+loopback et exposé au tailnet, un CORS ouvert laisserait n'importe quelle page web lire
+les pièces et les notes.
+
+**Leçon pour les étapes suivantes :** vérifier sur la vraie chose, avec un contrôle
+**positif** (compter ce qui doit être présent), jamais « pas d'erreur ».
+
+---
+
 **Goal:** Remplacer l'export HTML autonome par une app iOS Capacitor qui embarque le lecteur mobile existant (`@theatre/reader-runtime`), synchronise texte + notes + audio depuis le Mac (via Tailscale) vers le système de fichiers natif, et permet la répétition 100 % hors-ligne.
 
 **Architecture:** Un paquet dédié léger `@theatre/mobile-app` (Vite + Preact) fait **à l'exécution** ce que `exportReaderHtml` fait au build : `renderBody`/`renderCSS` (`@theatre/core`), construction d'un `ReaderData`, puis `TheatreReader.boot()`. Le champ `ReaderData.audio.clips` (`Record<nodeId, string>`) est consommé **tel quel comme URL** par `Chrome.tsx` — on y met une URL serveur (mode en ligne) puis une URL de fichier local (hors-ligne) : **`reader-runtime` ne change pas d'une ligne**. Capacitor empaquette ce bundle en app iOS ; le contenu est synchronisé à l'exécution vers le FS natif.
