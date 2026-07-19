@@ -288,6 +288,41 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   );
 
+  /**
+   * Manifeste seul : nodeId -> { clé, présent-en-cache }. Ne synthétise ni n'écrit RIEN.
+   *
+   * `/tts/batch` rend le même manifeste mais génère les clips manquants, c'est-à-dire
+   * qu'il dépense de l'argent réel (API ElevenLabs). Déclencher ça depuis un téléphone,
+   * pendant une simple « préparation hors-ligne », serait une facturation silencieuse :
+   * la préparation doit télécharger ce qui existe et signaler ce qui manque. Décider de
+   * dépenser reste le rôle du bouton « Générer l'audio » de l'atelier web.
+   *
+   * Corollaire : pas de garde `hasElevenLabsKey()` — préparer un téléphone doit marcher
+   * sur un serveur sans clé, puisque rien n'appelle ElevenLabs ici.
+   *
+   * Le calcul de clé reste côté serveur (et pas dupliqué dans l'app) pour garder la
+   * formule à un seul endroit : une désynchronisation donne un cache manqué silencieux,
+   * donc une régénération payante de clips déjà sur le disque.
+   */
+  app.post<{ Params: { slug: string }; Body: TtsBatchBody }>(
+    '/api/plays/:slug/audio/manifest',
+    async (req, reply) => {
+      const { items, model, settings } = req.body;
+      if (!Array.isArray(items)) return reply.code(400).send({ error: 'items (tableau) requis' });
+      const mdl = model ?? DEFAULT_TTS_MODEL;
+      const manifest: Record<string, { key: string; cached: boolean }> = {};
+      for (const item of items) {
+        if (!item || !item.text?.trim() || !item.voiceId) continue;
+        const key = audioCacheKey(mdl, item.voiceId, DEFAULT_OUTPUT_FORMAT, settings ?? null, item.text);
+        manifest[item.nodeId] = {
+          key,
+          cached: (await readAudioCache(req.params.slug, key)) !== null,
+        };
+      }
+      return { manifest };
+    },
+  );
+
   // Lecture seule du cache disque, par clé (hash de contenu) : cachable et consommable
   // directement comme URL par le lecteur mobile. Pas de synthèse ici (GET idempotent).
   app.get<{ Params: { slug: string; key: string } }>(
