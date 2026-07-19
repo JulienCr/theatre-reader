@@ -28,6 +28,7 @@ export const ICONS = {
     'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M2.5 20a6.5 6.5 0 0 1 13 0M16.5 4.3a4 4 0 0 1 0 7.4M18 14.6a6.5 6.5 0 0 1 3.5 5.4',
   'chevron-down': 'M6 9.5l6 6 6-6',
   'chevron-right': 'M9.5 6l6 6-6 6',
+  'chevron-left': 'M14.5 6l-6 6 6 6',
   x: 'M6.5 6.5l11 11M17.5 6.5l-11 11',
   'more-horizontal': 'M5 12h.01M12 12h.01M19 12h.01',
 

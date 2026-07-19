@@ -49,11 +49,23 @@ export type ButtonVariant = 'primary' | 'neutral' | 'ghost' | 'danger';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
-  /** `touch` porte les cibles à 44 px : à utiliser sur le lecteur mobile. */
-  size?: 'sm' | 'md' | 'touch';
+  /**
+   * `touch` porte les cibles à 44 px : à utiliser sur le lecteur mobile.
+   * `hero` (56 px, rond) est réservé à l'action centrale d'une barre — au plus
+   * une par écran, cf. la règle d'usage de l'accent dans `tokens.ts`.
+   */
+  size?: 'sm' | 'md' | 'touch' | 'hero';
   icon?: IconName;
   children?: ReactNode;
 }
+
+/** Taille de l'icône par taille de bouton — l'icône doit grandir avec la cible. */
+const ICON_SIZE: Record<NonNullable<ButtonProps['size']>, number> = {
+  sm: 15,
+  md: 17,
+  touch: 22,
+  hero: 26,
+};
 
 export function Button({
   variant = 'neutral',
@@ -70,7 +82,7 @@ export function Button({
       className={['btn', `btn--${variant}`, `btn--${size}`, className].filter(Boolean).join(' ')}
       {...rest}
     >
-      {icon && <Icon name={icon} size={size === 'touch' ? 22 : 17} />}
+      {icon && <Icon name={icon} size={ICON_SIZE[size]} />}
       {children}
     </button>
   );
@@ -156,16 +168,24 @@ export function ToolbarSeparator() {
  * Volontairement sans portail ni focus trap : le lecteur mobile n'a qu'une
  * sheet ouverte à la fois et doit rester minuscule. Côté web, les vraies
  * modales passent par Radix Dialog.
+ *
+ * `onBack` et `onClose` sont deux sorties distinctes, pas une seule : une sheet
+ * ouverte depuis une autre doit pouvoir revenir à celle d'où elle vient, sans
+ * pour autant perdre le moyen de tout fermer d'un geste. Le voile ferme toujours
+ * la pile entière — c'est ce qu'on attend d'un voile.
  */
 export function Sheet({
   open,
   title,
   onClose,
+  onBack,
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  /** Fourni quand la sheet en recouvre une autre : affiche le retour. */
+  onBack?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -183,6 +203,16 @@ export function Sheet({
         aria-hidden={!open}
       >
         <div className="sheet-head">
+          {onBack && (
+            <IconButton
+              icon="chevron-left"
+              label="Retour"
+              variant="ghost"
+              size="touch"
+              className="sheet-back"
+              onClick={onBack}
+            />
+          )}
           <h2 className="sheet-title">{title}</h2>
           <IconButton icon="x" label="Fermer" variant="ghost" size="touch" onClick={onClose} />
         </div>

@@ -32,6 +32,7 @@ import {
 import { useAnnotations } from '../useAnnotations';
 import { loadReadingPrefs, saveReadingPrefs, type ReadingPrefs } from '../readingPrefs';
 import { ReadingModeModal } from './ReadingModeModal';
+import { ShortcutList } from './ShortcutList';
 import * as api from '../api';
 
 type Status = 'paginating' | 'ready';
@@ -588,33 +589,11 @@ export function Reader({
 }
 
 function ShortcutsHelp({ onClose }: { onClose: () => void }) {
-  const rows: [string, string][] = [
-    ['/', 'Rechercher'],
-    ['n  ·  p', 'Résultat suivant · précédent'],
-    ['g', 'Aller à une page'],
-    ['+  ·  -  ·  0', 'Zoom avant · arrière · réinitialiser'],
-    ['Espace', 'Lecture / pause · reprend (dit ta réplique)'],
-    ['.  ·  ,', 'Réplique audio suivante · précédente'],
-    ['m', 'Mode de lecture (continu / répétition…)'],
-    ['f', 'Plein écran'],
-    ['?', 'Afficher / masquer cette aide'],
-    ['Échap', 'Fermer le lecteur'],
-    ['⌘K  /  Ctrl+K', 'Palette de commandes'],
-  ];
   return (
     <div className="help-overlay" onClick={onClose}>
       <div className="help-card" onClick={(e) => e.stopPropagation()}>
         <h3>Raccourcis clavier</h3>
-        <dl>
-          {rows.map(([k, d]) => (
-            <div className="help-row" key={k}>
-              <dt>
-                <kbd>{k}</kbd>
-              </dt>
-              <dd>{d}</dd>
-            </div>
-          ))}
-        </dl>
+        <ShortcutList />
       </div>
     </div>
   );
