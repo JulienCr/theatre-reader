@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   buildToc,
   parseFountain,
-  speechText,
+  speechTextForTts,
   type AudioConfig,
   type Character,
   type Note,
@@ -211,9 +211,11 @@ export function App() {
     if (!play) return;
     setBusy(exportWithAudio ? 'Export lecteur mobile (audio)…' : 'Export lecteur mobile…');
     try {
+      // Toutes les voix (roles: 'all' par défaut côté serveur) : le fichier est complet.
+      // La mise en pause de mon rôle en répétition est gérée par le lecteur (bouton « Répét. »).
       const audioOpts =
         exportWithAudio && play.audio.voices && Object.keys(play.audio.voices).length
-          ? { slug: play.slug, audio: play.audio, includeAudio: true, roles: 'others' as const }
+          ? { slug: play.slug, audio: play.audio, includeAudio: true }
           : undefined;
       const { blob, filename } = await api.exportReader(
         play.fountain,
@@ -273,7 +275,8 @@ export function App() {
     [parsed, play?.template],
   );
 
-  // Estimation du coût audio de l'export (caractères ElevenLabs pour les rôles « autres »).
+  // Estimation du coût audio de l'export (caractères ElevenLabs pour toutes les voix,
+  // mon rôle inclus : l'export embarque tout, la répétition est gérée à la lecture).
   const audioEstimate = useMemo(() => {
     const cfg = play?.audio;
     if (!parsed || !cfg?.voices || !Object.keys(cfg.voices).length) return null;
@@ -281,9 +284,8 @@ export function App() {
     let lines = 0;
     for (const n of parsed.nodes) {
       if (n.type !== 'line') continue;
-      if (cfg.myCharacterId && n.characterId === cfg.myCharacterId) continue;
       if (!cfg.voices[n.characterId]) continue;
-      const t = speechText(n);
+      const t = speechTextForTts(n);
       if (!t) continue;
       chars += t.length;
       lines += 1;
@@ -292,8 +294,8 @@ export function App() {
   }, [parsed, play?.audio]);
 
   // Toutes les tirades à pré-générer : tout personnage ayant une voix (y compris le mien).
-  // `text` normalisé EXACTEMENT comme le lecteur (audio-player collectTirades) pour taper la
-  // même clé de cache disque ; sinon on régénère dans le vide. `nodeId` synthétique (index) :
+  // `text` via `speechTextForTts` (normalisation canonique, = audio-player collectTirades) pour
+  // taper la même clé de cache disque ; sinon on régénère dans le vide. `nodeId` synthétique (index) :
   // il ne sert qu'à compter cached/generated dans le manifeste renvoyé.
   // Dédup par identité de cache (voix + texte) : deux tirades identiques partagent la même clé
   // disque. Sans dédup, deux occurrences dans un même lot (workers concurrents, cache-first)
@@ -307,7 +309,7 @@ export function App() {
       if (n.type !== 'line') return;
       const voiceId = cfg.voices?.[n.characterId];
       if (!voiceId) return;
-      const text = speechText(n).replace(/\s+/g, ' ').trim();
+      const text = speechTextForTts(n);
       if (!text) return;
       const identity = `${voiceId}\n${text}`;
       if (seen.has(identity)) return;
@@ -480,7 +482,7 @@ export function App() {
               <button
                 onClick={onGenerateAllAudio}
                 disabled={Boolean(audioGen?.running)}
-                title={`Pré-générer l'audio de ${audioBatchItems.length} tirades (réutilise le cache)`}
+                title={`Pré-générer l'audio de ${audioBatchItems.length} tirades (réutilise le cache ; prépare aussi l'export mobile)`}
               >
                 🎙️ Générer l'audio
               </button>
@@ -488,7 +490,7 @@ export function App() {
             {audioEstimate && (
               <label
                 className="toggle"
-                title={`Embarquer l'audio des autres rôles (~${audioEstimate.chars} caractères ElevenLabs, ${audioEstimate.lines} répliques)`}
+                title={`Embarquer toutes les voix dans l'export mobile (mon rôle inclus ; la répétition met mon rôle en pause côté lecteur) — réutilisé du cache disque (gratuit si déjà généré via 🎙️). Synthèse à la volée uniquement pour les répliques manquantes : ~${audioEstimate.chars} caractères ElevenLabs, ${audioEstimate.lines} répliques au maximum.`}
               >
                 <input
                   type="checkbox"

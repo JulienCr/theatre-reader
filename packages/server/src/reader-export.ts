@@ -16,13 +16,13 @@ import {
   parseFountain,
   renderBody,
   renderCSS,
-  speechText,
+  speechTextForTts,
   type AudioConfig,
   type Character,
   type Note,
   type Template,
 } from '@theatre/core';
-import { DEFAULT_TTS_MODEL, hasElevenLabsKey, synthesize } from './tts';
+import { DEFAULT_OUTPUT_FORMAT, DEFAULT_TTS_MODEL, hasElevenLabsKey, synthesize } from './tts';
 import { audioCacheKey, readAudioCache, writeAudioCache } from './storage';
 
 const require = createRequire(import.meta.url);
@@ -32,9 +32,19 @@ export interface ExportAudioOptions {
   /** Slug de la pièce (pour réutiliser le cache disque). */
   slug?: string;
   includeAudio?: boolean;
-  /** Format ElevenLabs (défaut 'mp3_44100_64' — fichier plus léger). */
+  /**
+   * Format ElevenLabs (défaut `DEFAULT_OUTPUT_FORMAT` = 'mp3_44100_128', identique
+   * à la lecture en ligne et à la pré-génération en masse : les clips déjà générés
+   * sont ainsi réutilisés tels quels depuis le cache disque). Un bitrate non-défaut
+   * (ex. 'mp3_44100_64', fichier plus léger) renonce à cette réutilisation.
+   */
   bitrate?: string;
-  /** 'all' = tous les rôles, 'others' = tout sauf mon rôle (défaut). */
+  /**
+   * 'all' = toutes les voix (défaut) : le fichier est complet. La répétition
+   * (mise en pause de mon rôle) est gérée à l'exécution par le lecteur via
+   * `myCharacterId` + le bouton « Répét. », pas en omettant les clips à l'export.
+   * 'others' = tout sauf mon rôle (export « cue » plus léger, sans ma voix).
+   */
   roles?: 'all' | 'others';
 }
 
@@ -45,12 +55,12 @@ async function buildAudioClips(
   fallbackSlug: string,
   opts: ExportAudioOptions,
 ): Promise<{ clips: Record<string, string>; myCharacterId?: string } | undefined> {
-  if (!opts.includeAudio || !opts.audio?.voices || !hasElevenLabsKey()) return undefined;
+  if (!opts.includeAudio || !opts.audio?.voices) return undefined;
   const play = parseFountain(fountain, characters);
   const ids = buildNodeIds(play);
   const model = opts.audio.model ?? DEFAULT_TTS_MODEL;
-  const bitrate = opts.bitrate ?? 'mp3_44100_64';
-  const roles = opts.roles ?? 'others';
+  const bitrate = opts.bitrate ?? DEFAULT_OUTPUT_FORMAT;
+  const roles = opts.roles ?? 'all';
   const settings = opts.audio.settings;
   const myId = opts.audio.myCharacterId;
   const slug = opts.slug ?? fallbackSlug;
@@ -61,7 +71,7 @@ async function buildAudioClips(
     if (roles === 'others' && myId && node.characterId === myId) return;
     const voiceId = opts.audio!.voices![node.characterId];
     if (!voiceId) return;
-    const text = speechText(node);
+    const text = speechTextForTts(node);
     if (text) tasks.push({ nodeId: ids[i]!, voiceId, text });
   });
 
@@ -74,6 +84,10 @@ async function buildAudioClips(
       const key = audioCacheKey(model, t.voiceId, bitrate, settings ?? null, t.text);
       let buf = await readAudioCache(slug, key);
       if (!buf) {
+        // Cache-first : on réutilise les clips déjà générés (bouton « Générer l'audio »).
+        // Sans clé, un clip absent est simplement sauté (export partiel, réplique muette
+        // sur le téléphone) plutôt que d'abandonner tout l'audio de l'export.
+        if (!hasElevenLabsKey()) continue;
         buf = await synthesize({ text: t.text, voiceId: t.voiceId, model, outputFormat: bitrate, settings });
         await writeAudioCache(slug, key, buf);
       }
@@ -81,6 +95,9 @@ async function buildAudioClips(
     }
   };
   await Promise.all([worker(), worker(), worker()]);
+  // Aucun clip embarqué (cache vide + pas de clé) : on n'injecte pas de bloc `audio` vide
+  // (le runtime garde `Object.keys(d.audio.clips).length` avant de câbler la lecture).
+  if (!Object.keys(clips).length) return undefined;
   return { clips, myCharacterId: myId };
 }
 
