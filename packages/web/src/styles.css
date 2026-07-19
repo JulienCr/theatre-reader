@@ -199,10 +199,12 @@ button.seg-on:hover {
   background: var(--table);
   padding: 24px;
 }
+/* --sheet et non --paper-raised : c'est la feuille rendue par @theatre/core,
+   dont l'encre est fixée à #111 — elle reste blanche même en thème sombre. */
 .preview-sheet {
   max-width: 820px;
   margin: 0 auto;
-  background: var(--paper-raised);
+  background: var(--sheet);
   padding: 40px 48px;
   box-shadow: var(--sh-2);
   border-radius: 2px;
@@ -452,7 +454,8 @@ button.seg-on:hover {
 .reader-pages .pagedjs_page {
   position: relative;
   margin: 30px auto 0;
-  background: var(--paper-raised);
+  /* Idem .preview-sheet : surface de document, hors thème. */
+  background: var(--sheet);
   box-shadow: var(--sh-1);
 }
 .reader-pages .pagedjs_page:first-child {
