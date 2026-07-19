@@ -253,6 +253,23 @@ export function createPlayer(opts: PlayerOptions): Player {
     const words = text.trim().split(/\s+/).filter(Boolean).length; // ~150 mots/min ≈ 400 ms/mot
     return Math.min(FALLBACK_MAX_MS, Math.max(FALLBACK_MIN_MS, words * 400 + 400));
   }
+  // Barre de progression du minuteur, en haut du bloc de la tirade (avancement auto) :
+  // un <span display:block> (valide dans un <p>) dont le remplissage s'anime sur `ms`.
+  function clearTimerBar(): void {
+    opts.container.querySelectorAll('.line-timer').forEach((e) => e.remove());
+  }
+  function showTimerBar(el: HTMLElement, ms: number): void {
+    clearTimerBar();
+    const bar = document.createElement('span');
+    bar.className = 'line-timer';
+    const fill = document.createElement('span');
+    fill.className = 'line-timer-fill';
+    bar.appendChild(fill);
+    el.insertBefore(bar, el.firstChild);
+    void bar.offsetWidth; // force un reflow pour que la transition parte de 0
+    fill.style.transition = `width ${ms}ms linear`;
+    fill.style.width = '100%';
+  }
   function cancelTimer(): void {
     if (timerId != null) {
       clearTimeout(timerId);
@@ -260,6 +277,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     }
     timed = false;
     timedMs = null;
+    clearTimerBar();
   }
   function probeDuration(url: string): Promise<number> {
     return new Promise((resolve) => {
@@ -309,6 +327,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     timed = true;
     timedMs = ms;
     emit();
+    showTimerBar(t.element, ms);
     timerId = setTimeout(() => {
       if (destroyed || my !== token) return;
       resolveCue();

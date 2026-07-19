@@ -113,6 +113,8 @@ const STYLE = `
 .reader-backdrop.open { display: block; }
 .line--masked .speech { display: inline-block; filter: blur(5px); transition: filter .12s; cursor: pointer; }
 .line--masked.line--revealed .speech { filter: none; }
+.line-timer { display: block; height: 4px; margin: 0 0 6px; border-radius: 2px; background: rgba(0,0,0,.08); overflow: hidden; }
+.line-timer-fill { display: block; height: 100%; width: 0; background: #2b6cb0; border-radius: 2px; }
 .reader-sheet .mode-hint { display: block; font-size: 13px; color: #666; margin: 4px 0 0 30px; }
 .reader-sheet .mode-subhead { font-weight: 600; margin: 16px 0 6px; }
 .reader-sheet .row input:disabled { opacity: .4; }

@@ -514,6 +514,23 @@ mark.reader-hit--current {
 .line--masked.line--revealed .speech {
   filter: none;
 }
+
+/* Barre de temps (avancement auto) : en haut du bloc de la tirade en cours. */
+.line-timer {
+  display: block;
+  height: 4px;
+  margin: 0 0 6px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+.line-timer-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 2px;
+}
 .reader-speaker {
   font-size: 13px;
   color: var(--muted);

@@ -185,10 +185,16 @@ describe('@theatre/audio-player', () => {
     expect(last?.waitingForUser).toBe(true);
     expect(last?.timed).toBe(true);
     expect(last?.timedMs).toBe(2000);
+    // barre de temps affichée en haut de ma tirade, animée sur la durée de la pause
+    const b = c.querySelector('[data-nid="b#0"]') as HTMLElement;
+    const fill = b.querySelector('.line-timer .line-timer-fill') as HTMLElement;
+    expect(fill).not.toBeNull();
+    expect(fill.style.width).toBe('100%');
+    expect(fill.style.transition).toContain('2000ms');
     await vi.advanceTimersByTimeAsync(2000); // déclenche le minuteur
     expect(last?.currentNodeId).toBe('a#1');
-    const b = c.querySelector('[data-nid="b#0"]') as HTMLElement;
     expect(b.classList.contains('line--revealed')).toBe(true);
+    expect(c.querySelector('.line-timer')).toBeNull(); // barre retirée à l'avance
     p.destroy();
     vi.useRealTimers();
   });
