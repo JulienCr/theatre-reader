@@ -7,6 +7,17 @@
  */
 
 export const primitivesCss = `
+/* ── Contrôles natifs ──────────────────────────────────────────────────────────
+   Sans \`accent-color\`, une case cochée ou un curseur s'affiche dans le bleu du
+   navigateur — hors palette, et le seul endroit de l'interface où une couleur
+   n'est pas choisie par nous. Posé ici plutôt que dans chaque cible : c'est
+   précisément ce que le paquet partagé doit garantir. */
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'] {
+  accent-color: var(--accent);
+}
+
 /* ── Boutons ───────────────────────────────────────────────────────────────── */
 .btn {
   display: inline-flex;
