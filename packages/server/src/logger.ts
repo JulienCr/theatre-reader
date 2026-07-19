@@ -58,16 +58,39 @@ function hhmmss(): string {
   return new Date().toTimeString().slice(0, 8);
 }
 
-/** Extrait un message lisible d'un appel pino `(obj, msg)` ou `(msg, …)`. */
-function format(args: unknown[]): string {
+/** Détail lisible d'une erreur : `Error`, ou objet sérialisé `{ message, stack }`. */
+function errorDetail(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { message, stack } = value as { message?: unknown; stack?: unknown };
+  if (typeof message !== 'string') return undefined;
+  return typeof stack === 'string' ? `${message}\n${paint('dim', stack)}` : message;
+}
+
+/** `JSON.stringify` qui ne fait pas planter le logger sur un objet circulaire. */
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Extrait un message lisible d'un appel pino `(obj, msg)` ou `(msg, …)`.
+ * Fastify journalise ses échecs sous la forme `({ req, res, err }, message)` :
+ * le message seul perdrait la pile d'exception, on la ré-attache donc.
+ */
+export function formatLogMessage(args: unknown[]): string {
   const [first, second] = args;
   if (typeof first === 'string') return second === undefined ? first : `${first} ${String(second)}`;
-  if (first instanceof Error) {
-    const trace = first.stack ? `\n${paint('dim', first.stack)}` : '';
-    return `${typeof second === 'string' ? `${second} — ` : ''}${first.message}${trace}`;
-  }
-  if (typeof second === 'string') return second;
-  return first === undefined ? '' : JSON.stringify(first);
+
+  const payload = first as { err?: unknown; error?: unknown } | undefined;
+  const detail = errorDetail(first) ?? errorDetail(payload?.err) ?? errorDetail(payload?.error);
+  const prefix = typeof second === 'string' ? second : '';
+  if (detail !== undefined) return prefix ? `${prefix} — ${detail}` : detail;
+
+  if (prefix) return prefix;
+  return first === undefined ? '' : safeStringify(first);
 }
 
 export function createLogger(): FastifyBaseLogger {
@@ -76,7 +99,7 @@ export function createLogger(): FastifyBaseLogger {
 
   const emit = (lvl: Level, args: unknown[]) => {
     if (ORDER[lvl] < threshold) return;
-    const line = format(args);
+    const line = formatLogMessage(args);
     if (!line) return;
     const out = `${paint('dim', hhmmss())} ${LEVEL_TAG[lvl]} ${line}`;
     if (ORDER[lvl] >= ORDER.error) console.error(out);

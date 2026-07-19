@@ -34,6 +34,15 @@ function boolOr(v: unknown, d: boolean): boolean {
   return typeof v === 'boolean' ? v : d;
 }
 
+/** `typeof NaN === 'number'` : sans ce garde, un JSON abîmé donne `font-size: NaN%`. */
+function numOr(v: unknown, d: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : d;
+}
+
+function stringsOr(v: unknown, d: string[]): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : d;
+}
+
 export function loadState(key: string, fallback: PersistedState): PersistedState {
   try {
     const raw = localStorage.getItem(key);
@@ -41,8 +50,8 @@ export function loadState(key: string, fallback: PersistedState): PersistedState
       const parsed = JSON.parse(raw) as Partial<PersistedState>;
       const r = (parsed.reading ?? {}) as Partial<ReadingSettings>;
       return {
-        selected: Array.isArray(parsed.selected) ? parsed.selected : fallback.selected,
-        fontPct: typeof parsed.fontPct === 'number' ? parsed.fontPct : fallback.fontPct,
+        selected: stringsOr(parsed.selected, fallback.selected),
+        fontPct: numOr(parsed.fontPct, fallback.fontPct),
         reading: {
           rehearsal: boolOr(r.rehearsal, fallback.reading.rehearsal),
           mask: boolOr(r.mask, fallback.reading.mask),
@@ -50,9 +59,7 @@ export function loadState(key: string, fallback: PersistedState): PersistedState
           autoAdvance: boolOr(r.autoAdvance, fallback.reading.autoAdvance),
           tick: boolOr(r.tick, fallback.reading.tick),
         },
-        myRoles: Array.isArray(parsed.myRoles)
-          ? parsed.myRoles.filter((x): x is string => typeof x === 'string')
-          : fallback.myRoles,
+        myRoles: stringsOr(parsed.myRoles, fallback.myRoles),
       };
     }
   } catch {
