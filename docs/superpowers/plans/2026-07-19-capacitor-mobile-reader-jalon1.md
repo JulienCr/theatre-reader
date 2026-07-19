@@ -2,83 +2,87 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remplacer l'export HTML autonome par une app iOS Capacitor qui embarque le reader web existant, synchronise texte + notes + audio depuis le Mac (via Tailscale) vers le système de fichiers natif, et permet la répétition 100 % hors-ligne.
+> **Révisé le 2026-07-19, après la refonte UI (`main` → 5bf1241, PR #7/#9/#11/#13/#15).**
+> La version initiale prévoyait de servir `Reader.tsx` dans la WebView et de **supprimer**
+> `@theatre/reader-runtime`. Ces PR ont fait de `reader-runtime` un véritable lecteur mobile
+> React/Preact (chrome, transport, sheet Options, modes de répétition) adossé aux nouveaux
+> `@theatre/ui` et `@theatre/reader-ui`. **Décision inversée : on garde et on réutilise
+> `reader-runtime`.** `Reader.tsx` reste le lecteur *desktop* (Paged.js = parité PDF) et
+> n'est **pas** embarqué sur le téléphone — on n'y expédie ni Paged.js ni l'UI d'édition.
 
-**Architecture:** Le reader web (`Reader.tsx`, rendu canonique `@theatre/core`) est bundlé dans une app Capacitor → shell offline par construction. Le contenu est synchronisé à l'exécution par un bouton « Préparer hors-ligne » qui écrit sur le FS natif (Capacitor Filesystem) et lit ensuite depuis le FS quand le Mac est injoignable. Seule addition serveur : `GET /api/plays/:slug/audio/:key` (les POST ne se prêtent pas au téléchargement/stockage simple). L'ancien export et le package `@theatre/reader-runtime` sont retirés.
+**Goal:** Remplacer l'export HTML autonome par une app iOS Capacitor qui embarque le lecteur mobile existant (`@theatre/reader-runtime`), synchronise texte + notes + audio depuis le Mac (via Tailscale) vers le système de fichiers natif, et permet la répétition 100 % hors-ligne.
 
-**Tech Stack:** TypeScript, pnpm monorepo (internal packages, no build for core), React 19 + Vite 6, Fastify, Capacitor (`@capacitor/core`, `@capacitor/ios`, `@capacitor/filesystem`, `@capacitor/preferences`), Vitest.
+**Architecture:** Un paquet dédié léger `@theatre/mobile-app` (Vite + Preact) fait **à l'exécution** ce que `exportReaderHtml` fait au build : `renderBody`/`renderCSS` (`@theatre/core`), construction d'un `ReaderData`, puis `TheatreReader.boot()`. Le champ `ReaderData.audio.clips` (`Record<nodeId, string>`) est consommé **tel quel comme URL** par `Chrome.tsx` — on y met une URL serveur (mode en ligne) puis une URL de fichier local (hors-ligne) : **`reader-runtime` ne change pas d'une ligne**. Capacitor empaquette ce bundle en app iOS ; le contenu est synchronisé à l'exécution vers le FS natif.
+
+**Tech Stack:** TypeScript, pnpm monorepo (internal packages), Preact (React aliasé), Vite 6, Fastify, Capacitor (`core`, `ios`, `filesystem`), Vitest.
 
 ## Global Constraints
 
-- **Rendu = source unique** : ne JAMAIS réimplémenter le rendu. Réutiliser `renderBody` / `renderCSS` / `Reader.tsx` / `@theatre/audio-player`. (spec + CLAUDE.md « rendering contract »)
-- **Parité de clé audio** : toute construction de clé passe par `speechTextForTts(node)` (texte canonique) + `buildNodeIds(play)` (nodeId) + le `model`/`settings` de `play.audio`, format `DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'`. Les clips offline sont les MÊMES fichiers `.mp3` que la lecture en ligne / `/tts/batch`. (CLAUDE.md « Audio cache »)
-- **Fastify reste sur `127.0.0.1`** (`main.ts:23`) — ne pas ouvrir le LAN. Tailscale est le transport HTTPS (satisfait l'ATS iOS).
+- **Rendu = source unique** : ne JAMAIS réimplémenter le rendu. Le HTML de la pièce vient exclusivement de `renderBody`/`renderCSS` (`@theatre/core`). (CLAUDE.md « rendering contract »)
+- **Invariant `reader-runtime`** : React ne possède JAMAIS le texte de la pièce. Le chrome est monté dans un conteneur séparé (`#reader-chrome`) ; `.play` est muté impérativement (annotations, audio, recherche). Ne pas l'enfreindre.
+- **`@theatre/reader-ui`** : rien n'y possède le HTML de la pièce ; les composants y sont présentationnels (tout passe par props).
+- **Parité de clé audio** : toute clé passe par `speechTextForTts(node)` + `buildNodeIds(play)` + `model`/`settings` de `play.audio`, format `DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128'`. Les clips hors-ligne sont les MÊMES `.mp3` que la lecture en ligne / `/tts/batch`. (CLAUDE.md « Audio cache »)
+- **Fastify reste sur `127.0.0.1`** — ne pas ouvrir le LAN. Tailscale = transport HTTPS (satisfait l'ATS iOS).
 - **Contenu synchronisé à l'exécution**, jamais bundlé au build (l'app reste « pas figée »).
-- **UI en français.** `pnpm` (pas npm/yarn). Node ≥ 20. Typecheck par package (`pnpm -r typecheck`), pas de build de `core`.
-- **`\rm`** au lieu de `rm` en shell (alias interactif).
-- Multi-pièces : l'app liste toutes les pièces préparées localement.
+- **`@theatre/ui` expose son CSS en chaînes** (`uiCss`) : l'injecter, ne pas viser des fichiers `.css`.
+- UI en français. `pnpm`. Node ≥ 20. `\rm` au lieu de `rm`. Typecheck par paquet.
+- Multi-pièces : l'app liste les pièces (serveur si joignable, sinon locales).
+
+**Baseline au moment de la révision : 86 tests verts (12 fichiers).**
 
 ---
 
 ## File Structure
 
 **Serveur (`packages/server/src/`)**
-- `server.ts` — MODIFIER : ajouter `GET /api/plays/:slug/audio/:key` ; retirer la route `/api/export/reader` + l'import `exportReaderHtml` + les champs audio de `ExportBody`.
-- `audio-get.test.ts` — CRÉER : test du nouvel endpoint.
-- `reader-export.ts`, `reader-export.test.ts`, `reader-export-audio.test.ts` — SUPPRIMER.
-- `server.test.ts` — MODIFIER : retirer les cas qui frappent `/api/export/reader`.
+- `server.ts` — MODIFIER : ajouter `GET /api/plays/:slug/audio/:key`.
+- `audio-get.test.ts` — CRÉER.
+- `reader-export.ts` — MODIFIER (T2) : déléguer la construction du document. SUPPRIMÉ en T9.
 
-**Web (`packages/web/src/`)**
-- `api.ts` — MODIFIER : base URL configurable (`apiUrl`), retirer `exportReader`/`ReaderExportAudio`, ajouter `fetchAudioByKey`.
-- `platform.ts` — CRÉER : `isNative()`, `getApiBase()`, `setApiBase()`.
-- `platform.test.ts` — CRÉER : test de `apiUrl`/base.
-- `offline/store.ts` — CRÉER : lecture/écriture FS natif (play, notes, manifeste audio, clips) + liste locale.
-- `offline/prepare.ts` — CRÉER : construit le manifeste `nodeId→key` (fonction pure testable) + orchestre la sync.
-- `offline/prepare.test.ts` — CRÉER : parité clé/nodeId du manifeste.
-- `App.tsx` — MODIFIER : retirer l'export lecteur ; brancher le mode natif (read-only, local-first) + bouton « Préparer hors-ligne ».
-- `components/Reader.tsx` — MODIFIER : `resolveAudio` bascule online (serveur) / offline (FS local).
+**Partagé (`packages/reader-ui/src/`)**
+- `document.ts` — CRÉER : `buildReaderDocument()` (pur, sans I/O) → `{ body, css, data, title }`. Source **unique** du `ReaderData`, utilisée par l'export ET l'app mobile.
+- `document.test.ts` — CRÉER.
 
-**Packages**
-- `packages/reader-runtime/` — SUPPRIMER (dossier entier).
-- `pnpm-workspace.yaml` / dépendances — MODIFIER si référence à `reader-runtime`.
+**App mobile (`packages/mobile-app/`) — NOUVEAU paquet**
+- `package.json`, `vite.config.ts`, `index.html`, `tsconfig.json`, `capacitor.config.ts`
+- `src/main.ts` — entrée : charge, monte le document, `boot()`.
+- `src/api.ts` — client HTTP vers le Mac + `buildAudioItems` + `buildOnlineClips`.
+- `src/settings.ts` — base URL persistée.
+- `src/offline/store.ts` — FS natif (Capacitor Filesystem).
+- `src/offline/prepare.ts` (+ `prepare.test.ts`) — sync + manifeste `nodeId→key`.
+- `src/ui/Picker.tsx` — choix de pièce, réglage URL, « Préparer hors-ligne ».
 
-**Capacitor (racine + `packages/web/`)**
-- `packages/web/capacitor.config.ts` — CRÉER.
-- `packages/web/package.json` — MODIFIER : deps Capacitor + scripts `cap:*`.
-- `packages/web/ios/` — GÉNÉRÉ par `cap add ios` (gitignoré sauf besoin).
-
-**Docs**
-- `README.md` / `CLAUDE.md` — MODIFIER : setup Tailscale + cycle de déploiement iOS.
+**Web (`packages/web/`)** — inchangé au Jalon 1, sauf T9 (retrait du bouton d'export).
 
 ---
 
 ## Task 1: Endpoint serveur `GET /api/plays/:slug/audio/:key`
 
 **Files:**
-- Modify: `packages/server/src/server.ts` (après la route `/tts/batch`, ~ligne 236)
+- Modify: `packages/server/src/server.ts` (après la route `/tts/batch`)
 - Test: `packages/server/src/audio-get.test.ts`
 
 **Interfaces:**
-- Consumes: `readAudioCache(slug, key)` (`storage.ts:106`), `buildServer()` (`server.ts:74`).
-- Produces: `GET /api/plays/:slug/audio/:key` → `200 audio/mpeg` (corps = MP3) si le clip existe en cache, `404 {error}` sinon. `Cache-Control: public, max-age=31536000, immutable` (la clé est un hash du contenu → immuable).
+- Consumes: `readAudioCache(slug, key)` (`storage.ts`), `buildServer()`.
+- Produces: `GET /api/plays/:slug/audio/:key` → `200 audio/mpeg` si présent, `404 {error}` sinon, `Cache-Control: public, max-age=31536000, immutable` (la clé est un hash de contenu → immuable).
 
 - [ ] **Step 1: Écrire le test qui échoue**
 
-Créer `packages/server/src/audio-get.test.ts` (calqué sur `reader-export-audio.test.ts` pour le dossier data temporaire) :
+Créer `packages/server/src/audio-get.test.ts` :
 
 ```ts
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, beforeAll } from 'vitest';
+import type { FastifyInstance } from 'fastify';
 
-// DATA_DIR (storage) est mémoïsé à l'import : on fixe un dossier temporaire AVANT les imports.
-const DATA_DIR = mkdtempSync(join(tmpdir(), 'theatre-reader-audio-get-'));
+// DATA_DIR (storage) est mémoïsé à l'import : dossier temporaire AVANT les imports.
+const DATA_DIR = mkdtempSync(join(tmpdir(), 'theatre-audio-get-'));
 process.env.THEATRE_DATA_DIR = DATA_DIR;
 
 const { buildServer } = await import('./server');
 const { writeAudioCache } = await import('./storage');
-import type { FastifyInstance } from 'fastify';
 
 let app: FastifyInstance;
 beforeAll(async () => {
@@ -102,18 +106,18 @@ describe('GET /api/plays/:slug/audio/:key', () => {
 });
 ```
 
-- [ ] **Step 2: Lancer le test → échec attendu**
+- [ ] **Step 2: Lancer → échec attendu**
 
 Run: `pnpm vitest run packages/server/src/audio-get.test.ts`
-Expected: FAIL (route inexistante → 404 sur le 1er test).
+Expected: FAIL (route inexistante).
 
 - [ ] **Step 3: Implémenter la route**
 
-Dans `packages/server/src/server.ts`, juste après la fermeture de la route `/api/plays/:slug/tts/batch` (après la ligne `);` ~236) :
+Dans `packages/server/src/server.ts`, après la fermeture de la route `/api/plays/:slug/tts/batch` :
 
 ```ts
-  // Lecture seule du cache disque, par clé (hash contenu) : cachable → consommable par
-  // l'app mobile (prépa hors-ligne). Pas de synthèse ici : la clé reste idempotente.
+  // Lecture seule du cache disque, par clé (hash de contenu) : cachable et consommable
+  // directement comme URL par le lecteur mobile. Pas de synthèse ici (GET idempotent).
   app.get<{ Params: { slug: string; key: string } }>(
     '/api/plays/:slug/audio/:key',
     async (req, reply) => {
@@ -127,17 +131,12 @@ Dans `packages/server/src/server.ts`, juste après la fermeture de la route `/ap
   );
 ```
 
-- [ ] **Step 4: Lancer le test → succès**
+- [ ] **Step 4: Lancer → succès**
 
 Run: `pnpm vitest run packages/server/src/audio-get.test.ts`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Typecheck serveur**
-
-Run: `pnpm --filter @theatre/server typecheck`
-Expected: 0 erreur.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add packages/server/src/server.ts packages/server/src/audio-get.test.ts
@@ -146,209 +145,414 @@ git commit -m "feat(server): GET /api/plays/:slug/audio/:key (clip audio en cach
 
 ---
 
-## Task 2: Retirer l'ancien export HTML + `@theatre/reader-runtime`
+## Task 2: Constructeur de document partagé (`buildReaderDocument`)
 
-Décision utilisateur : retrait immédiat, sans coexistence.
-
-**Files:**
-- Delete: `packages/server/src/reader-export.ts`, `reader-export.test.ts`, `reader-export-audio.test.ts`
-- Delete: `packages/reader-runtime/` (dossier entier)
-- Modify: `packages/server/src/server.ts`, `packages/server/src/server.test.ts`, `packages/web/src/api.ts`, `packages/web/src/App.tsx`
-
-**Interfaces:**
-- Produces: plus aucune référence à `exportReaderHtml`, `@theatre/reader-runtime`, `POST /api/export/reader`, `api.exportReader`.
-
-- [ ] **Step 1: Vérifier qu'aucun autre code ne dépend de reader-runtime**
-
-Run: `grep -rn "reader-runtime\|exportReaderHtml\|export/reader\|exportReader" packages --include="*.ts" --include="*.tsx" --include="*.json"`
-Expected : occurrences uniquement dans les fichiers listés ci-dessous (server.ts, api.ts, App.tsx, reader-export*, reader-runtime/*, et les `package.json` de web/reader-runtime). Si une autre occurrence apparaît, l'ajouter au périmètre avant de continuer.
-
-- [ ] **Step 2: Supprimer les fichiers d'export + le package runtime**
-
-```bash
-\rm packages/server/src/reader-export.ts \
-    packages/server/src/reader-export.test.ts \
-    packages/server/src/reader-export-audio.test.ts
-\rm -rf packages/reader-runtime
-```
-
-- [ ] **Step 3: Nettoyer `server.ts`**
-
-Dans `packages/server/src/server.ts` :
-- Retirer l'import : `import { exportReaderHtml } from './reader-export';` (ligne ~21).
-- Retirer la route `app.post<{ Body: ExportBody }>('/api/export/reader', …)` (lignes ~143-165).
-- Dans `interface ExportBody`, retirer les champs propres à l'export lecteur : `notes?`, `slug?`, `audio?`, `includeAudio?`, `bitrate?`, `roles?` — ne garder que `fountain`, `characters`, `template` (utilisés par `/api/export` PDF). Retirer les imports devenus inutilisés (`AudioConfig`, `Note` si plus référencés ailleurs dans le fichier — vérifier avant de retirer).
-
-- [ ] **Step 4: Nettoyer `server.test.ts`**
-
-Run: `grep -n "export/reader\|exportReader" packages/server/src/server.test.ts`
-Retirer chaque `it(...)`/bloc qui frappe `POST /api/export/reader`. Conserver les autres cas.
-
-- [ ] **Step 5: Nettoyer `api.ts` (web)**
-
-Dans `packages/web/src/api.ts` :
-- Retirer `export interface ReaderExportAudio { … }` (lignes ~75-81).
-- Retirer `export async function exportReader(…) { … }` (lignes ~83-103).
-- Retirer l'import `Note` s'il n'est plus utilisé (il l'est encore par `loadNotes`/`saveNotes` → le garder).
-
-- [ ] **Step 6: Nettoyer `App.tsx` (web)**
-
-Dans `packages/web/src/App.tsx` :
-- Retirer `onExportReader` (lignes ~210-240), l'état `exportWithAudio` (ligne ~48), le `useMemo` `audioEstimate` (lignes ~280-294) et l'entrée `exportWithAudio` de la liste de dépendances du `useMemo` `commands` (ligne ~402).
-- Retirer la commande palette `export-reader` (ligne ~375).
-- Retirer le bouton `<button onClick={onExportReader}>Lecteur mobile</button>` (ligne ~480) et le `<label className="toggle">…🔊 audio…</label>` (lignes ~490-502).
-- CONSERVER `onGenerateAllAudio`, `audioBatchItems`, le bouton `🎙️ Générer l'audio` et l'import `speechTextForTts` (indépendants de l'export ; ils chauffent le cache que « Préparer hors-ligne » réutilisera).
-
-- [ ] **Step 7: Typecheck + tests complets**
-
-Run: `pnpm typecheck && pnpm test`
-Expected: 0 erreur de type ; tous les tests passent (les 5 tests d'export supprimés en moins ; aucun test rouge).
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add -A
-git commit -m "refactor: retire l'export HTML autonome et @theatre/reader-runtime (remplacés par la PWA/Capacitor)"
-```
-
----
-
-## Task 3: Base URL API configurable (`platform.ts`)
-
-Sous Capacitor, la WebView charge `capacitor://localhost` : les `fetch('/api/...')` doivent viser le Mac (`https://<mac>.ts.net`). En web, la base reste vide (same-origin + proxy Vite).
+`exportReaderHtml` est aujourd'hui le seul endroit qui sait fabriquer un `ReaderData`. L'app mobile doit fabriquer **le même** → on extrait plutôt que de dupliquer (dérive garantie sinon).
 
 **Files:**
-- Create: `packages/web/src/platform.ts`
-- Test: `packages/web/src/platform.test.ts`
-- Modify: `packages/web/src/api.ts` (router tous les `fetch` via `apiUrl`)
+- Create: `packages/reader-ui/src/document.ts`, `packages/reader-ui/src/document.test.ts`
+- Modify: `packages/reader-ui/src/index.ts` (ré-export), `packages/reader-runtime/src/types.ts` (ré-exporte le type), `packages/server/src/reader-export.ts` (délègue)
 
 **Interfaces:**
-- Produces:
-  - `isNative(): boolean` — vrai sous Capacitor natif.
-  - `getApiBase(): string` — base URL API (`''` par défaut ; en natif, valeur stockée).
-  - `setApiBase(url: string): void` — persiste la base (sans `/` final).
-  - `apiUrl(path: string): string` — `getApiBase() + path` (path commence par `/api/...`).
+- Produces: `buildReaderDocument(input: ReaderDocumentInput): ReaderDocument` où
+  `ReaderDocument = { body: string; css: string; data: ReaderData; title: string }` et
+  `ReaderDocumentInput = { fountain, characters, template, notes?, storageKey, clips?, myCharacterId? }`.
+  `clips?: Record<string, string>` = nodeId → **URL opaque** (data URI, URL serveur ou fichier local).
 
 - [ ] **Step 1: Écrire le test qui échoue**
 
-Vitest tourne en environnement `happy-dom` (cf. racine `package.json` devDeps) → `localStorage` dispo. Créer `packages/web/src/platform.test.ts` :
+Créer `packages/reader-ui/src/document.test.ts` :
 
 ```ts
-import { describe, expect, it, beforeEach } from 'vitest';
-import { apiUrl, getApiBase, setApiBase } from './platform';
+import { describe, expect, it } from 'vitest';
+import { actorReadingTemplate } from '@theatre/core';
+import { buildReaderDocument } from './document';
 
-beforeEach(() => localStorage.clear());
+const SRC = `# ACTE I.\n\n## SCENE I.\n\nMICHEL\nBonjour à tous.\n\nBENJI\nSalut Michel.\n`;
 
-describe('platform apiUrl / base', () => {
-  it('base vide par défaut → chemin relatif', () => {
-    expect(getApiBase()).toBe('');
-    expect(apiUrl('/api/plays')).toBe('/api/plays');
+describe('buildReaderDocument', () => {
+  it('produit body + css + data cohérents', () => {
+    const doc = buildReaderDocument({
+      fountain: SRC,
+      characters: [],
+      template: actorReadingTemplate,
+      storageKey: 'theatre-reader:piece',
+    });
+    expect(doc.body).toContain('class="play"');
+    expect(doc.css.length).toBeGreaterThan(0);
+    expect(doc.data.characters.map((c) => c.name)).toContain('MICHEL');
+    expect(doc.data.toc.length).toBeGreaterThan(0);
+    expect(doc.data.storageKey).toBe('theatre-reader:piece');
+    expect(doc.data.audio).toBeUndefined(); // aucun clip → pas de bloc audio
   });
 
-  it('base persistée → préfixe absolu, sans double slash', () => {
-    setApiBase('https://mac.tailnet.ts.net/');
-    expect(getApiBase()).toBe('https://mac.tailnet.ts.net');
-    expect(apiUrl('/api/plays/x/audio/k')).toBe('https://mac.tailnet.ts.net/api/plays/x/audio/k');
+  it('expose les clips tels quels (URL opaque) et mon rôle', () => {
+    const doc = buildReaderDocument({
+      fountain: SRC,
+      characters: [],
+      template: actorReadingTemplate,
+      storageKey: 'k',
+      clips: { 'n-1': 'file:///local/a.mp3' },
+      myCharacterId: 'michel',
+    });
+    expect(doc.data.audio?.clips['n-1']).toBe('file:///local/a.mp3');
+    expect(doc.data.audio?.myCharacterId).toBe('michel');
   });
 });
 ```
 
 - [ ] **Step 2: Lancer → échec**
 
-Run: `pnpm vitest run packages/web/src/platform.test.ts`
-Expected: FAIL (`./platform` inexistant).
+Run: `pnpm vitest run packages/reader-ui/src/document.test.ts`
+Expected: FAIL (`./document` inexistant).
 
-- [ ] **Step 3: Implémenter `platform.ts`**
+- [ ] **Step 3: Implémenter `document.ts`**
+
+Reprendre EXACTEMENT la logique actuelle de `reader-export.ts` (construction de `body`/`css`/`toc`/`data`) :
 
 ```ts
-/** Détection de plateforme + base URL API (web = same-origin, natif = Mac via Tailscale). */
-import { Capacitor } from '@capacitor/core';
+/**
+ * Construction du document lecteur (body + css + ReaderData) — pur, sans I/O.
+ * Source UNIQUE partagée par l'export .html et l'app mobile Capacitor : les deux
+ * doivent produire un ReaderData identique, sinon ils dérivent.
+ */
+import {
+  parseFountain, renderBody, renderCSS, buildToc,
+  type Character, type Note, type Template,
+} from '@theatre/core';
 
-const API_BASE_KEY = 'theatre:apiBase';
-
-export function isNative(): boolean {
-  return Capacitor.isNativePlatform();
+export interface ReaderData {
+  characters: { id: string; name: string }[];
+  toc: { id: string; label: string; scene: boolean }[];
+  highlightsDefault: { characterId: string; color: string }[];
+  notes?: Note[];
+  storageKey: string;
+  /** Audio : nodeId -> URL (data URI, URL serveur ou fichier local — opaque ici). */
+  audio?: { clips: Record<string, string>; myCharacterId?: string };
 }
 
-export function getApiBase(): string {
-  return (localStorage.getItem(API_BASE_KEY) ?? '').replace(/\/+$/, '');
+export interface ReaderDocumentInput {
+  fountain: string;
+  characters: Character[];
+  template: Template;
+  notes?: Note[];
+  storageKey: string;
+  clips?: Record<string, string>;
+  myCharacterId?: string;
 }
 
-export function setApiBase(url: string): void {
-  localStorage.setItem(API_BASE_KEY, url.replace(/\/+$/, ''));
+export interface ReaderDocument {
+  body: string;
+  css: string;
+  data: ReaderData;
+  title: string;
 }
 
-/** Préfixe un chemin `/api/...` par la base configurée. */
-export function apiUrl(path: string): string {
-  return getApiBase() + path;
+export function buildReaderDocument(input: ReaderDocumentInput): ReaderDocument {
+  const play = parseFountain(input.fountain, input.characters);
+  const hasClips = Boolean(input.clips && Object.keys(input.clips).length);
+  return {
+    body: renderBody(play, input.template),
+    css: renderCSS(input.template),
+    title: play.title ?? 'Pièce',
+    data: {
+      characters: play.characters.map((c) => ({ id: c.id, name: c.canonicalName })),
+      toc: buildToc(play, input.template).map((e) => ({ id: e.id, label: e.label, scene: e.scene })),
+      highlightsDefault: input.template.highlights.map((h) => ({
+        characterId: h.characterId,
+        color: h.color,
+      })),
+      notes: input.notes ?? [],
+      storageKey: input.storageKey,
+      ...(hasClips ? { audio: { clips: input.clips!, myCharacterId: input.myCharacterId } } : {}),
+    },
+  };
 }
 ```
 
-- [ ] **Step 4: Router `api.ts` via `apiUrl`**
+Ré-exporter depuis `packages/reader-ui/src/index.ts` :
+```ts
+export { buildReaderDocument, type ReaderData, type ReaderDocument, type ReaderDocumentInput } from './document';
+```
 
-Dans `packages/web/src/api.ts`, importer `import { apiUrl } from './platform';` et remplacer chaque littéral `fetch('/api/...')` / `fetch(\`/api/...\`)` par `fetch(apiUrl('/api/...'))` / `fetch(apiUrl(\`/api/...\`))`. Endroits : `listPlays` (37), `importPdf` (44), `loadPlay` (49), `savePlay` (53), `exportPdf` (66), `listVoices` (107), `tts` (117), `ttsBatch` (151), `loadNotes` (166), `saveNotes` (172).
+- [ ] **Step 4: Faire de reader-ui la source unique du type**
 
-- [ ] **Step 5: Lancer les tests + typecheck**
+Dans `packages/reader-runtime/src/types.ts`, remplacer la déclaration locale de `ReaderData` par :
+```ts
+export type { ReaderData } from '@theatre/reader-ui';
+```
+(`@theatre/reader-ui` est déjà dans les `dependencies` de `reader-runtime`.)
 
-Run: `pnpm vitest run packages/web/src/platform.test.ts && pnpm --filter @theatre/web typecheck`
-Expected: PASS. (Le typecheck exige la dépendance `@capacitor/core` — installée en Task 7. Si non installée, faire d'abord `pnpm --filter @theatre/web add @capacitor/core` puis relancer.)
+- [ ] **Step 5: Faire déléguer `reader-export.ts`**
 
-> Note : `@capacitor/core` est ajouté ici pour permettre l'import ; l'installation complète Capacitor (ios, filesystem, preferences) est en Task 7. Faire : `pnpm --filter @theatre/web add @capacitor/core`.
+Remplacer la construction manuelle par :
+```ts
+const doc = buildReaderDocument({
+  fountain, characters, template, notes,
+  storageKey: `theatre-reader:${slug}`,
+  clips: audio?.clips,
+  myCharacterId: audio?.myCharacterId,
+});
+```
+puis utiliser `doc.body`, `doc.css`, `doc.data`, `doc.title` dans le template HTML. Le reste (bundling esbuild, shell HTML, data URIs) est inchangé.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Tests complets — non-régression de l'export**
+
+Run: `pnpm test && pnpm typecheck`
+Expected: 86 tests + les nouveaux passent. **`reader-export.test.ts` et `reader-export-audio.test.ts` doivent rester verts SANS modification** — c'est le filet qui prouve que l'extraction n'a rien changé.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add packages/web/src/platform.ts packages/web/src/platform.test.ts packages/web/src/api.ts packages/web/package.json pnpm-lock.yaml
-git commit -m "feat(web): base URL API configurable (same-origin en web, Mac via Tailscale en natif)"
+git add packages/reader-ui/src packages/reader-runtime/src/types.ts packages/server/src/reader-export.ts
+git commit -m "refactor(reader-ui): buildReaderDocument partagé par l'export et l'app mobile"
+```
+
+---
+
+## Task 3: Paquet `@theatre/mobile-app` — lecteur en ligne
+
+Premier jalon **dérisqué** : une app autonome qui affiche le lecteur mobile **contre le Mac**, sans une ligne de code hors-ligne. Possible uniquement parce que `clips` accepte une URL serveur.
+
+**Files:**
+- Create: `packages/mobile-app/{package.json,vite.config.ts,index.html,tsconfig.json}`
+- Create: `packages/mobile-app/src/{main.ts,api.ts,settings.ts}`
+
+**Interfaces:**
+- Consumes: `buildReaderDocument` (T2), `boot` (`@theatre/reader-runtime`), `uiCss` (`@theatre/ui`), `GET /audio/:key` (T1).
+- Produces: `mountReader(doc: ReaderDocument): void`.
+
+- [ ] **Step 1: Créer le paquet**
+
+`packages/mobile-app/package.json` :
+```json
+{
+  "name": "@theatre/mobile-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@theatre/core": "workspace:*",
+    "@theatre/reader-runtime": "workspace:*",
+    "@theatre/reader-ui": "workspace:*",
+    "@theatre/ui": "workspace:*",
+    "preact": "^10.29.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}
+```
+
+`packages/mobile-app/vite.config.ts` — aliaser React sur Preact (comme le bundling de l'export) :
+```ts
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      react: 'preact/compat',
+      'react-dom': 'preact/compat',
+      'react-dom/client': 'preact/compat/client',
+    },
+  },
+  optimizeDeps: { exclude: ['@theatre/core'] },
+});
+```
+
+`packages/mobile-app/index.html` — reprendre le shell de `reader-export.ts` :
+```html
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Theatre Reader</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { -webkit-text-size-adjust: 100%; padding: 0 16px; }
+  .play { max-width: none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
+```
+
+> `data-theme="light"` est délibéré : le texte est rendu par `@theatre/core` en encre sombre sur papier blanc (rendu partagé avec le PDF). Cf. commentaire dans `reader-export.ts`.
+
+- [ ] **Step 2: `settings.ts`**
+
+```ts
+const KEY = 'theatre:apiBase';
+export const getApiBase = (): string => (localStorage.getItem(KEY) ?? '').replace(/\/+$/, '');
+export const setApiBase = (url: string): void => localStorage.setItem(KEY, url.replace(/\/+$/, ''));
+export const apiUrl = (path: string): string => getApiBase() + path;
+```
+
+- [ ] **Step 3: `api.ts`**
+
+```ts
+import {
+  parseFountain, buildNodeIds, speechTextForTts,
+  type AudioConfig, type Character, type Note, type Template,
+} from '@theatre/core';
+import { apiUrl } from './settings';
+
+export interface PlayMeta { name: string; characters: Character[]; template: Template; audio?: AudioConfig }
+export interface TtsBatchItem { nodeId: string; text: string; voiceId: string }
+
+async function json<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return (await res.json()) as T;
+}
+
+export const listPlays = async (): Promise<{ slug: string; name: string }[]> =>
+  (await json<{ plays: { slug: string; name: string }[] }>(await fetch(apiUrl('/api/plays')))).plays;
+
+export const loadPlay = (slug: string): Promise<{ fountain: string; meta: PlayMeta }> =>
+  fetch(apiUrl(`/api/plays/${encodeURIComponent(slug)}`)).then(json);
+
+export const loadNotes = async (slug: string): Promise<Note[]> =>
+  (await json<{ notes: Note[] }>(await fetch(apiUrl(`/api/plays/${encodeURIComponent(slug)}/notes`)))).notes;
+
+export const audioUrl = (slug: string, key: string): string =>
+  apiUrl(`/api/plays/${encodeURIComponent(slug)}/audio/${key}`);
+
+/** Items /tts/batch avec le VRAI nodeId (= data-nid du DOM) et le texte canonique. */
+export function buildAudioItems(fountain: string, characters: Character[], audio: AudioConfig): TtsBatchItem[] {
+  if (!audio.voices || !Object.keys(audio.voices).length) return [];
+  const play = parseFountain(fountain, characters);
+  const ids = buildNodeIds(play);
+  const items: TtsBatchItem[] = [];
+  play.nodes.forEach((n, i) => {
+    if (n.type !== 'line') return;
+    const voiceId = audio.voices?.[n.characterId];
+    if (!voiceId) return;
+    const text = speechTextForTts(n);
+    if (text) items.push({ nodeId: ids[i]!, text, voiceId });
+  });
+  return items;
+}
+
+/** Demande le manifeste au serveur et renvoie nodeId -> URL serveur (mode en ligne). */
+export async function buildOnlineClips(slug: string, fountain: string, meta: PlayMeta): Promise<Record<string, string>> {
+  const items = buildAudioItems(fountain, meta.characters, meta.audio ?? {});
+  if (!items.length) return {};
+  const res = await fetch(apiUrl(`/api/plays/${encodeURIComponent(slug)}/tts/batch`), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ items, model: meta.audio?.model, settings: meta.audio?.settings }),
+  });
+  if (!res.ok) return {};
+  const { manifest } = await json<{ manifest: Record<string, { key: string }> }>(res);
+  const clips: Record<string, string> = {};
+  for (const [nodeId, { key }] of Object.entries(manifest)) clips[nodeId] = audioUrl(slug, key);
+  return clips;
+}
+```
+
+- [ ] **Step 4: `main.ts` + `mountReader`**
+
+```ts
+import { buildReaderDocument, type ReaderDocument } from '@theatre/reader-ui';
+import { boot } from '@theatre/reader-runtime';
+import { uiCss } from '@theatre/ui';
+import * as api from './api';
+import { getApiBase } from './settings';
+
+function injectStyle(css: string): void {
+  const s = document.createElement('style');
+  s.textContent = css;
+  document.head.appendChild(s);
+}
+
+/** Injecte le document (styles + .play) PUIS démarre le chrome du lecteur. */
+export function mountReader(doc: ReaderDocument): void {
+  injectStyle(uiCss);
+  injectStyle(doc.css);
+  // Neutralise la pagination : reflow continu (cf. reader-export.ts).
+  injectStyle('.toc-item a::after{content:none!important}.toc,.distribution--break{break-after:auto}');
+  document.getElementById('app')!.innerHTML = doc.body;
+  (window as unknown as { __THEATRE_READER_DATA__?: unknown }).__THEATRE_READER_DATA__ = doc.data;
+  document.title = doc.title;
+  boot();
+}
+
+async function main(): Promise<void> {
+  const slug = new URLSearchParams(location.search).get('slug');
+  if (!getApiBase() || !slug) return; // écran de choix : Task 6
+  const { fountain, meta } = await api.loadPlay(slug);
+  const notes = await api.loadNotes(slug).catch(() => []);
+  const clips = await api.buildOnlineClips(slug, fountain, meta);
+  mountReader(buildReaderDocument({
+    fountain, characters: meta.characters, template: meta.template, notes,
+    storageKey: `theatre-reader:${slug}`, clips, myCharacterId: meta.audio?.myCharacterId,
+  }));
+}
+
+void main();
+```
+
+> **Ordre impératif** : `.play` doit exister dans le DOM et `__THEATRE_READER_DATA__` être posé **avant** `boot()` (le runtime fait `querySelector('.play')` et lit le global une seule fois).
+
+- [ ] **Step 5: Vérifier en navigateur (avant tout iOS)**
+
+```bash
+pnpm install
+pnpm start                                   # serveur :3001 dans un autre terminal
+pnpm --filter @theatre/mobile-app dev
+```
+Dans la console du navigateur : `localStorage.setItem('theatre:apiBase','http://127.0.0.1:3001')`, puis ouvrir `?slug=<ta-piece>`.
+Attendu : la pièce s'affiche avec le chrome mobile (barre transport, sheet Options), la recherche fonctionne, l'audio joue depuis le serveur.
+
+- [ ] **Step 6: Typecheck + commit**
+
+Run: `pnpm --filter @theatre/mobile-app typecheck`
+
+```bash
+git add packages/mobile-app pnpm-lock.yaml
+git commit -m "feat(mobile-app): app lecteur autonome (Preact) branchée sur le serveur"
 ```
 
 ---
 
 ## Task 4: Store hors-ligne (Capacitor Filesystem)
 
-Persistance locale sur le FS natif. Sur web (desktop), ces méthodes ne sont jamais appelées (UI gated par `isNative()`), mais le module doit compiler.
-
-**Files:**
-- Create: `packages/web/src/offline/store.ts`
+**Files:** Create `packages/mobile-app/src/offline/store.ts`
 
 **Interfaces:**
-- Consumes: `@capacitor/filesystem` (`Filesystem`, `Directory`, `Encoding`), `Capacitor.convertFileSrc`.
-- Produces (tout async) :
-  - `type OfflinePlay = { fountain: string; meta: PlayMeta }`
-  - `type AudioManifest = { model?: string; settings?: VoiceSettings | null; map: Record<string, string> }` (`map`: nodeId → clé de cache)
-  - `savePlay(slug, data: OfflinePlay): Promise<void>`
-  - `loadPlay(slug): Promise<OfflinePlay | null>`
-  - `saveNotes(slug, notes: Note[]): Promise<void>` / `loadNotes(slug): Promise<Note[]>`
-  - `saveAudioManifest(slug, m: AudioManifest): Promise<void>` / `loadAudioManifest(slug): Promise<AudioManifest | null>`
-  - `saveAudioClip(slug, key, bytesBase64: string): Promise<void>`
-  - `audioClipUrl(slug, key): string` — URL WebView (`convertFileSrc`) du clip local.
-  - `listLocalPlays(): Promise<{ slug: string; name: string }[]>`
+- Produces : `savePlay/loadPlay`, `saveNotes/loadNotes`, `saveManifest/loadManifest`, `saveClip(slug,key,base64)`, `clipUrl(slug,key): Promise<string>`, `listLocalPlays()`.
+- Layout : `theatre/<slug>/{play.json,notes.json,audio-manifest.json,audio/<key>.mp3}` sous `Directory.Data`.
 
-Layout : `theatre/<slug>/play.json`, `notes.json`, `audio-manifest.json`, `audio/<key>.mp3`, sous `Directory.Data`.
+- [ ] **Step 1: Installer les plugins**
 
-- [ ] **Step 1: Implémenter `offline/store.ts`**
+Run: `pnpm --filter @theatre/mobile-app add @capacitor/core @capacitor/filesystem`
+
+- [ ] **Step 2: Implémenter `store.ts`**
 
 ```ts
-/** Persistance hors-ligne sur le FS natif (Capacitor). Non appelé en web (UI gated). */
+/** Persistance hors-ligne sur le FS natif (Capacitor). */
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
-import type { Note, VoiceSettings } from '@theatre/core';
+import type { Note } from '@theatre/core';
 import type { PlayMeta } from '../api';
 
 const DIR = Directory.Data;
 const ROOT = 'theatre';
-const playDir = (slug: string) => `${ROOT}/${slug}`;
+const dir = (slug: string) => `${ROOT}/${slug}`;
 
-export interface OfflinePlay {
-  fountain: string;
-  meta: PlayMeta;
-}
-export interface AudioManifest {
-  model?: string;
-  settings?: VoiceSettings | null;
-  /** nodeId → clé de cache (nom du fichier `.mp3`). */
-  map: Record<string, string>;
-}
+export interface OfflinePlay { fountain: string; meta: PlayMeta }
+export interface AudioManifest { map: Record<string, string> } // nodeId -> key
 
 async function writeJson(path: string, value: unknown): Promise<void> {
   await Filesystem.mkdir({ path: path.split('/').slice(0, -1).join('/'), directory: DIR, recursive: true }).catch(() => {});
@@ -356,37 +560,26 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 }
 async function readJson<T>(path: string): Promise<T | null> {
   try {
-    const res = await Filesystem.readFile({ path, directory: DIR, encoding: Encoding.UTF8 });
-    return JSON.parse(res.data as string) as T;
-  } catch {
-    return null;
-  }
+    const r = await Filesystem.readFile({ path, directory: DIR, encoding: Encoding.UTF8 });
+    return JSON.parse(r.data as string) as T;
+  } catch { return null; }
 }
 
-export const savePlay = (slug: string, data: OfflinePlay) => writeJson(`${playDir(slug)}/play.json`, data);
-export const loadPlay = (slug: string) => readJson<OfflinePlay>(`${playDir(slug)}/play.json`);
-export const saveNotes = (slug: string, notes: Note[]) => writeJson(`${playDir(slug)}/notes.json`, notes);
-export const loadNotes = async (slug: string): Promise<Note[]> => (await readJson<Note[]>(`${playDir(slug)}/notes.json`)) ?? [];
-export const saveAudioManifest = (slug: string, m: AudioManifest) => writeJson(`${playDir(slug)}/audio-manifest.json`, m);
-export const loadAudioManifest = (slug: string) => readJson<AudioManifest>(`${playDir(slug)}/audio-manifest.json`);
+export const savePlay = (slug: string, d: OfflinePlay) => writeJson(`${dir(slug)}/play.json`, d);
+export const loadPlay = (slug: string) => readJson<OfflinePlay>(`${dir(slug)}/play.json`);
+export const saveNotes = (slug: string, n: Note[]) => writeJson(`${dir(slug)}/notes.json`, n);
+export const loadNotes = async (slug: string) => (await readJson<Note[]>(`${dir(slug)}/notes.json`)) ?? [];
+export const saveManifest = (slug: string, m: AudioManifest) => writeJson(`${dir(slug)}/audio-manifest.json`, m);
+export const loadManifest = (slug: string) => readJson<AudioManifest>(`${dir(slug)}/audio-manifest.json`);
 
-export async function saveAudioClip(slug: string, key: string, bytesBase64: string): Promise<void> {
-  const dir = `${playDir(slug)}/audio`;
-  await Filesystem.mkdir({ path: dir, directory: DIR, recursive: true }).catch(() => {});
-  // data (base64) sans encoding → Capacitor écrit des octets binaires.
-  await Filesystem.writeFile({ path: `${dir}/${key}.mp3`, directory: DIR, data: bytesBase64 });
+export async function saveClip(slug: string, key: string, base64: string): Promise<void> {
+  await Filesystem.mkdir({ path: `${dir(slug)}/audio`, directory: DIR, recursive: true }).catch(() => {});
+  await Filesystem.writeFile({ path: `${dir(slug)}/audio/${key}.mp3`, directory: DIR, data: base64 });
 }
 
-export function audioClipUrl(slug: string, key: string): string {
-  // convertFileSrc a besoin du chemin absolu (uri) : résolu via getUri.
-  // On mémorise l'uri racine au préalable (voir prepare.ts) ; ici on renvoie le chemin relatif
-  // que l'appelant convertit avec getClipUri.
-  return `${playDir(slug)}/audio/${key}.mp3`;
-}
-
-/** URI WebView réelle d'un clip (à await). */
-export async function getClipUri(slug: string, key: string): Promise<string> {
-  const { uri } = await Filesystem.getUri({ path: `${playDir(slug)}/audio/${key}.mp3`, directory: DIR });
+/** URL lisible par la WebView pour un clip local. */
+export async function clipUrl(slug: string, key: string): Promise<string> {
+  const { uri } = await Filesystem.getUri({ path: `${dir(slug)}/audio/${key}.mp3`, directory: DIR });
   return Capacitor.convertFileSrc(uri);
 }
 
@@ -400,427 +593,295 @@ export async function listLocalPlays(): Promise<{ slug: string; name: string }[]
       if (p) out.push({ slug, name: p.meta.name ?? slug });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 ```
 
-> Note d'implémentation : l'API exacte de `@capacitor/filesystem` (types de retour de `readdir`, base64 binaire) se valide sur device en Task 7 ; ajuster `getClipUri`/`saveAudioClip` si l'API du plugin diffère (versions Capacitor). `audioClipUrl` est conservé pour le chemin relatif ; la lecture audio utilise `getClipUri` (async).
-
-- [ ] **Step 2: Typecheck (après installation des deps Capacitor en Task 7)**
-
-Run: `pnpm --filter @theatre/web typecheck`
-Expected: 0 erreur. (Nécessite `@capacitor/filesystem` — voir Task 7. Si typecheck avant Task 7, installer d'abord : `pnpm --filter @theatre/web add @capacitor/filesystem`.)
+> L'API exacte du plugin (forme de `readdir`, écriture base64 binaire) se valide sur device en T7 ; ajuster si la version diffère.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add packages/web/src/offline/store.ts packages/web/package.json pnpm-lock.yaml
-git commit -m "feat(web): store hors-ligne sur FS natif (pièce, notes, clips audio, manifeste)"
+git add packages/mobile-app/src/offline/store.ts packages/mobile-app/package.json pnpm-lock.yaml
+git commit -m "feat(mobile-app): store hors-ligne sur FS natif"
 ```
 
 ---
 
-## Task 5: Manifeste audio + orchestration « Préparer hors-ligne »
+## Task 5: Synchronisation « Préparer hors-ligne »
 
-Construit le manifeste `nodeId → key` avec la MÊME normalisation que la lecture (parité de clé), puis synchronise pièce + notes + clips vers le store.
-
-**Files:**
-- Create: `packages/web/src/offline/prepare.ts`
-- Test: `packages/web/src/offline/prepare.test.ts`
+**Files:** Create `packages/mobile-app/src/offline/prepare.ts` + `prepare.test.ts`
 
 **Interfaces:**
-- Consumes: `parseFountain`, `buildNodeIds`, `speechTextForTts` (`@theatre/core`), `api.ttsBatch`, `api.fetchAudioByKey`, `offline/store`.
-- Produces:
-  - `buildAudioItems(fountain, characters, audio): { items: api.TtsBatchItem[]; nodeKeys: [] }` — en réalité renvoie `api.TtsBatchItem[]` avec `nodeId` = **vrai** nodeId (`buildNodeIds`), `text` = `speechTextForTts`, filtré aux persos ayant une voix. (Contraste avec `App.tsx` qui utilise un nodeId synthétique pour le seul comptage.)
-  - `prepareOffline(play, notes, opts): Promise<{ prepared: number; skipped: number }>` — sync complète.
+- Produces : `prepareOffline(slug, onProgress?): Promise<{ prepared: number; skipped: number }>` et `buildOfflineClips(slug): Promise<Record<string,string>>` (nodeId → URL de fichier local).
 
-D'abord, ajouter à `api.ts` :
-```ts
-/** Télécharge un clip du cache serveur par clé (GET) → base64. */
-export async function fetchAudioByKey(slug: string, key: string): Promise<string> {
-  const res = await fetch(apiUrl(`/api/plays/${encodeURIComponent(slug)}/audio/${key}`));
-  if (!res.ok) throw new Error(`clip ${key} indisponible (${res.status})`);
-  const buf = await res.arrayBuffer();
-  // base64 sans dépendance : via FileReader/btoa sur les octets.
-  let bin = '';
-  const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(bin);
-}
-```
+- [ ] **Step 1: Verrou de parité (test de `buildAudioItems`)**
 
-- [ ] **Step 1: Écrire le test de parité (fonction pure)**
-
-Créer `packages/web/src/offline/prepare.test.ts` :
+Créer `packages/mobile-app/src/offline/prepare.test.ts` :
 
 ```ts
 import { describe, expect, it } from 'vitest';
 import { parseFountain, buildNodeIds, speechTextForTts } from '@theatre/core';
-import { buildAudioItems } from './prepare';
+import { buildAudioItems } from '../api';
 
 const SRC = `# ACTE I.\n\n## SCENE I.\n\nMICHEL\nBonjour à tous.\n\nBENJI\nSalut Michel.\n`;
 
-describe('buildAudioItems — parité nodeId/texte', () => {
-  it('émet un item par tirade dont le perso a une voix, avec le vrai nodeId et le texte canonique', () => {
+describe('buildAudioItems — parité nodeId / texte', () => {
+  it('utilise le vrai nodeId (= data-nid) et le texte canonique', () => {
     const play = parseFountain(SRC, []);
     const ids = buildNodeIds(play);
-    const michel = play.nodes.find((n) => n.type === 'line')!;
-    const items = buildAudioItems(SRC, [], { voices: { [michel.type === 'line' ? michel.characterId : '']: 'v-michel' } });
-    // MICHEL a une voix, BENJI non → 1 item
+    const line = play.nodes.find((n) => n.type === 'line');
+    if (!line || line.type !== 'line') throw new Error('fixture invalide');
+    const idx = play.nodes.indexOf(line);
+    const items = buildAudioItems(SRC, [], { voices: { [line.characterId]: 'v1' } });
     expect(items).toHaveLength(1);
-    const idx = play.nodes.indexOf(michel);
-    expect(items[0].nodeId).toBe(ids[idx]);           // vrai nodeId (= data-nid du reader)
-    expect(items[0].text).toBe(speechTextForTts(michel)); // texte canonique (parité de clé)
-    expect(items[0].voiceId).toBe('v-michel');
+    expect(items[0]!.nodeId).toBe(ids[idx]);
+    expect(items[0]!.text).toBe(speechTextForTts(line));
   });
 });
 ```
 
-- [ ] **Step 2: Lancer → échec**
+- [ ] **Step 2: Lancer → doit PASSER** (la fonction existe depuis T3 ; ce test la verrouille)
 
-Run: `pnpm vitest run packages/web/src/offline/prepare.test.ts`
-Expected: FAIL (`buildAudioItems` inexistant).
+Run: `pnpm vitest run packages/mobile-app/src/offline/prepare.test.ts`
+Expected: PASS. Si FAIL → corriger `buildAudioItems` : c'est le verrou de parité de clé, une dérive ici = cache manqué + appels ElevenLabs gaspillés.
 
 - [ ] **Step 3: Implémenter `prepare.ts`**
 
 ```ts
-/** Construction du manifeste audio + synchronisation hors-ligne (cache-first). */
-import { parseFountain, buildNodeIds, speechTextForTts, type AudioConfig, type Character, type Note } from '@theatre/core';
+/** Sync hors-ligne : pièce + notes + clips → FS natif. Cache-first, idempotent. */
 import * as api from '../api';
 import * as store from './store';
+import { apiUrl } from '../settings';
 
-/** Items /tts/batch avec le VRAI nodeId (buildNodeIds = data-nid) et le texte canonique. */
-export function buildAudioItems(fountain: string, characters: Character[], audio: AudioConfig): api.TtsBatchItem[] {
-  if (!audio.voices || !Object.keys(audio.voices).length) return [];
-  const play = parseFountain(fountain, characters);
-  const ids = buildNodeIds(play);
-  const items: api.TtsBatchItem[] = [];
-  play.nodes.forEach((n, i) => {
-    if (n.type !== 'line') return;
-    const voiceId = audio.voices?.[n.characterId];
-    if (!voiceId) return;
-    const text = speechTextForTts(n);
-    if (!text) return;
-    items.push({ nodeId: ids[i]!, text, voiceId });
-  });
-  return items;
+async function fetchBase64(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`clip indisponible (${res.status})`);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
 }
 
-export interface PreparePlay {
-  slug: string;
-  name: string;
-  fountain: string;
-  characters: Character[];
-  template: import('@theatre/core').Template;
-  audio: AudioConfig;
-}
-
-/** Synchronise pièce + notes + clips audio vers le FS natif. Cache-first, idempotent. */
 export async function prepareOffline(
-  play: PreparePlay,
-  notes: Note[],
+  slug: string,
   onProgress?: (done: number, total: number) => void,
 ): Promise<{ prepared: number; skipped: number }> {
-  // 1) Texte + meta + notes.
-  await store.savePlay(play.slug, {
-    fountain: play.fountain,
-    meta: { name: play.name, characters: play.characters, template: play.template, audio: play.audio },
-  });
-  await store.saveNotes(play.slug, notes);
+  const { fountain, meta } = await api.loadPlay(slug);
+  const notes = await api.loadNotes(slug).catch(() => []);
+  await store.savePlay(slug, { fountain, meta });
+  await store.saveNotes(slug, notes);
 
-  // 2) Audio : chauffe le cache serveur (batch) → obtient nodeId→key.
-  const items = buildAudioItems(play.fountain, play.characters, play.audio);
+  const items = api.buildAudioItems(fountain, meta.characters, meta.audio ?? {});
   const map: Record<string, string> = {};
-  let prepared = 0;
-  let skipped = 0;
+  let prepared = 0, skipped = 0;
   const CHUNK = 10;
   for (let i = 0; i < items.length; i += CHUNK) {
     const chunk = items.slice(i, i + CHUNK);
-    const { manifest } = await api.ttsBatch(play.slug, chunk, { model: play.audio.model, settings: play.audio.settings });
+    const res = await fetch(apiUrl(`/api/plays/${encodeURIComponent(slug)}/tts/batch`), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ items: chunk, model: meta.audio?.model, settings: meta.audio?.settings }),
+    });
+    if (!res.ok) { skipped += chunk.length; continue; }
+    const { manifest } = (await res.json()) as { manifest: Record<string, { key: string }> };
     for (const [nodeId, { key }] of Object.entries(manifest)) {
       try {
-        const b64 = await api.fetchAudioByKey(play.slug, key);
-        await store.saveAudioClip(play.slug, key, b64);
+        await store.saveClip(slug, key, await fetchBase64(api.audioUrl(slug, key)));
         map[nodeId] = key;
         prepared += 1;
-      } catch {
-        skipped += 1; // clip introuvable (pas de clé serveur) → on saute, sync partielle
-      }
+      } catch { skipped += 1; }
       onProgress?.(prepared + skipped, items.length);
     }
   }
-  await store.saveAudioManifest(play.slug, { model: play.audio.model, settings: play.audio.settings ?? null, map });
+  await store.saveManifest(slug, { map });
   return { prepared, skipped };
+}
+
+/** nodeId -> URL de fichier local (à injecter dans ReaderData.audio.clips). */
+export async function buildOfflineClips(slug: string): Promise<Record<string, string>> {
+  const m = await store.loadManifest(slug);
+  if (!m) return {};
+  const clips: Record<string, string> = {};
+  for (const [nodeId, key] of Object.entries(m.map)) clips[nodeId] = await store.clipUrl(slug, key);
+  return clips;
 }
 ```
 
-- [ ] **Step 4: Lancer le test → succès**
-
-Run: `pnpm vitest run packages/web/src/offline/prepare.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Typecheck**
-
-Run: `pnpm --filter @theatre/web typecheck`
-Expected: 0 erreur.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add packages/web/src/offline/prepare.ts packages/web/src/offline/prepare.test.ts packages/web/src/api.ts
-git commit -m "feat(web): manifeste audio (parité nodeId/texte) + sync hors-ligne cache-first"
+git add packages/mobile-app/src/offline
+git commit -m "feat(mobile-app): préparation hors-ligne (manifeste nodeId→clé + clips sur le FS)"
 ```
 
 ---
 
-## Task 6: Reader offline + mode natif dans `App.tsx`
+## Task 6: Écran de choix + démarrage local-first
 
-Brancher : (a) `resolveAudio` lit le FS local quand un manifeste offline existe ; (b) en natif, l'app boote read-only, essaie le serveur, sinon liste/charge les pièces locales, et expose « Préparer hors-ligne ».
+**Files:** Create `packages/mobile-app/src/ui/Picker.tsx` · Modify `packages/mobile-app/src/main.ts`
 
-**Files:**
-- Modify: `packages/web/src/components/Reader.tsx`
-- Modify: `packages/web/src/App.tsx`
+- [ ] **Step 1: `Picker.tsx`**
 
-**Interfaces:**
-- Consumes: `offline/store` (`loadAudioManifest`, `getClipUri`), `offline/prepare` (`prepareOffline`), `platform` (`isNative`, `getApiBase`, `setApiBase`).
-- Produces: Reader accepte une prop optionnelle `offline?: { manifest: store.AudioManifest }` ; si présente, `resolveAudio` lit le clip local, sinon comportement serveur actuel.
+Composant Preact affichant :
+- champ « Adresse du Mac (Tailscale) », placeholder `https://mon-mac.tailnet.ts.net`, persisté via `setApiBase`.
+- la liste des pièces : `api.listPlays()` si le serveur répond, sinon `store.listLocalPlays()` avec un badge « hors-ligne ».
+- par pièce : « Ouvrir » et, si le serveur répond, « Préparer hors-ligne » (progression via `onProgress`).
+Utiliser les primitives de `@theatre/ui` pour rester cohérent visuellement.
 
-- [ ] **Step 1: Reader — `resolveAudio` bascule online/offline**
-
-Dans `packages/web/src/components/Reader.tsx` :
-- Ajouter la prop `offline?: import('../offline/store').AudioManifest | null` à la signature (après `onOrphans`).
-- Remplacer le corps de `resolveAudio` (lignes ~108-124) par :
+- [ ] **Step 2: `main.ts` — ouverture local-first**
 
 ```ts
-  const offlineRef = useRef(offline);
-  offlineRef.current = offline;
-
-  const resolveAudio = useCallback(async (t: AudioTirade): Promise<string | null> => {
-    const cfg = audioCfgRef.current;
-    const voiceId = cfg.voices?.[t.characterId];
-    if (!voiceId) return null;
-    const cacheKey = `${t.nodeId}|${voiceId}`;
-    const cached = urlCacheRef.current.get(cacheKey);
-    if (cached) return cached;
-
-    // Offline : clip local (FS natif) via la clé du manifeste.
-    const off = offlineRef.current;
-    if (off) {
-      const key = off.map[t.nodeId];
-      if (!key) return null;
-      const url = await getClipUri(slugRef.current, key); // convertFileSrc(uri)
-      urlCacheRef.current.set(cacheKey, url);
-      return url;
-    }
-
-    // Online : synthèse serveur (blob).
-    const blob = await api.tts(slugRef.current, { text: t.text, voiceId, model: cfg.model, settings: cfg.settings });
-    const url = URL.createObjectURL(blob);
-    urlCacheRef.current.set(cacheKey, url);
-    return url;
-  }, []);
-```
-- Importer `import { getClipUri } from '../offline/store';`.
-- Dans le cleanup des object URLs (lignes ~127-133), ne révoquer que les URLs `blob:` (les URLs `capacitor://`/`file:` ne se révoquent pas) : `cache.forEach((u) => { if (u.startsWith('blob:')) URL.revokeObjectURL(u); });`.
-- Ajouter `offline` aux deps du `useEffect` qui crée le player (ligne ~244) pour recréer le resolver si le mode change.
-
-- [ ] **Step 2: App — plateforme + data source local-first en natif**
-
-Dans `packages/web/src/App.tsx` :
-- Importer `import { isNative, getApiBase, setApiBase } from './platform';`, `import { prepareOffline } from './offline/prepare';`, `import * as offlineStore from './offline/store';`.
-- Ajouter les états : `const [offlineManifest, setOfflineManifest] = useState<offlineStore.AudioManifest | null>(null);` et `const [serverReachable, setServerReachable] = useState<boolean | null>(null);`.
-- Au boot, en natif : forcer `mode='read'`, et si `getApiBase()` est vide, demander l'URL (voir Step 3). Charger la liste : essayer `api.listPlays()` (serveur) ; en cas d'échec, `offlineStore.listLocalPlays()`.
-- `onSelect(slug)` en natif : si serveur injoignable, `offlineStore.loadPlay(slug)` + `offlineStore.loadNotes(slug)` + `offlineStore.loadAudioManifest(slug)` → alimente `play`, `notes`, `offlineManifest`. Si serveur joignable, comportement actuel + `offlineManifest=null`.
-- Passer `offline={offlineManifest}` au `<Reader ... />` (ligne ~521).
-
-```ts
-useEffect(() => {
-  if (!isNative()) return;
-  setMode('read');
-  (async () => {
-    try {
-      const plays = await api.listPlays();
-      setServerReachable(true);
-      setSummaries(plays);
-    } catch {
-      setServerReachable(false);
-      setSummaries(await offlineStore.listLocalPlays());
-    }
-  })();
-}, []);
-```
-
-- [ ] **Step 3: App — réglage de l'URL du Mac (premier lancement natif)**
-
-Ajouter un petit champ (visible seulement si `isNative()`), pré-rempli par `getApiBase()`, qui appelle `setApiBase(v)` puis relance la liste. Placement : dans le `header`, à la place du sélecteur d'import (masqué en natif). Copie FR : placeholder `https://mon-mac.tailnet.ts.net`, libellé « Adresse du Mac (Tailscale) ».
-
-- [ ] **Step 4: App — bouton « Préparer hors-ligne »**
-
-Visible si `isNative() && serverReachable && play`. Réutilise la modale de progression existante (`AudioProgressModal`) ou un simple `busy` :
-
-```ts
-const onPrepareOffline = async () => {
-  if (!play) return;
-  setBusy('Préparation hors-ligne…');
-  try {
-    const { prepared, skipped } = await prepareOffline(
-      { slug: play.slug, name: play.name, fountain: play.fountain, characters: play.characters, template: play.template, audio: play.audio },
-      notes,
-    );
-    flash(`Hors-ligne prêt : ${prepared} clips${skipped ? `, ${skipped} manquants` : ''}.`);
-  } catch (e) {
-    flash(`Échec de la préparation : ${String(e)}`);
-  } finally {
-    setBusy(null);
+async function openPlay(slug: string): Promise<void> {
+  const local = await store.loadPlay(slug);
+  const offlineClips = await buildOfflineClips(slug);
+  let fountain: string, meta: api.PlayMeta, notes: Note[], clips: Record<string, string>;
+  if (local && Object.keys(offlineClips).length) {
+    // Local-first : instantané, et fonctionne sans réseau.
+    ({ fountain, meta } = local);
+    notes = await store.loadNotes(slug);
+    clips = offlineClips;
+  } else {
+    ({ fountain, meta } = await api.loadPlay(slug));
+    notes = await api.loadNotes(slug).catch(() => []);
+    clips = await api.buildOnlineClips(slug, fountain, meta);
   }
-};
+  mountReader(buildReaderDocument({
+    fountain, characters: meta.characters, template: meta.template, notes,
+    storageKey: `theatre-reader:${slug}`, clips, myCharacterId: meta.audio?.myCharacterId,
+  }));
+}
 ```
-Ajouter le bouton dans le header (gated `isNative() && serverReachable`) et une commande palette « Préparer hors-ligne ».
+Au démarrage : pas de base URL OU pas de pièce choisie → afficher `Picker`.
 
-- [ ] **Step 5: Typecheck + tests**
+> **`boot()` est à un coup** (lit le global une fois). Pour revenir au `Picker` / changer de pièce, recharger la vue (`location.reload()` avec le slug en query) plutôt que de démonter le chrome — simple et sans toucher à `reader-runtime`.
 
-Run: `pnpm --filter @theatre/web typecheck && pnpm test`
-Expected: 0 erreur ; tests verts.
+- [ ] **Step 3: Vérifier en navigateur** (serveur lancé) : choix de pièce, ouverture, audio en ligne OK.
 
-- [ ] **Step 6: Vérif navigateur (web, non-régression)**
-
-Le web (desktop) n'est PAS natif → `isNative()` faux → aucun changement de comportement (lecture en ligne inchangée). Vérifier via un script Playwright jetable sous `packages/server/` (cf. CLAUDE.md) : ouvrir `http://127.0.0.1:3001`, mode Lecture, cliquer une réplique, confirmer que l'audio serveur joue. Supprimer le script après.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add packages/web/src/components/Reader.tsx packages/web/src/App.tsx
-git commit -m "feat(web): reader audio offline (FS local) + mode natif local-first + Préparer hors-ligne"
+git add packages/mobile-app/src
+git commit -m "feat(mobile-app): écran de choix (URL du Mac, pièces locales/serveur) + ouverture local-first"
 ```
 
 ---
 
-## Task 7: Projet Capacitor iOS
+## Task 7: Projet Capacitor iOS + validation device
 
-Empaquette le build web dans une app iOS. Validation sur device (pas de test unitaire).
+**Files:** Create `packages/mobile-app/capacitor.config.ts`, `packages/mobile-app/ios/` (généré)
 
-**Files:**
-- Create: `packages/web/capacitor.config.ts`
-- Modify: `packages/web/package.json` (deps + scripts)
-- Generate: `packages/web/ios/` (`cap add ios`)
+- [ ] **Step 1: Installer et configurer**
 
-**Interfaces:**
-- Produces: une app iOS installable qui charge le build web bundlé.
-
-- [ ] **Step 1: Installer Capacitor**
-
-Run:
 ```bash
-pnpm --filter @theatre/web add @capacitor/core @capacitor/filesystem @capacitor/preferences
-pnpm --filter @theatre/web add -D @capacitor/cli @capacitor/ios
+pnpm --filter @theatre/mobile-app add -D @capacitor/cli @capacitor/ios
 ```
-Expected: deps ajoutées à `packages/web/package.json`.
 
-- [ ] **Step 2: `capacitor.config.ts`**
-
-Créer `packages/web/capacitor.config.ts` :
+`packages/mobile-app/capacitor.config.ts` :
 ```ts
 import type { CapacitorConfig } from '@capacitor/cli';
-
 const config: CapacitorConfig = {
   appId: 'fr.avolo.theatrereader',
   appName: 'Theatre Reader',
   webDir: 'dist',
   ios: { contentInset: 'always' },
 };
-
 export default config;
 ```
 
-- [ ] **Step 3: Build web natif + scaffold iOS**
+- [ ] **Step 2: Scaffolder iOS**
 
-Le bundle natif doit être en mode read-only : le build web standard suffit (le read-only est piloté à l'exécution par `isNative()`). 
-
-Run:
 ```bash
-pnpm --filter @theatre/web build
-cd packages/web && pnpm exec cap add ios && pnpm exec cap sync ios
+pnpm --filter @theatre/mobile-app build
+cd packages/mobile-app && pnpm exec cap add ios && pnpm exec cap sync ios
 ```
-Expected: `packages/web/ios/` créé ; `cap sync` copie `dist/` dans l'app.
-
-- [ ] **Step 4: Scripts pnpm**
-
-Ajouter à `packages/web/package.json` scripts :
+Ajouter aux scripts de `packages/mobile-app/package.json` :
 ```json
 "cap:sync": "cap sync ios",
-"cap:open": "cap open ios",
 "ios": "vite build && cap sync ios && cap open ios"
 ```
 
-- [ ] **Step 5: Gitignore du projet iOS généré**
+- [ ] **Step 3: Build & run sur device**
 
-Ajouter à `.gitignore` (via `.git/info/exclude` local si on ne veut pas committer) : `packages/web/ios/App/App/public/` (assets copiés) au minimum. Décision : committer `packages/web/ios/` (config Xcode) mais ignorer `ios/App/App/public/` (artefact de `cap sync`). Vérifier avec `git status` qu'aucun `dist/` volumineux n'est ajouté.
+Run: `cd packages/mobile-app && pnpm exec cap open ios` → Xcode : équipe de signature (compte dev Apple), device, Run.
 
-- [ ] **Step 6: Build & run sur device (Xcode)**
+Validation manuelle **dans cet ordre** :
+1. Renseigner l'URL Tailscale → la liste des pièces s'affiche.
+2. Ouvrir une pièce (serveur joignable) → texte + chrome mobile + audio en ligne OK.
+3. « Préparer hors-ligne » → « N clips préparés ».
+4. **Couper le réseau / éteindre le serveur**, relancer l'app → la pièce s'ouvre depuis le FS et **l'audio joue hors-ligne**.
+5. Vérifier la sheet Options, les modes de répétition et la recherche.
 
-Run: `cd packages/web && pnpm exec cap open ios`
-Dans Xcode : sélectionner l'équipe de signature (compte dev Apple), choisir le device, Run. 
-Validation manuelle sur device :
-1. Renseigner l'URL Tailscale du Mac au premier lancement.
-2. Choisir une pièce (serveur joignable) → lecture + audio en ligne OK.
-3. « Préparer hors-ligne » → message « Hors-ligne prêt : N clips ».
-4. Couper le Wi-Fi / éteindre le serveur, relancer l'app → la pièce se charge depuis le FS, l'audio joue hors-ligne.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add packages/web/capacitor.config.ts packages/web/package.json packages/web/ios .gitignore pnpm-lock.yaml
-git commit -m "feat(ios): app Capacitor embarquant le reader web (offline-capable)"
+git add packages/mobile-app/capacitor.config.ts packages/mobile-app/package.json packages/mobile-app/ios .gitignore pnpm-lock.yaml
+git commit -m "feat(ios): app Capacitor embarquant le lecteur mobile (hors-ligne)"
 ```
 
 ---
 
-## Task 8: Documentation (Tailscale + déploiement iOS)
+## Task 8: Documentation
 
-**Files:**
-- Modify: `README.md` (créer si absent) et/ou `CLAUDE.md`
+**Files:** `README.md` / `CLAUDE.md`
 
-- [ ] **Step 1: Rédiger la section Tailscale**
+- [ ] **Step 1: Section « Lecteur mobile (iOS/Capacitor) »**
+- Tailscale sur le Mac et le téléphone, même tailnet. `tailscale serve --bg 3001` → `https://<mac>.ts.net` → `127.0.0.1:3001`. Fastify reste sur loopback.
+- Cycle de livraison : `pnpm --filter @theatre/mobile-app ios` (build + sync + Xcode) pour une nouvelle version **du code** ; le **contenu** se met à jour par « Préparer hors-ligne », **sans rebuild**.
+- Architecture : `mobile-app` = shell + sync ; le lecteur est `@theatre/reader-runtime` ; le document vient de `buildReaderDocument` (`@theatre/reader-ui`) ; `Reader.tsx` reste le lecteur desktop.
 
-Ajouter une section « Lecteur mobile (iOS/Capacitor) » :
-- Prérequis : Tailscale installé sur le Mac ET le téléphone, même tailnet.
-- Exposer le serveur : `tailscale serve --bg 3001` (proxie `https://<mac>.ts.net` → `127.0.0.1:3001`). Vérifier `tailscale serve status`.
-- Rappeler que Fastify reste sur `127.0.0.1` (Tailscale seul y accède).
-
-- [ ] **Step 2: Rédiger le cycle de déploiement iOS**
-
-- Livrer une nouvelle version du reader : `pnpm --filter @theatre/web ios` (build + sync + open) → Run dans Xcode sur le device.
-- Le contenu (texte/notes/audio) NE nécessite PAS de rebuild : « Préparer hors-ligne » suffit, app connectée au Mac.
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
 git add README.md CLAUDE.md
-git commit -m "docs: setup Tailscale + cycle de déploiement du lecteur iOS Capacitor"
+git commit -m "docs: lecteur mobile Capacitor (Tailscale, déploiement, architecture)"
+```
+
+---
+
+## Task 9: Retrait différé de l'export HTML
+
+**À faire APRÈS la validation device (T7).** Décision utilisateur : **retrait différé** — l'export reste le filet tant que l'app n'est pas prouvée sur le téléphone.
+
+⚠️ **`@theatre/reader-runtime` est CONSERVÉ** (c'est le lecteur de l'app). On ne retire que l'assemblage `.html` et son déclenchement.
+
+**Files:**
+- Delete: `packages/server/src/reader-export.ts`, `reader-export.test.ts`, `reader-export-audio.test.ts`
+- Modify: `packages/server/src/server.ts` (route `/api/export/reader`, import, champs audio de `ExportBody`), `server.test.ts`
+- Modify: `packages/web/src/api.ts` (`exportReader`, `ReaderExportAudio`), `packages/web/src/App.tsx` (bouton, commande palette, état `exportWithAudio`)
+
+- [ ] **Step 1: Inventaire**
+
+Run: `grep -rn "export/reader\|exportReader\|exportReaderHtml" packages --include="*.ts" --include="*.tsx"`
+
+- [ ] **Step 2: Supprimer et nettoyer** en suivant l'inventaire. **Conserver** `reader-runtime`, `reader-ui`, `ui`.
+
+- [ ] **Step 3: Tests + typecheck**
+
+Run: `pnpm test && pnpm typecheck`
+Expected: vert (les 5 tests d'export en moins).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add -A
+git commit -m "refactor: retire l'export HTML autonome (remplacé par l'app iOS Capacitor)"
 ```
 
 ---
 
 ## Self-Review
 
-**Spec coverage :**
-- Endpoint `GET /audio/:key` → Task 1 ✓
-- Retrait export + reader-runtime → Task 2 ✓
-- Base URL configurable (natif ↔ Mac) → Task 3 ✓
-- Store FS natif (pièce/notes/manifeste/clips) → Task 4 ✓
-- Parité clé (speechTextForTts + buildNodeIds + format) + « Préparer hors-ligne » cache-first → Task 5 ✓
-- Reader offline (FS) + mode natif read-only local-first → Task 6 ✓
-- Projet Capacitor iOS + validation device → Task 7 ✓
-- Doc Tailscale + déploiement → Task 8 ✓
-- Jalon 2 (audio natif arrière-plan) → hors périmètre, plan séparé ✓
+**Couverture :** endpoint audio (T1) · document partagé (T2) · app lecteur en ligne (T3) · store FS (T4) · sync hors-ligne + parité de clé (T5) · local-first + choix de pièce (T6) · iOS + validation device (T7) · doc (T8) · retrait différé de l'export (T9). Jalon 2 (audio natif en arrière-plan) = plan séparé.
 
-**Placeholders :** les parties non-testables par unité (FS Capacitor, iOS) sont explicitement validées sur device (Task 7) — ce n'est pas un placeholder mais un choix de validation assumé.
+**Cohérence des types :** `ReaderData` défini **une seule fois** (`reader-ui/document.ts`, ré-exporté par `reader-runtime/types.ts`) ; `clips: Record<nodeId, string>` produit par `buildOnlineClips` (URL serveur) ou `buildOfflineClips` (URL fichier) et consommé tel quel par `resolveAudio` de `Chrome.tsx` ; `buildAudioItems` partagé entre mode en ligne (T3) et sync (T5) ; `PlayMeta` défini dans `mobile-app/src/api.ts` et consommé par `offline/store.ts`.
 
-**Cohérence des types :** `AudioManifest.map` (nodeId→key) est produit par `prepareOffline` (Task 5) et consommé par `resolveAudio` offline (Task 6) via `off.map[t.nodeId]` ; `getClipUri(slug, key)` défini en Task 4, utilisé en Task 6. `apiUrl`/`getApiBase`/`setApiBase` définis en Task 3, utilisés partout. `buildAudioItems` renvoie `api.TtsBatchItem[]` (même type que `ttsBatch`). Cohérent.
+**Invariants respectés :** rendu unique (`renderBody`/`renderCSS` seuls producteurs du HTML de pièce) ; React ne possède pas le texte (`mountReader` pose `.play`, puis `boot()` monte le chrome à côté) ; parité de clé (`speechTextForTts` + `buildNodeIds` + `mp3_44100_128`).
 
-## Points de vigilance (rappel spec)
-- **ATS iOS** : valider que `https://<mac>.ts.net` passe sans exception (Task 7-6).
-- **API `@capacitor/filesystem`** : ajuster `saveAudioClip`/`getClipUri` selon la version (base64 binaire, `readdir` shape) — validation device.
-- **Perf Paged.js en WebView** : si lourd, optimiser le chemin reflow SANS créer un 2ᵉ reader (hors périmètre v1, à surveiller Task 7-6).
+## Points de vigilance
+
+- **`boot()` est à un coup** : il lit `window.__THEATRE_READER_DATA__` une fois. Changer de pièce = recharger la vue (T6), ou assouplir `reader-runtime` plus tard.
+- **ATS iOS** : valider que Tailscale HTTPS passe sans exception.
+- **API `@capacitor/filesystem`** : forme de `readdir`, écriture base64 binaire — ajuster sur device.
+- **Volume audio** : valider la durée de « Préparer hors-ligne » et la place disque sur une pièce entière.
+- **Poids du bundle** : vérifier que `mobile-app` n'embarque ni Paged.js ni React complet (alias Preact effectif) — `vite build` doit rester léger.
