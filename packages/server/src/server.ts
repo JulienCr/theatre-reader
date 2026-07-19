@@ -7,6 +7,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import {
@@ -40,6 +41,24 @@ import {
   DEFAULT_TTS_MODEL,
   DEFAULT_OUTPUT_FORMAT,
 } from './tts';
+
+/**
+ * Origines autorisées à appeler l'API depuis un navigateur.
+ *
+ * Liste blanche explicite, et surtout PAS `*` / `origin: true` : ce serveur écoute
+ * sur la loopback et est exposé au téléphone via un tailnet privé. Un CORS grand
+ * ouvert laisserait n'importe quelle page web visitée par l'utilisateur lire son API
+ * locale (ses pièces, ses notes) depuis son propre navigateur.
+ *
+ * - `capacitor://localhost` : origine de la WebView iOS de Capacitor. C'est *la*
+ *   raison d'être de ce plugin — l'app mobile appelle le Mac en cross-origin.
+ * - `localhost:5174` / `localhost:4173` : dev et `vite preview` de @theatre/mobile-app.
+ */
+const CORS_ORIGINS = [
+  'capacitor://localhost',
+  'http://localhost:5174',
+  'http://localhost:4173',
+];
 
 interface SavBody {
   fountain: string;
@@ -98,6 +117,13 @@ export async function buildServer(): Promise<FastifyInstance> {
   // le rétablit ici pour garder la pile d'exception des routes qui échouent.
   app.addHook('onError', async (req, _reply, err) => {
     app.log.error({ err }, `${req.method} ${req.url}`);
+  });
+
+  await app.register(cors, {
+    // `origin` absent = appel non-navigateur (curl, app.inject des tests) : autorisé,
+    // le CORS ne protège que les requêtes émises par une page web.
+    origin: (origin, cb) => cb(null, !origin || CORS_ORIGINS.includes(origin)),
+    methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
   });
 
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
