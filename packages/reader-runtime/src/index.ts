@@ -17,6 +17,7 @@ import {
 } from '@theatre/audio-player';
 import type { Note } from '@theatre/core';
 import { uiCss } from '@theatre/ui';
+import { createSearch, type SearchController } from '@theatre/reader-ui';
 
 export interface ReaderData {
   characters: { id: string; name: string }[];
@@ -177,73 +178,10 @@ function toggleCharacter(cid: string): void {
   persist();
 }
 
-// ---- Recherche (repris/adapté de Reader.tsx, en vanilla) ----
-let marks: HTMLElement[] = [];
-let matchIndex = 0;
-
-function clearMarks(): void {
-  for (const mark of marks) {
-    const parent = mark.parentNode;
-    if (!parent) continue;
-    parent.replaceChild(document.createTextNode(mark.textContent ?? ''), mark);
-    parent.normalize();
-  }
-  marks = [];
-}
-
-function markMatches(query: string): void {
-  const lc = query.toLowerCase();
-  const walker = document.createTreeWalker(play, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const text = node.nodeValue;
-      const parent = (node as Text).parentElement;
-      if (!text || !parent) return NodeFilter.FILTER_REJECT;
-      const tag = parent.tagName;
-      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'MARK') return NodeFilter.FILTER_REJECT;
-      return text.toLowerCase().includes(lc) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-    },
-  });
-  const targets: Text[] = [];
-  let n: Node | null;
-  while ((n = walker.nextNode())) targets.push(n as Text);
-  for (const textNode of targets) {
-    const text = textNode.nodeValue ?? '';
-    const low = text.toLowerCase();
-    const frag = document.createDocumentFragment();
-    let last = 0;
-    let idx = low.indexOf(lc, 0);
-    while (idx !== -1) {
-      if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
-      const mark = document.createElement('mark');
-      mark.className = 'reader-hit';
-      mark.textContent = text.slice(idx, idx + query.length);
-      frag.appendChild(mark);
-      marks.push(mark);
-      last = idx + query.length;
-      idx = low.indexOf(lc, last);
-    }
-    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
-    textNode.parentNode?.replaceChild(frag, textNode);
-  }
-}
-
-function focusMatch(i: number): void {
-  marks.forEach((m, k) => m.classList.toggle('reader-hit--current', k === i));
-  marks[i]?.scrollIntoView({ block: 'center' });
-}
-
-function runSearch(query: string): void {
-  clearMarks();
-  if (query.trim().length >= 2) markMatches(query.trim());
-  matchIndex = 0;
-  if (marks.length) focusMatch(0);
-}
-
-function stepMatch(delta: number): void {
-  if (!marks.length) return;
-  matchIndex = (matchIndex + delta + marks.length) % marks.length;
-  focusMatch(matchIndex);
-}
+// ---- Recherche ----
+// Le comportement vit dans @theatre/reader-ui, partagé avec le lecteur web :
+// c'était deux copies de la même logique, qui ne pouvaient que diverger.
+let search: SearchController | null = null;
 
 // ---- UI ----
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -331,12 +269,12 @@ function buildSearchSheet(): () => void {
   const input = el('input', { type: 'search', placeholder: 'Rechercher…' }) as HTMLInputElement;
   const prev = el('button', {}, '‹');
   const next = el('button', {}, '›');
-  input.addEventListener('input', () => runSearch(input.value));
+  input.addEventListener('input', () => search?.run(input.value));
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') stepMatch(e.shiftKey ? -1 : 1);
+    if (e.key === 'Enter') search?.step(e.shiftKey ? -1 : 1);
   });
-  prev.addEventListener('click', () => stepMatch(-1));
-  next.addEventListener('click', () => stepMatch(1));
+  prev.addEventListener('click', () => search?.step(-1));
+  next.addEventListener('click', () => search?.step(1));
   bar.appendChild(input);
   bar.appendChild(prev);
   bar.appendChild(next);
@@ -469,6 +407,7 @@ function init(d: ReaderData): void {
   const playEl = document.querySelector<HTMLElement>('.play');
   if (!playEl) return;
   play = playEl;
+  search = createSearch(play);
 
   const defaults: PersistedState = {
     selected: d.highlightsDefault.map((h) => h.characterId),
