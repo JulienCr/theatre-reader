@@ -169,8 +169,13 @@ export async function exportReaderHtml(
   const dataJson = JSON.stringify(data).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   const runtime = await readerRuntime();
 
+  // `data-theme="light"` fige le chrome en clair : le texte de la pièce est rendu
+  // par @theatre/core en encre sombre sur papier blanc (couleurs de surlignage
+  // pâles comprises), et ce rendu est partagé avec le PDF — on ne peut donc pas
+  // l'inverser. Un chrome sombre sur une page blanche serait incohérent. Une vraie
+  // lecture de nuit demande un support côté core (cf. issue #8).
   const html = `<!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
