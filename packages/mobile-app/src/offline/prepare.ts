@@ -92,11 +92,33 @@ export async function prepareOffline(
   };
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
-  // Le manifeste ne référence que les clips réellement présents sur le téléphone :
-  // une entrée pointant vers un fichier absent donnerait un `<audio>` en erreur.
+  // Le manifeste repart de l'ancien, jamais d'une table vide : une préparation qui
+  // échoue en tout ou partie ne doit jamais retirer l'accès à des clips déjà sur le
+  // téléphone. Sinon un serveur qui répond mal (manifeste vide ou tronqué) pendant
+  // une resync écraserait les références des 1200 mp3 pourtant intacts sur le
+  // disque — la pièce deviendrait muette juste avant de partir répéter.
+  const previousMap = (await store.loadManifest(slug))?.map ?? {};
+
+  // Hériter d'une entrée seulement si son fichier est encore là : une entrée qui
+  // pointe vers un clip absent donnerait un `<audio>` en erreur. Dédoublonné par
+  // clé, deux répliques identiques partageant le même fichier.
+  const stillOnDisk = new Set<string>();
+  await Promise.all(
+    [...new Set(Object.values(previousMap))].map(async (key) => {
+      if (await store.hasClip(slug, key)) stillOnDisk.add(key);
+    }),
+  );
+
   const map: Record<string, string> = {};
+  for (const [nodeId, key] of Object.entries(previousMap)) {
+    if (stillOnDisk.has(key)) map[nodeId] = key;
+  }
   for (const [nodeId, entry] of entries) {
-    if (!missingKeys.has(entry.key)) map[nodeId] = entry.key;
+    // Clé absente côté serveur : on retire aussi l'entrée héritée. Si le texte de
+    // la réplique a changé, sa clé a changé avec lui, et l'ancien clip — toujours
+    // sur le disque — dirait le texte d'avant.
+    if (missingKeys.has(entry.key)) delete map[nodeId];
+    else map[nodeId] = entry.key;
   }
   await store.saveManifest(slug, { map });
   return result;
