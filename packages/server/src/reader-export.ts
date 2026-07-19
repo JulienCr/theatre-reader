@@ -39,7 +39,12 @@ export interface ExportAudioOptions {
    * (ex. 'mp3_44100_64', fichier plus léger) renonce à cette réutilisation.
    */
   bitrate?: string;
-  /** 'all' = tous les rôles, 'others' = tout sauf mon rôle (défaut). */
+  /**
+   * 'all' = toutes les voix (défaut) : le fichier est complet. La répétition
+   * (mise en pause de mon rôle) est gérée à l'exécution par le lecteur via
+   * `myCharacterId` + le bouton « Répét. », pas en omettant les clips à l'export.
+   * 'others' = tout sauf mon rôle (export « cue » plus léger, sans ma voix).
+   */
   roles?: 'all' | 'others';
 }
 
@@ -55,7 +60,7 @@ async function buildAudioClips(
   const ids = buildNodeIds(play);
   const model = opts.audio.model ?? DEFAULT_TTS_MODEL;
   const bitrate = opts.bitrate ?? DEFAULT_OUTPUT_FORMAT;
-  const roles = opts.roles ?? 'others';
+  const roles = opts.roles ?? 'all';
   const settings = opts.audio.settings;
   const myId = opts.audio.myCharacterId;
   const slug = opts.slug ?? fallbackSlug;

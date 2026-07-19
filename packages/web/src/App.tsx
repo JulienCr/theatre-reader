@@ -211,9 +211,11 @@ export function App() {
     if (!play) return;
     setBusy(exportWithAudio ? 'Export lecteur mobile (audio)…' : 'Export lecteur mobile…');
     try {
+      // Toutes les voix (roles: 'all' par défaut côté serveur) : le fichier est complet.
+      // La mise en pause de mon rôle en répétition est gérée par le lecteur (bouton « Répét. »).
       const audioOpts =
         exportWithAudio && play.audio.voices && Object.keys(play.audio.voices).length
-          ? { slug: play.slug, audio: play.audio, includeAudio: true, roles: 'others' as const }
+          ? { slug: play.slug, audio: play.audio, includeAudio: true }
           : undefined;
       const { blob, filename } = await api.exportReader(
         play.fountain,
@@ -273,7 +275,8 @@ export function App() {
     [parsed, play?.template],
   );
 
-  // Estimation du coût audio de l'export (caractères ElevenLabs pour les rôles « autres »).
+  // Estimation du coût audio de l'export (caractères ElevenLabs pour toutes les voix,
+  // mon rôle inclus : l'export embarque tout, la répétition est gérée à la lecture).
   const audioEstimate = useMemo(() => {
     const cfg = play?.audio;
     if (!parsed || !cfg?.voices || !Object.keys(cfg.voices).length) return null;
@@ -281,7 +284,6 @@ export function App() {
     let lines = 0;
     for (const n of parsed.nodes) {
       if (n.type !== 'line') continue;
-      if (cfg.myCharacterId && n.characterId === cfg.myCharacterId) continue;
       if (!cfg.voices[n.characterId]) continue;
       const t = speechTextForTts(n);
       if (!t) continue;
@@ -488,7 +490,7 @@ export function App() {
             {audioEstimate && (
               <label
                 className="toggle"
-                title={`Embarquer l'audio des autres rôles dans l'export mobile — réutilisé du cache disque (gratuit si déjà généré via 🎙️). Synthèse à la volée uniquement pour les répliques manquantes : ~${audioEstimate.chars} caractères ElevenLabs, ${audioEstimate.lines} répliques au maximum.`}
+                title={`Embarquer toutes les voix dans l'export mobile (mon rôle inclus ; la répétition met mon rôle en pause côté lecteur) — réutilisé du cache disque (gratuit si déjà généré via 🎙️). Synthèse à la volée uniquement pour les répliques manquantes : ~${audioEstimate.chars} caractères ElevenLabs, ${audioEstimate.lines} répliques au maximum.`}
               >
                 <input
                   type="checkbox"
