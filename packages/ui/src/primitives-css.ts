@@ -111,7 +111,7 @@ input[type='range'] {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: rgba(12, 10, 8, .38);
+  background: var(--scrim);
   opacity: 0;
   pointer-events: none;
   transition: opacity .18s ease;

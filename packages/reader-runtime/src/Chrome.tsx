@@ -398,7 +398,7 @@ export function Chrome({
             placeholder="Rechercher…"
             value={query}
             onInput={(ev) => {
-              const v = (ev.target as HTMLInputElement).value;
+              const v = ev.currentTarget.value;
               setQuery(v);
               search.run(v);
             }}
