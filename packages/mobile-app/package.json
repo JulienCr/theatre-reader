@@ -1,0 +1,22 @@
+{
+  "name": "@theatre/mobile-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@theatre/core": "workspace:*",
+    "@theatre/reader-runtime": "workspace:*",
+    "@theatre/reader-ui": "workspace:*",
+    "@theatre/ui": "workspace:*",
+    "preact": "^10.29.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}

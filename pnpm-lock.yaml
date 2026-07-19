@@ -50,6 +50,31 @@ importers:
         specifier: ^26.0.0
         version: 26.0.0
 
+  packages/mobile-app:
+    dependencies:
+      '@theatre/core':
+        specifier: workspace:*
+        version: link:../core
+      '@theatre/reader-runtime':
+        specifier: workspace:*
+        version: link:../reader-runtime
+      '@theatre/reader-ui':
+        specifier: workspace:*
+        version: link:../reader-ui
+      '@theatre/ui':
+        specifier: workspace:*
+        version: link:../ui
+      preact:
+        specifier: ^10.29.7
+        version: 10.29.7
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.7
+        version: 6.4.3(@types/node@26.0.0)(tsx@4.22.4)
+
   packages/reader-runtime:
     dependencies:
       '@theatre/annotations':

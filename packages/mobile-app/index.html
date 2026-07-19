@@ -1,0 +1,27 @@
+<!doctype html>
+<!--
+  Coquille du lecteur mobile — reprise à l'identique de l'export .html autonome
+  (server/src/reader-export.ts) : c'est le même runtime qui vient s'y monter.
+
+  `data-theme="light"` fige le chrome en clair : le texte de la pièce est rendu
+  par @theatre/core en encre sombre sur papier blanc (couleurs de surlignage
+  pâles comprises), et ce rendu est partagé avec le PDF — on ne peut donc pas
+  l'inverser. Un chrome sombre sur une page blanche serait incohérent.
+-->
+<html lang="fr" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Lecteur</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body { -webkit-text-size-adjust: 100%; padding: 0 16px; }
+      .play { max-width: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
