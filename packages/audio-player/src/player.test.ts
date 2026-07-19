@@ -220,6 +220,18 @@ describe('@theatre/audio-player', () => {
     vi.useRealTimers();
   });
 
+  it('avancement auto : préfetch de ma réplique (pour sonder sa durée sans latence)', async () => {
+    const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux'));
+    const p = buildPlayer(c, {
+      roles: ['benji'],
+      settings: { rehearsal: true, autoAdvance: true, playMine: false },
+    });
+    p.playFrom('a#0'); // michel joue → préfetch de b#0 (ma réplique) car avancement auto
+    await flush();
+    expect(calls.find((t) => t.nodeId === 'b#0')).toBeDefined();
+    p.destroy();
+  });
+
   it('reveal() bascule le peek sur TOUS les fragments (Paged.js)', () => {
     const c = mount(
       line('michel', 'a#0', 'Un') +
@@ -356,20 +368,26 @@ describe('@theatre/audio-player', () => {
         return {};
       }
     }
-    (window as unknown as { AudioContext: unknown }).AudioContext = FakeCtx;
-    const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux'));
+    const win = window as unknown as { AudioContext?: unknown };
+    const origAudioContext = win.AudioContext;
+    win.AudioContext = FakeCtx;
+    try {
+      const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux'));
 
-    const p1 = buildPlayer(c, { roles: ['benji'], settings: { rehearsal: true, tick: false } });
-    p1.playFrom('b#0');
-    await flush();
-    expect(osc).toBe(0);
-    p1.destroy();
+      const p1 = buildPlayer(c, { roles: ['benji'], settings: { rehearsal: true, tick: false } });
+      p1.playFrom('b#0');
+      await flush();
+      expect(osc).toBe(0);
+      p1.destroy();
 
-    osc = 0;
-    const p2 = buildPlayer(c, { roles: ['benji'], settings: { rehearsal: true, tick: true } });
-    p2.playFrom('b#0');
-    await flush();
-    expect(osc).toBe(1);
-    p2.destroy();
+      osc = 0;
+      const p2 = buildPlayer(c, { roles: ['benji'], settings: { rehearsal: true, tick: true } });
+      p2.playFrom('b#0');
+      await flush();
+      expect(osc).toBe(1);
+      p2.destroy();
+    } finally {
+      win.AudioContext = origAudioContext;
+    }
   });
 });

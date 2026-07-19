@@ -29,7 +29,7 @@ import {
   type ReadingSettings,
 } from '@theatre/audio-player';
 import { useAnnotations } from '../useAnnotations';
-import { loadReadingPrefs, saveReadingPrefs } from '../readingPrefs';
+import { loadReadingPrefs, saveReadingPrefs, type ReadingPrefs } from '../readingPrefs';
 import { ReadingModeModal } from './ReadingModeModal';
 import * as api from '../api';
 
@@ -91,8 +91,11 @@ export function Reader({
   const [pstate, setPstate] = useState<PlayerState | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const fallbackRoles = useMemo(() => (audio.myCharacterId ? [audio.myCharacterId] : []), [audio.myCharacterId]);
-  const [settings, setSettings] = useState<ReadingSettings>(() => loadReadingPrefs(slug, fallbackRoles).settings);
-  const [myRoles, setMyRoles] = useState<string[]>(() => loadReadingPrefs(slug, fallbackRoles).myRoles);
+  // Chargé une seule fois (évite deux lectures localStorage + JSON.parse au montage).
+  const initialPrefs = useRef<ReadingPrefs | null>(null);
+  if (initialPrefs.current === null) initialPrefs.current = loadReadingPrefs(slug, fallbackRoles);
+  const [settings, setSettings] = useState<ReadingSettings>(initialPrefs.current.settings);
+  const [myRoles, setMyRoles] = useState<string[]>(initialPrefs.current.myRoles);
   const [showModeModal, setShowModeModal] = useState(false);
 
   const play = useMemo(() => parseFountain(fountain, characters), [fountain, characters]);

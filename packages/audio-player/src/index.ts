@@ -170,7 +170,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       waitingForUser,
       timed,
       timedMs,
-      settings,
+      settings: { ...settings }, // copie : l'état émis ne doit pas être mutable de l'extérieur
     };
   }
   function emit(): void {
@@ -427,8 +427,10 @@ export function createPlayer(opts: PlayerOptions): Player {
   function prefetch(i: number): void {
     const t = tirades[i];
     if (!t) return;
-    // On préfetche ma réplique seulement si on va la jouer (playMine) ; sinon on la saute.
-    if (settings.rehearsal && isMine(t.characterId) && !settings.playMine) return;
+    // On saute le préfetch de MA réplique seulement si on n'en a pas besoin : ni jouée
+    // (playMine) ni sondée pour sa durée (autoAdvance). En avancement auto, préfetcher
+    // évite d'ajouter la latence réseau à la sonde de durée avant de lancer le minuteur.
+    if (settings.rehearsal && isMine(t.characterId) && !settings.playMine && !settings.autoAdvance) return;
     // Idempotent côté hôte (URL mémoïsée) : on jette le résultat.
     void Promise.resolve(opts.resolveAudio(t)).catch(() => {});
   }
@@ -544,6 +546,12 @@ export function createPlayer(opts: PlayerOptions): Player {
       stopAudio();
       audio.src = '';
       clearHighlight();
+      try {
+        void audioCtx?.close(); // libère l'AudioContext du tic (ressource, surtout sur mobile)
+      } catch {
+        /* déjà fermé / indisponible */
+      }
+      audioCtx = null;
     },
   };
 }
