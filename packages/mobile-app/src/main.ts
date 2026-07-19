@@ -75,18 +75,23 @@ function mountPicker(): void {
 }
 
 /**
- * Copie locale, ou `null` si elle est absente ou incomplète.
+ * Copie locale, ou `null` si la pièce n'a jamais été préparée sur ce téléphone.
  *
- * « Incomplète » = pas de manifeste audio exploitable : la préparation écrit la
- * pièce avant de télécharger les clips, une interruption laisse donc un dossier
- * à moitié rempli. Repartir du serveur dans ce cas vaut mieux qu'ouvrir une
- * pièce muette sans le dire.
+ * La présence se juge sur la copie elle-même, JAMAIS sur le nombre de clips : un
+ * `clips` vide est un état parfaitement normal — pièce dont aucun personnage n'a
+ * de voix configurée, ou dont tous les clips manquaient au cache serveur (le
+ * compteur `missing` de `prepareOffline` existe précisément pour ce cas). Le
+ * texte et les notes, eux, SONT sur le téléphone : exiger de l'audio renverrait
+ * au serveur une pièce pourtant téléchargée, donc illisible Mac éteint — soit
+ * l'inverse exact de la promesse du produit.
+ *
+ * Rien à faire de spécial en aval : `buildReaderDocument` omet le bloc `audio`
+ * quand `clips` est vide, et le lecteur s'affiche en texte seul.
  */
 async function loadLocalSource(slug: string): Promise<PlaySource | null> {
   const stored = await store.loadPlay(slug);
   if (!stored) return null;
   const clips = await buildOfflineClips(slug);
-  if (!Object.keys(clips).length) return null;
   return { ...stored, notes: await store.loadNotes(slug), clips };
 }
 

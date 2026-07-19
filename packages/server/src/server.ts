@@ -328,6 +328,13 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get<{ Params: { slug: string; key: string } }>(
     '/api/plays/:slug/audio/:key',
     async (req, reply) => {
+      // Fastify décode les paramètres d'URL avant le handler : sans ce filtre, une clé
+      // comme `..%2F..%2Fautre-piece%2Faudio%2Fxxx` sortirait du dossier audio/ de la
+      // pièce (readAudioCache fait un join) et servirait le MP3 d'une autre pièce.
+      // Les clés légitimes sont des SHA-1 hexadécimaux (cf. audioCacheKey).
+      if (!/^[0-9a-f]{40}$/.test(req.params.key)) {
+        return reply.code(400).send({ error: 'clé invalide' });
+      }
       const buf = await readAudioCache(req.params.slug, req.params.key);
       if (!buf) return reply.code(404).send({ error: 'clip absent' });
       return reply
