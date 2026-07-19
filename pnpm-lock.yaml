@@ -58,13 +58,38 @@ importers:
       '@theatre/audio-player':
         specifier: workspace:*
         version: link:../audio-player
+      '@theatre/reader-ui':
+        specifier: workspace:*
+        version: link:../reader-ui
       '@theatre/ui':
         specifier: workspace:*
         version: link:../ui
+      preact:
+        specifier: ^10.29.7
+        version: 10.29.7
     devDependencies:
       '@theatre/core':
         specifier: workspace:*
         version: link:../core
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
+
+  packages/reader-ui:
+    dependencies:
+      '@theatre/ui':
+        specifier: workspace:*
+        version: link:../ui
+    devDependencies:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
@@ -129,6 +154,9 @@ importers:
       '@theatre/core':
         specifier: workspace:*
         version: link:../core
+      '@theatre/reader-ui':
+        specifier: workspace:*
+        version: link:../reader-ui
       '@theatre/ui':
         specifier: workspace:*
         version: link:../ui
@@ -1505,6 +1533,14 @@ packages:
   postcss@8.5.15:
     resolution: {integrity: sha512-FfR8sjd4em2T6fb3I2MwAJU7HWVMr9zba+enmQeeWFfCbm+UOC/0X4DS8XtpUTMwWMGbjKYP7xjfNekzyGmB3A==}
     engines: {node: ^10 || ^12 || >=14}
+
+  preact@10.29.7:
+    resolution: {integrity: sha512-DCHYrK/B10yUD3ZjLfhZ3WIE/9Vf9VFUODcRE2dRomTYDpJk6z6L9wecSfhfE6M9ZTHUdyQkoC46arIDhEV84Q==}
+    peerDependencies:
+      preact-render-to-string: '>=5'
+    peerDependenciesMeta:
+      preact-render-to-string:
+        optional: true
 
   process-warning@4.0.1:
     resolution: {integrity: sha512-3c2LzQ3rY9d0hc1emcsHhfT9Jwz0cChib/QN89oME2R451w5fy3f0afAhERFZAwrbDU43wk12d0ORBpDVME50Q==}
@@ -3067,6 +3103,8 @@ snapshots:
       nanoid: 3.3.15
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  preact@10.29.7: {}
 
   process-warning@4.0.1: {}
 

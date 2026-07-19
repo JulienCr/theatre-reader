@@ -74,8 +74,11 @@ button.primary {
   color: var(--accent-ink);
   border-color: var(--accent);
 }
+/* Jeton plutôt que `filter: brightness()` : éclaircir un rouge profond le
+   délave au lieu de le renforcer, et le survol doit rester lisible en sombre. */
 button.primary:hover {
-  filter: brightness(1.05);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 select,
 input[type='text'],
@@ -117,9 +120,16 @@ input[type='number'] {
 .seg-btn:hover:not(.seg-on) {
   background: var(--paper-sunken);
 }
-.seg-on {
+/* `button:hover` (0,1,1) l'emporte sur `.seg-on` (0,1,0) : sans cette règle, le
+   survol du segment actif repeint le fond en clair tout en gardant l'encre
+   d'accent, presque blanche — le libellé devient illisible. */
+.seg-on,
+button.seg-on:hover {
   background: var(--accent);
   color: var(--accent-ink);
+}
+button.seg-on:hover {
+  background: var(--accent-hover);
 }
 
 /* ---- Empty state ---- */

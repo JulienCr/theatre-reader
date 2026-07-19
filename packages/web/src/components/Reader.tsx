@@ -21,6 +21,7 @@ import {
   type Template,
 } from '@theatre/core';
 import { annotationCss, type AnchorDraft } from '@theatre/annotations';
+import { createSearch, MIN_QUERY_LENGTH, type SearchController } from '@theatre/reader-ui';
 import {
   createPlayer,
   type AudioTirade,
@@ -77,8 +78,10 @@ export function Reader({
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const pageRef = useRef<HTMLInputElement>(null);
-  const marksRef = useRef<HTMLElement[]>([]);
-  const matchIndexRef = useRef(0);
+  // Contrôleur de recherche partagé avec le lecteur mobile (@theatre/reader-ui).
+  // Il porte les marques posées et l'index courant ; les états React ci-dessous
+  // ne servent qu'à l'affichage du compteur.
+  const searchCtl = useRef<SearchController | null>(null);
 
   const [status, setStatus] = useState<Status>('paginating');
   const [totalPages, setTotalPages] = useState(0);
@@ -217,8 +220,11 @@ export function Reader({
       const container = containerRef.current;
       if (!container) return;
       setStatus('paginating');
-      clearMarks(marksRef.current);
-      marksRef.current = [];
+      // Avant de jeter le DOM paginé : on retire les marques, sinon le compteur
+      // afficherait des résultats qui n'existent plus.
+      searchCtl.current?.clear();
+      setMatchCount(0);
+      setMatchIndex(0);
       container.innerHTML = '';
       try {
         const flow = await new Previewer().preview(
@@ -328,26 +334,30 @@ export function Reader({
     else goToPage(Number(navTarget.value));
   }, [navTarget, status, goToEntry, goToPage]);
 
-  const step = useCallback((delta: number) => {
-    const marks = marksRef.current;
-    if (!marks.length) return;
-    const next = (matchIndexRef.current + delta + marks.length) % marks.length;
-    matchIndexRef.current = next;
-    setMatchIndex(next);
-    focusMatch(marks, next);
+  // Le conteneur paginé garde la même identité d'un bout à l'autre (seul son
+  // contenu est remplacé) : un contrôleur pour toute la durée du lecteur suffit.
+  const getSearch = useCallback((): SearchController | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+    if (!searchCtl.current) searchCtl.current = createSearch(container);
+    return searchCtl.current;
   }, []);
+
+  const step = useCallback(
+    (delta: number) => {
+      const search = getSearch();
+      if (!search?.count) return;
+      setMatchIndex(search.step(delta));
+    },
+    [getSearch],
+  );
 
   const runSearch = (q: string) => {
     setQuery(q);
-    const container = containerRef.current;
-    if (!container) return;
-    clearMarks(marksRef.current);
-    const marks = q.trim().length >= 2 ? markMatches(container, q.trim()) : [];
-    marksRef.current = marks;
-    matchIndexRef.current = 0;
-    setMatchCount(marks.length);
+    const search = getSearch();
+    if (!search) return;
+    setMatchCount(search.run(q));
     setMatchIndex(0);
-    if (marks.length) focusMatch(marks, 0);
   };
 
   // Raccourcis clavier globaux (pendant que le lecteur est ouvert).
@@ -443,7 +453,11 @@ export function Reader({
             }}
           />
           <span className="reader-count">
-            {matchCount ? `${matchIndex + 1}/${matchCount}` : query.trim().length >= 2 ? '0' : ''}
+            {matchCount
+              ? `${matchIndex + 1}/${matchCount}`
+              : query.trim().length >= MIN_QUERY_LENGTH
+                ? '0'
+                : ''}
           </span>
           <button title="Précédent (p)" onClick={() => step(-1)} disabled={!matchCount}>
             ‹
@@ -606,60 +620,3 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Met en surbrillance et fait défiler le résultat courant. */
-function focusMatch(marks: HTMLElement[], index: number) {
-  marks.forEach((m, i) => m.classList.toggle('reader-hit--current', i === index));
-  marks[index]?.scrollIntoView({ block: 'center' });
-}
-
-/** Restaure le texte des occurrences précédemment surlignées. */
-function clearMarks(marks: HTMLElement[]) {
-  for (const mark of marks) {
-    const parent = mark.parentNode;
-    if (!parent) continue;
-    parent.replaceChild(document.createTextNode(mark.textContent ?? ''), mark);
-    parent.normalize();
-  }
-}
-
-/** Enrobe les occurrences de `query` dans des <mark>, renvoie la liste. */
-function markMatches(root: HTMLElement, query: string): HTMLElement[] {
-  const lcQuery = query.toLowerCase();
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const text = node.nodeValue;
-      const parent = (node as Text).parentElement;
-      if (!text || !parent) return NodeFilter.FILTER_REJECT;
-      const tag = parent.tagName;
-      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'MARK') return NodeFilter.FILTER_REJECT;
-      return text.toLowerCase().includes(lcQuery)
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_REJECT;
-    },
-  });
-  const targets: Text[] = [];
-  let n: Node | null;
-  while ((n = walker.nextNode())) targets.push(n as Text);
-
-  const marks: HTMLElement[] = [];
-  for (const textNode of targets) {
-    const text = textNode.nodeValue ?? '';
-    const lc = text.toLowerCase();
-    const frag = document.createDocumentFragment();
-    let last = 0;
-    let idx = lc.indexOf(lcQuery, 0);
-    while (idx !== -1) {
-      if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
-      const mark = document.createElement('mark');
-      mark.className = 'reader-hit';
-      mark.textContent = text.slice(idx, idx + query.length);
-      frag.appendChild(mark);
-      marks.push(mark);
-      last = idx + query.length;
-      idx = lc.indexOf(lcQuery, last);
-    }
-    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
-    textNode.parentNode?.replaceChild(frag, textNode);
-  }
-  return marks;
-}

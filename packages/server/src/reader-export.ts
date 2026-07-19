@@ -9,6 +9,7 @@
  */
 
 import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
 import * as esbuild from 'esbuild';
 import {
   buildNodeIds,
@@ -116,6 +117,23 @@ async function readerRuntime(): Promise<string> {
       write: false,
       platform: 'browser',
       target: 'es2018',
+      // Le chrome du lecteur est écrit en React (composants partagés avec l'app
+      // web) mais bundlé sur Preact : React + ReactDOM pèsent ~140 kB bruts, et
+      // le .html mobile est servi en file:// — donc jamais gzippé. Preact tient
+      // en ~12 kB. Seul le BUNDLE est aliasé ; le typecheck garde @types/react.
+      jsx: 'automatic',
+      jsxImportSource: 'preact',
+      alias: {
+        react: 'preact/compat',
+        'react-dom': 'preact/compat',
+        // Sous-chemin distinct : `preact/compat` n'exporte pas createRoot,
+        // il vit dans `preact/compat/client`.
+        'react-dom/client': 'preact/compat/client',
+      },
+      // esbuild résout les alias depuis le répertoire de travail, or le build est
+      // lancé depuis @theatre/server, qui ne dépend pas de preact. On se place donc
+      // dans @theatre/reader-runtime, seul paquet qui le déclare.
+      absWorkingDir: dirname(entry),
     });
     runtimeCache = out.outputFiles[0]!.text;
   }
