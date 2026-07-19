@@ -262,6 +262,20 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   );
 
+  // Lecture seule du cache disque, par clé (hash de contenu) : cachable et consommable
+  // directement comme URL par le lecteur mobile. Pas de synthèse ici (GET idempotent).
+  app.get<{ Params: { slug: string; key: string } }>(
+    '/api/plays/:slug/audio/:key',
+    async (req, reply) => {
+      const buf = await readAudioCache(req.params.slug, req.params.key);
+      if (!buf) return reply.code(404).send({ error: 'clip absent' });
+      return reply
+        .type('audio/mpeg')
+        .header('Cache-Control', 'public, max-age=31536000, immutable')
+        .send(buf);
+    },
+  );
+
   // Front statique (production). En dev, Vite sert le front et proxifie /api.
   const webDist = fileURLToPath(new URL('../../web/dist/', import.meta.url));
   if (existsSync(webDist)) {
