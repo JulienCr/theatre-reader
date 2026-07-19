@@ -55,11 +55,29 @@ export function NumberField({
 export function TextField({
   value,
   onChange,
+  type = 'text',
+  placeholder,
+  className,
+  'aria-label': ariaLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
+  /** `search` pour un champ de filtre : le navigateur y ajoute son effacement. */
+  type?: 'text' | 'search';
+  placeholder?: string;
+  className?: string;
+  'aria-label'?: string;
 }) {
-  return <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />;
+  return (
+    <input
+      type={type}
+      value={value}
+      placeholder={placeholder}
+      className={className}
+      aria-label={ariaLabel}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
 }
 
 export function ColorField({

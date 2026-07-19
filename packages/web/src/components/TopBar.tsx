@@ -1,8 +1,8 @@
 /**
  * Barre du haut — trois zones, trois natures.
  *
- *   ▸ THEATRE READER │ La Pièce ▾      [ Édition │ Lecture ]      Exporter ▾  ⋯  ⌘K
- *          identité                          mode                     actions
+ *   ▸ THEATRE READER │ La Pièce ▾ ● Enregistré   [ Édition │ Lecture ]   Exporter ▾  ⋯  ⌘K
+ *          identité          état                    mode                   actions
  *
  * Ce qui a changé, et pourquoi : la barre alignait à plat une douzaine de
  * contrôles de natures différentes (boutons, cases à cocher servant
@@ -33,6 +33,31 @@ import {
 } from './ui/Menu';
 import { Segmented } from './ui/Segmented';
 
+/**
+ * État de la sauvegarde, tel qu'il est montré à l'utilisateur.
+ * `idle` = rien à écrire depuis le chargement ; `saved` = écriture confirmée.
+ */
+export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+
+const SAVE_LABELS: Record<SaveState, string> = {
+  idle: 'À jour',
+  dirty: 'Modifié',
+  saving: 'Enregistrement…',
+  saved: 'Enregistré',
+  error: 'Échec',
+};
+
+/** Le plus long des libellés : il fixe la largeur réservée au témoin. */
+const SAVE_WIDEST = SAVE_LABELS.saving;
+
+const SAVE_HINTS: Record<SaveState, string> = {
+  idle: 'Aucune modification depuis le chargement.',
+  dirty: 'Modifications non enregistrées — sauvegarde automatique dans quelques secondes (⌘S / Ctrl+S pour forcer).',
+  saving: 'Enregistrement en cours…',
+  saved: 'Modifications enregistrées sur disque.',
+  error: "Échec de l'enregistrement — réessayez avec ⌘S / Ctrl+S.",
+};
+
 export interface TopBarProps {
   summaries: PlaySummary[];
   playSlug: string | null;
@@ -42,6 +67,7 @@ export interface TopBarProps {
   onSelectPlay: (slug: string) => void;
   onImport: () => void;
   onSave: () => void;
+  saveState: SaveState;
   onExportPdf: () => void;
   onExportReader: () => void;
   exportWithAudio: boolean;
@@ -93,6 +119,29 @@ export function TopBar(p: TopBarProps) {
           <MenuSeparator />
           <MenuItem onSelect={p.onImport}>Importer un PDF…</MenuItem>
         </Menu>
+
+        {/* Témoin de sauvegarde. Deux précautions de géométrie :
+            - il est le DERNIER enfant de la zone de gauche, donc son contenu ne
+              pousse rien ;
+            - sa largeur est réservée par un fantôme portant le plus long des
+              libellés (cf. `.save-state-ghost`), et non par un `min-width` en
+              pixels qui dépendrait de la police du système. Un témoin qui
+              s'élargit en passant de « Modifié » à « Enregistrement… »
+              réintroduirait exactement le sautillement de barre qu'on vient de
+              supprimer. */}
+        {hasPlay && (
+          <span className="save-state" data-state={p.saveState} title={SAVE_HINTS[p.saveState]}>
+            <span className="save-state-dot" aria-hidden="true" />
+            <span className="save-state-text">
+              <span className="save-state-ghost" aria-hidden="true">
+                {SAVE_WIDEST}
+              </span>
+              <span className="save-state-value" role="status" aria-live="polite">
+                {SAVE_LABELS[p.saveState]}
+              </span>
+            </span>
+          </span>
+        )}
       </ToolbarGroup>
 
       <ToolbarGroup label="Mode" className="topbar-zone topbar-zone--center">
