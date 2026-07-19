@@ -59,6 +59,30 @@ export function audioUrl(slug: string, key: string): string {
 }
 
 /**
+ * Manifeste seul : nodeId -> { clé, déjà en cache côté serveur }.
+ *
+ * À préférer systématiquement à `/tts/batch` quand on ne veut pas dépenser :
+ * `/tts/batch` synthétise les clips manquants (API ElevenLabs, facturée), celui-ci
+ * ne fait que calculer les clés et regarder le disque.
+ */
+export async function fetchAudioManifest(
+  slug: string,
+  items: AudioItem[],
+  audio?: AudioConfig,
+): Promise<Record<string, { key: string; cached: boolean }>> {
+  const res = await fetch(apiUrl(`/api/plays/${encodeURIComponent(slug)}/audio/manifest`), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ items, model: audio?.model, settings: audio?.settings }),
+  });
+  if (!res.ok) throw new Error(`manifeste audio → HTTP ${res.status}`);
+  const { manifest } = (await res.json()) as {
+    manifest?: Record<string, { key: string; cached: boolean }>;
+  };
+  return manifest ?? {};
+}
+
+/**
  * Tirades à confier à `/tts/batch`, une par réplique d'un personnage qui a une voix.
  *
  * `buildNodeIds` et `speechTextForTts` ne sont pas interchangeables avec autre
