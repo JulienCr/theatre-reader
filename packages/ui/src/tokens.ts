@@ -46,6 +46,13 @@ export const tokensCss = `
   --rule: #DED8CC;
   --rule-strong: #C8C0B1;
 
+  /* La feuille rendue par @theatre/core (aperçu, pages Paged.js du lecteur).
+     Volontairement **hors du thème** : \`renderCSS\` fixe l'encre à #111 et les
+     surlignages sont calibrés pour du blanc — cette surface reste donc blanche
+     même en sombre, où elle se détache du \`--table\` assombri. Ne pas la
+     remplacer par --paper-raised. */
+  --sheet: #FFFFFF;
+
   /* Encre */
   --ink: #1A1A1E;
   --ink-muted: #6E6A64;
@@ -146,8 +153,13 @@ export const tokensCss = `
   }
 }
 
-/* Bascule manuelle : gagne toujours sur la préférence système. */
+/* Bascule manuelle : gagne toujours sur la préférence système. \`color-scheme\`
+   est redéclaré ici, sinon les surfaces peintes par l'UA (canevas de la page,
+   scrollbars, contrôles natifs) continueraient de suivre la préférence système
+   — c'est ce qui rendrait le lecteur mobile exporté (\`data-theme="light"\`)
+   sombre sous le texte fixé à #111 par @theatre/core. */
 :root[data-theme='light'] {
+  color-scheme: light;
   --paper: #FDFCF9;
   --paper-raised: #FFFFFF;
   --paper-sunken: #F4F1EA;
@@ -175,6 +187,7 @@ export const tokensCss = `
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --paper: #17161A;
   --paper-raised: #201E24;
   --paper-sunken: #121115;
