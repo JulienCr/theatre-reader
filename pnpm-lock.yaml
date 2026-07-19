@@ -58,10 +58,19 @@ importers:
       '@theatre/audio-player':
         specifier: workspace:*
         version: link:../audio-player
+      '@theatre/ui':
+        specifier: workspace:*
+        version: link:../ui
     devDependencies:
       '@theatre/core':
         specifier: workspace:*
         version: link:../core
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
 
   packages/server:
     dependencies:
@@ -100,6 +109,15 @@ importers:
         specifier: ^26.0.0
         version: 26.0.0
 
+  packages/ui:
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+
   packages/web:
     dependencies:
       '@theatre/annotations':
@@ -111,6 +129,9 @@ importers:
       '@theatre/core':
         specifier: workspace:*
         version: link:../core
+      '@theatre/ui':
+        specifier: workspace:*
+        version: link:../ui
       pagedjs:
         specifier: ^0.4.3
         version: 0.4.3

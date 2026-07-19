@@ -1,5 +1,5 @@
 {
-  "name": "@theatre/reader-runtime",
+  "name": "@theatre/ui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,13 +9,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@theatre/annotations": "workspace:*",
-    "@theatre/audio-player": "workspace:*",
-    "@theatre/ui": "workspace:*"
+  "peerDependencies": {
+    "react": ">=18"
   },
   "devDependencies": {
-    "@theatre/core": "workspace:*",
     "@types/react": "^19.0.0",
     "react": "^19.0.0"
   }
