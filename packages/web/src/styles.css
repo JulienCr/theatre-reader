@@ -79,12 +79,20 @@ body {
 .topbar .btn--icon svg {
   stroke-width: 2.8;
 }
+/* Le nom de la pièce est la seule longueur imprévisible de la barre : il doit se
+   rogner plutôt que pousser la colonne. `max-width` ne suffit pas — le bouton et
+   son libellé sont des éléments flex, dont le `min-width: auto` implicite leur
+   interdit de descendre sous la largeur de leur contenu et l'emporte sur toute
+   largeur maximale. D'où `min-width: 0` sur les deux niveaux. */
 .play-trigger {
   font-weight: 600;
   max-width: 100%;
+  min-width: 0;
 }
 .play-trigger > span {
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* Tabulaire : « ⌘K » ne doit pas changer de largeur d'une police à l'autre. */
