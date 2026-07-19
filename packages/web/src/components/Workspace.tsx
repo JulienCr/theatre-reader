@@ -2,7 +2,7 @@
  * Espace d'édition — rail, aperçu, tiroir de source, dock à onglets.
  *
  *   ┌───┬───────────────────────────┬───────────────┐
- *   │ ▣ │                           │ Distribution  │
+ *   │ ▣ │ A4 · police · pt · marge  │ Distribution  │
  *   │ ▣ │          APERÇU           │ Mise en page  │
  *   │ ▣ │                           │ Notes         │
  *   │   ├───────────────────────────┼───────────────┤
@@ -31,8 +31,10 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { Icon, IconButton, Sheet, type IconName } from '@theatre/ui';
+import { Icon, IconButton, Sheet, Toolbar, ToolbarGroup, type IconName } from '@theatre/ui';
+import type { PageStyle, Template } from '@theatre/core';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/Tabs';
+import { NumberField, Select, TextField } from './controls';
 import { useMediaQuery } from '../useMediaQuery';
 
 export interface DockPanel {
@@ -56,8 +58,87 @@ function loadDock(panels: DockPanel[]): string | null {
   return panels.some((p) => p.id === saved) ? saved : null;
 }
 
+/**
+ * Réglages de la feuille, posés au-dessus de l'aperçu.
+ *
+ * Pourquoi ici et non dans le panneau « Mise en page » : format, police, taille,
+ * marge et interligne se jugent à l'œil, sur la page. Les chercher dans un
+ * onglet latéral obligeait à faire l'aller-retour du regard à chaque demi-point.
+ * Ils écrivent dans le même `template.page` que partout ailleurs — ce n'est pas
+ * une copie de l'état, c'est le même.
+ *
+ * `ToolbarGroup` porte le découpage : un groupe est indivisible, donc la barre
+ * ne se réagence pas au gré de la largeur de la colonne.
+ */
+function PageBar({
+  template,
+  onChange,
+}: {
+  template: Template;
+  onChange: (t: Template) => void;
+}) {
+  const setPage = (patch: Partial<PageStyle>) =>
+    onChange({ ...template, page: { ...template.page, ...patch } });
+  const p = template.page;
+  return (
+    <Toolbar className="ws-pagebar" aria-label="Réglages de la feuille">
+      <ToolbarGroup label="Format">
+        <Select<PageStyle['format']>
+          value={p.format}
+          options={[
+            { value: 'A4', label: 'A4' },
+            { value: 'Letter', label: 'Letter' },
+          ]}
+          onChange={(format) => setPage({ format })}
+        />
+      </ToolbarGroup>
+      <ToolbarGroup label="Police">
+        <TextField
+          className="ws-pagebar-font"
+          aria-label="Police"
+          value={p.fontFamily}
+          onChange={(fontFamily) => setPage({ fontFamily })}
+        />
+        <label className="ws-pagebar-field">
+          <span>pt</span>
+          <NumberField
+            value={p.fontSizePt}
+            min={6}
+            max={32}
+            step={0.5}
+            onChange={(fontSizePt) => setPage({ fontSizePt })}
+          />
+        </label>
+      </ToolbarGroup>
+      <ToolbarGroup label="Page">
+        <label className="ws-pagebar-field">
+          <span>Marge</span>
+          <NumberField
+            value={p.marginMm}
+            min={0}
+            max={50}
+            onChange={(marginMm) => setPage({ marginMm })}
+          />
+        </label>
+        <label className="ws-pagebar-field">
+          <span>Interligne</span>
+          <NumberField
+            value={p.lineHeight}
+            min={1}
+            max={3}
+            step={0.05}
+            onChange={(lineHeight) => setPage({ lineHeight })}
+          />
+        </label>
+      </ToolbarGroup>
+    </Toolbar>
+  );
+}
+
 export function Workspace({
   panels,
+  template,
+  onTemplateChange,
   preview,
   source,
   sourceOpen,
@@ -65,6 +146,8 @@ export function Workspace({
   isFullscreen,
 }: {
   panels: DockPanel[];
+  template: Template;
+  onTemplateChange: (t: Template) => void;
   preview: ReactNode;
   source: ReactNode;
   sourceOpen: boolean;
@@ -171,6 +254,8 @@ export function Workspace({
             onLayoutChanged={rows.onLayoutChanged}
           >
             <Panel id="preview" minSize="20%" className="ws-preview">
+              {/* Masquée en plein écran comme le reste du chrome. */}
+              {chrome && <PageBar template={template} onChange={onTemplateChange} />}
               {preview}
             </Panel>
             {chrome && sourceOpen && <Separator className="ws-handle ws-handle--h" />}

@@ -1251,3 +1251,228 @@ kbd {
   background: none;
   color: var(--ink);
 }
+
+/* ---- Panneaux : distribution & mise en page ---- */
+
+/* Le nerf de la guerre : une ligne de personnage doit rester basse. Les douze
+   rôles de la pièce de test occupaient 1580 px parce que chacun était écrit
+   deux fois ; réunis, ils ne tiennent que si la ligne elle-même reste dense —
+   d'où les hauteurs de contrôle explicites plutôt que les tailles par défaut du
+   navigateur, qui varient de 32 à 38 px selon la plateforme. */
+.cast-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.cast-head input[type='search'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cast-head button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+.cast-panel .hint {
+  margin-bottom: 8px;
+}
+
+.cast-item {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.cast-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+/* Deuxième ligne alignée sous le nom, pas sous la case : la case commande le
+   surlignage, les contrôles en dessous précisent le personnage. */
+.cast-row--controls {
+  margin-top: 3px;
+  padding-left: 22px;
+  flex-wrap: wrap;
+}
+.cast-row--controls select {
+  flex: 1 1 120px;
+  min-width: 0;
+  height: 26px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.cast-item .ctrl-color {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 22px;
+}
+.cast-item .char-name-btn {
+  min-width: 0;
+}
+.cast-item .char-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cast-mine {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cast-preview {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 6px;
+}
+
+/* Repli des personnages non réglés : c'est une divulgation, pas une action —
+   ni aplat ni accent. */
+.cast-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.cast-more:hover {
+  background: var(--paper-sunken);
+  color: var(--text);
+  border-radius: 6px;
+}
+
+/* Sous-onglets de « Mise en page ». Le dock scrolle déjà : les sous-onglets ne
+   doivent ni marger ni scroller à leur tour, sinon on obtient deux ascenseurs
+   imbriqués pour une même colonne. */
+.subtabs {
+  height: auto;
+}
+.subtabs .tabs-list {
+  background: none;
+}
+.subtabs .tabs-trigger {
+  padding: 6px 4px;
+  font-size: 12px;
+}
+.subtabs .tabs-content {
+  padding: 0;
+  overflow: visible;
+}
+.subtabs .tabs-content > h4:first-child {
+  margin-top: 12px;
+}
+
+/* Barre de réglages de la feuille, au-dessus de l'aperçu. Discrète par
+   construction : un filet, des libellés en gris, aucun aplat — la page reste le
+   sujet. `overflow-x` plutôt que `flex-wrap` : un groupe ne se casse pas. */
+.ws-pagebar {
+  flex: 0 0 auto;
+  gap: 14px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  overflow-x: auto;
+}
+.ws-pagebar select,
+.ws-pagebar input {
+  height: 26px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.ws-pagebar-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ws-pagebar-field input {
+  width: 62px;
+}
+/* Largeur plafonnée : laissée libre, la pile de polices étirait son champ sur
+   toute la barre et noyait les quatre nombres qui, eux, se règlent souvent. */
+.ws-pagebar-font {
+  flex: 0 1 240px;
+  min-width: 90px;
+}
+
+/* ---- Témoin de sauvegarde ----
+   Largeur RÉSERVÉE, pas seulement stable : un fantôme invisible portant le plus
+   long libellé (« Enregistrement… ») dimensionne la boîte, et le libellé réel est
+   posé par-dessus en absolu. Un `min-width` en pixels aurait suffi sur ma police,
+   pas sur une autre — et la barre du haut ne doit pas bouger d'un pixel quand
+   l'état bascule. */
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  font-size: var(--fs-sm);
+  color: var(--ink-muted);
+  white-space: nowrap;
+  user-select: none;
+}
+.save-state-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-full);
+  background: var(--ink-faint);
+}
+.save-state-text {
+  position: relative;
+  display: inline-block;
+}
+.save-state-ghost {
+  visibility: hidden;
+}
+.save-state-value {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+}
+.save-state[data-state='dirty'] .save-state-dot {
+  background: var(--hit-current);
+}
+.save-state[data-state='saving'] .save-state-dot {
+  background: var(--hit-current);
+  animation: save-state-pulse 1s ease-in-out infinite;
+}
+.save-state[data-state='saved'] .save-state-dot {
+  background: var(--ok);
+}
+.save-state[data-state='error'] .save-state-dot {
+  background: var(--danger);
+}
+.save-state[data-state='error'] {
+  color: var(--danger);
+}
+@keyframes save-state-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+/* Un point clignotant en boucle est le pire cas pour qui est sensible au
+   mouvement : le témoin reste lisible sans l'animation. */
+@media (prefers-reduced-motion: reduce) {
+  .save-state[data-state='saving'] .save-state-dot {
+    animation: none;
+  }
+}

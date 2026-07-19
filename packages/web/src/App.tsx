@@ -13,17 +13,17 @@ import * as api from './api';
 import { Preview } from './components/Preview';
 import { NotePopover, type PopoverTarget } from './components/NotePopover';
 import { NotesPanel } from './components/NotesPanel';
-import { CharactersPanel } from './components/CharactersPanel';
-import { VoicesPanel } from './components/VoicesPanel';
+import { CastPanel } from './components/CastPanel';
 import { TemplatePanel } from './components/TemplatePanel';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import { AudioProgressModal, type AudioGenState } from './components/AudioProgressModal';
-import { TopBar } from './components/TopBar';
+import { TopBar, type SaveState } from './components/TopBar';
 import { ShortcutList } from './components/ShortcutList';
 import { Workspace, type DockPanel } from './components/Workspace';
 import { Modal } from './components/ui/Modal';
 import { Toasts, type FlashMessage } from './components/ui/Toasts';
 import { applyTheme, loadTheme, type ThemePref } from './theme';
+import { loadSessionPrefs, saveSessionPrefs } from './sessionPrefs';
 import type { NavTarget } from './components/Reader';
 
 // Paged.js (~500 Ko) chargé à la demande, uniquement à l'ouverture du lecteur.
@@ -37,6 +37,17 @@ interface PlayState {
   template: Template;
   audio: AudioConfig;
 }
+
+/** Inactivité après la dernière modification avant sauvegarde automatique. */
+const AUTOSAVE_DELAY = 2000;
+
+/**
+ * Empreinte de tout ce que `savePlay` écrit sur disque. Comparée à celle du
+ * dernier enregistrement, elle dit si l'état est *réellement* sale : un simple
+ * changement de référence d'objet ne suffit pas, React en produit à foison.
+ */
+const playSignature = (p: PlayState): string =>
+  JSON.stringify([p.fountain, p.name, p.characters, p.template, p.audio]);
 
 export function App() {
   const [summaries, setSummaries] = useState<api.PlaySummary[]>([]);
@@ -58,9 +69,24 @@ export function App() {
     null,
   );
   const [popover, setPopover] = useState<{ target: PopoverTarget } | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [playsLoaded, setPlaysLoaded] = useState(false);
   const pendingDraft = useRef<Note | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const flashId = useRef(0);
+  // Empreinte du dernier état réellement écrit sur disque, avec sa pièce. C'est
+  // LA garde contre l'autosauvegarde parasite : au premier rendu d'une pièce on
+  // adopte son contenu fraîchement lu comme référence, si bien que le `setPlay`
+  // du chargement (ou de la restauration de session) ne ressemble plus à une
+  // frappe et ne déclenche aucune écriture.
+  const savedRef = useRef<{ slug: string; sig: string } | null>(null);
+  // Écritures sérialisées : deux sauvegardes en vol pourraient se doubler et la
+  // plus ancienne écraser la plus récente.
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
+  // Miroir de `play` pour les callbacks stables (⌘S, fin d'écriture) : sans lui
+  // il faudrait ré-abonner l'écouteur clavier à chaque frappe.
+  const playRef = useRef<PlayState | null>(null);
+  const restored = useRef(false);
 
   // `flash` garde sa signature (m: string) => void ; seule la destination change :
   // un toast portalisé au lieu d'un <span> dans la barre. Stable (deps vides) pour
@@ -73,7 +99,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    api.listPlays().then(setSummaries).catch(() => flash('Serveur injoignable.'));
+    api.listPlays()
+      .then((list) => {
+        setSummaries(list);
+        // Marqueur explicite : la restauration de session doit savoir que la
+        // liste est connue *même si elle est vide*, sinon un import ultérieur
+        // (qui remplit la liste) déclencherait une restauration tardive et
+        // basculerait sur une autre pièce sous les yeux de l'utilisateur.
+        setPlaysLoaded(true);
+      })
+      .catch(() => flash('Serveur injoignable.'));
     // Voix ElevenLabs (null = synthèse désactivée, pas de clé).
     api.listVoices().then(setVoices).catch(() => setVoices(null));
   }, [flash]);
@@ -111,44 +146,146 @@ export function App() {
     }
   };
 
-  const onSelect = async (slug: string) => {
-    if (!slug) return;
-    setBusy('Chargement…');
-    try {
-      const { fountain, meta } = await api.loadPlay(slug);
-      setPlay({
-        slug,
-        name: meta.name,
-        fountain,
-        characters: meta.characters,
-        template: meta.template,
-        audio: meta.audio ?? {},
-      });
-      setNotes(await api.loadNotes(slug).catch(() => []));
-    } catch (e) {
-      flash(`Échec du chargement : ${String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  };
+  // Mémoïsée : la restauration de session l'appelle depuis un effet, et une
+  // identité stable évite de relancer cet effet à chaque rendu.
+  const onSelect = useCallback(
+    async (slug: string) => {
+      if (!slug) return;
+      setBusy('Chargement…');
+      try {
+        const { fountain, meta } = await api.loadPlay(slug);
+        setPlay({
+          slug,
+          name: meta.name,
+          fountain,
+          characters: meta.characters,
+          template: meta.template,
+          audio: meta.audio ?? {},
+        });
+        setNotes(await api.loadNotes(slug).catch(() => []));
+      } catch (e) {
+        flash(`Échec du chargement : ${String(e)}`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [flash],
+  );
 
-  const onSave = async () => {
-    if (!play) return;
-    setBusy('Sauvegarde…');
-    try {
-      await api.savePlay(play.slug, play.fountain, {
-        name: play.name,
-        characters: play.characters,
-        template: play.template,
-        audio: play.audio,
+  // ---- Sauvegarde : automatique (débouncée), manuelle (⌘S), et témoin d'état ----
+
+  /** Écrit la pièce sur disque. Toujours passer par ici : c'est le point de sérialisation. */
+  const persistPlay = useCallback(
+    (p: PlayState, opts?: { manual?: boolean }) => {
+      const sig = playSignature(p);
+      const run = saveChain.current.then(async () => {
+        setSaveState('saving');
+        try {
+          await api.savePlay(p.slug, p.fountain, {
+            name: p.name,
+            characters: p.characters,
+            template: p.template,
+            audio: p.audio,
+          });
+          savedRef.current = { slug: p.slug, sig };
+          // L'utilisateur a pu retaper pendant l'écriture : le témoin doit alors
+          // rester « modifié » — la prochaine écriture est déjà armée par le débounce.
+          const latest = playRef.current;
+          const stillDirty = Boolean(
+            latest && latest.slug === p.slug && playSignature(latest) !== sig,
+          );
+          setSaveState(stillDirty ? 'dirty' : 'saved');
+          // Pas de toast à chaque sauvegarde automatique : ce serait un clignotant
+          // permanent. Le témoin suffit ; seule la sauvegarde manuelle est bavarde.
+          if (opts?.manual) flash('Sauvegardé.');
+        } catch (e) {
+          setSaveState('error');
+          flash(String(e));
+        }
       });
-      flash('Sauvegardé.');
-    } catch (e) {
-      flash(String(e));
-    } finally {
-      setBusy(null);
+      // La chaîne ne doit jamais rester rejetée, sinon toute écriture ultérieure
+      // serait court-circuitée.
+      saveChain.current = run.catch(() => undefined);
+      return run;
+    },
+    [flash],
+  );
+
+  const onSave = useCallback(async () => {
+    const p = playRef.current;
+    if (!p) return;
+    await persistPlay(p, { manual: true });
+  }, [persistPlay]);
+
+  useEffect(() => {
+    playRef.current = play;
+  }, [play]);
+
+  // Sauvegarde automatique, débouncée, et uniquement si l'état diffère du disque.
+  useEffect(() => {
+    if (!play) return;
+    const sig = playSignature(play);
+    if (savedRef.current?.slug !== play.slug) {
+      // Pièce fraîchement chargée ou importée : son contenu EST celui du disque.
+      savedRef.current = { slug: play.slug, sig };
+      setSaveState('idle');
+      return;
     }
-  };
+    if (sig === savedRef.current.sig) {
+      // Retour à l'état enregistré (frappe annulée) : plus rien à écrire.
+      setSaveState((s) => (s === 'dirty' ? 'idle' : s));
+      return;
+    }
+    setSaveState((s) => (s === 'saving' ? s : 'dirty'));
+    const id = setTimeout(() => void persistPlay(play), AUTOSAVE_DELAY);
+    return () => clearTimeout(id);
+  }, [play, persistPlay]);
+
+  // ⌘S / Ctrl+S : sauvegarde immédiate. `preventDefault` impératif, sinon c'est
+  // la boîte « Enregistrer la page » du navigateur qui s'ouvre.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void onSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onSave]);
+
+  // Filet de dernier recours : prévenir avant de fermer un onglet dont les
+  // modifications ne sont pas encore parties. L'écouteur n'est posé que quand il
+  // y a quelque chose à perdre — présent en permanence, il gênerait chaque
+  // rechargement pour rien.
+  useEffect(() => {
+    if (saveState !== 'dirty' && saveState !== 'saving') return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [saveState]);
+
+  // ---- Session : pièce ouverte + mode, restaurés au chargement ----
+  useEffect(() => {
+    if (restored.current || !playsLoaded) return;
+    restored.current = true;
+    const s = loadSessionPrefs();
+    // Slug inconnu (pièce supprimée depuis) : on l'ignore, sans bruit.
+    if (s.slug && summaries.some((x) => x.slug === s.slug)) {
+      setMode(s.mode);
+      void onSelect(s.slug);
+    }
+  }, [playsLoaded, summaries, onSelect]);
+
+  useEffect(() => {
+    // Avant la restauration, `play` est null et `mode` vaut sa valeur initiale :
+    // écrire ici effacerait la session qu'on s'apprête justement à lire.
+    if (!restored.current) return;
+    saveSessionPrefs({ slug: play?.slug ?? null, mode });
+  }, [play?.slug, mode]);
 
   const persistNotes = async (next: Note[]) => {
     setNotes(next);
@@ -429,9 +566,9 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Les panneaux du dock. `Distribution` réunit pour l'instant Personnages et
-  // Voix dans un même onglet : les deux listent les mêmes rôles, leur fusion est
-  // le sujet d'un autre chantier — ici on ne fait que les déplacer.
+  // Les panneaux du dock. `Distribution` est désormais une liste unique
+  // (`CastPanel`) : surlignage et voix tiennent sur la ligne du personnage, au
+  // lieu des deux listes parallèles qui redoublaient chaque nom.
   const dockPanels = useMemo<DockPanel[]>(() => {
     if (!play) return [];
     return [
@@ -440,21 +577,16 @@ export function App() {
         label: 'Distribution',
         icon: 'users',
         content: (
-          <>
-            <CharactersPanel
-              characters={play.characters}
-              template={play.template}
-              onChange={setTemplate}
-              onCharactersChange={setCharacters}
-            />
-            <VoicesPanel
-              characters={play.characters}
-              audio={play.audio}
-              voices={voices}
-              slug={play.slug}
-              onChange={setAudio}
-            />
-          </>
+          <CastPanel
+            characters={play.characters}
+            template={play.template}
+            audio={play.audio}
+            voices={voices}
+            slug={play.slug}
+            onTemplateChange={setTemplate}
+            onCharactersChange={setCharacters}
+            onAudioChange={setAudio}
+          />
         ),
       },
       {
@@ -496,6 +628,7 @@ export function App() {
         onSelectPlay={onSelect}
         onImport={() => fileInput.current?.click()}
         onSave={onSave}
+        saveState={saveState}
         onExportPdf={onExport}
         onExportReader={onExportReader}
         exportWithAudio={exportWithAudio}
@@ -543,6 +676,8 @@ export function App() {
       ) : (
         <Workspace
           panels={dockPanels}
+          template={play.template}
+          onTemplateChange={setTemplate}
           isFullscreen={isFullscreen}
           sourceOpen={showEditor}
           onSourceOpen={setShowEditor}
