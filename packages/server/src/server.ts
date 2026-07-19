@@ -94,6 +94,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     else app.log.debug(line);
   });
 
+  // `disableRequestLogging` coupe aussi le log d'erreur intégré de Fastify : on
+  // le rétablit ici pour garder la pile d'exception des routes qui échouent.
+  app.addHook('onError', async (req, _reply, err) => {
+    app.log.error({ err }, `${req.method} ${req.url}`);
+  });
+
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
 
   app.get('/api/plays', async () => ({ plays: await listPlays() }));
