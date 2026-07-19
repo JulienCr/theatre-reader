@@ -34,10 +34,20 @@ export const primitivesCss = `
 
 .btn--sm { height: calc(var(--ctl-h) - 4px); padding: 0 var(--sp-2); font-size: var(--fs-sm); }
 .btn--touch { height: var(--ctl-h-touch); min-width: var(--ctl-h-touch); padding: 0 var(--sp-4); font-size: var(--fs-lg); }
+/* Rond, pour se distinguer au premier coup d'œil des cibles rectangulaires
+   qui l'entourent — la forme porte la hiérarchie autant que l'accent. */
+.btn--hero {
+  height: var(--ctl-h-hero);
+  min-width: var(--ctl-h-hero);
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-lg);
+  border-radius: var(--r-full);
+}
 
 .btn--icon { padding: 0; width: var(--ctl-h); }
 .btn--icon.btn--sm { width: calc(var(--ctl-h) - 4px); }
 .btn--icon.btn--touch { width: var(--ctl-h-touch); padding: 0; }
+.btn--icon.btn--hero { width: var(--ctl-h-hero); padding: 0; }
 
 /* L'aplat accent est réservé à l'action primaire unique de l'écran. */
 .btn--primary {
@@ -113,12 +123,20 @@ export const primitivesCss = `
   border-radius: var(--r-lg) var(--r-lg) 0 0;
   box-shadow: var(--sh-3);
   transform: translateY(101%);
-  transition: transform .22s cubic-bezier(.3, .8, .4, 1);
   padding-bottom: env(safe-area-inset-bottom);
+  /* Masquée par visibility et non par display : une sheet fermée doit rester
+     dans le flux pour que sa transition joue. Le délai la masque seulement UNE
+     FOIS la glissade terminée — sans lui, la fermeture serait un escamotage sec ;
+     et sans masquage du tout, l'ombre portée (--sh-3) assombrirait le bas de
+     l'écran en permanence. */
+  visibility: hidden;
+  transition: transform .22s cubic-bezier(.3, .8, .4, 1), visibility 0s linear .22s;
 }
-.sheet.is-open { transform: translateY(0); }
-.sheet[aria-hidden='true'] { visibility: hidden; }
-.sheet.is-open[aria-hidden='false'] { visibility: visible; }
+.sheet.is-open {
+  transform: translateY(0);
+  visibility: visible;
+  transition: transform .22s cubic-bezier(.3, .8, .4, 1), visibility 0s;
+}
 
 .sheet-head {
   display: flex;

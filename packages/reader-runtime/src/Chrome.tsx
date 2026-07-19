@@ -1,5 +1,5 @@
 /**
- * Chrome du lecteur mobile : barre du bas, sheets, backdrop.
+ * Chrome du lecteur mobile : bandeau de contexte, barre du bas, sheets.
  *
  * INVARIANT ABSOLU — React ne possède JAMAIS le texte de la pièce.
  * Le contenu de `.play` vient de `renderBody()` (@theatre/core) sous forme de
@@ -10,10 +10,23 @@
  *   - `createSearch()` de @theatre/reader-ui (injection de `<mark>`).
  * Ce composant est monté dans un conteneur séparé (`#reader-chrome`) et ne touche
  * `.play` que par des effets impératifs explicites (taille du texte, surlignage
- * des personnages) : s'il rendait `.play`, il écraserait les mutations ci-dessus.
+ * des personnages, observation des ancres de scène) : s'il rendait `.play`, il
+ * écraserait les mutations ci-dessus.
  * Même patron que `packages/web/src/components/Reader.tsx`.
+ *
+ * ── Agencement de la barre ────────────────────────────────────────────────────
+ * Trois zones : le menu à gauche, l'action centrale au milieu, une bascule à
+ * droite. Les zones latérales sont élastiques et de même souplesse, ce qui
+ * centre la zone du milieu sans la mesurer. Aucun bouton ne rétrécit : une
+ * barre trop étroite doit se voir à la conception, jamais tronquer un libellé.
+ *
+ * Le nombre d'actions dépend de l'export : avec des clips audio la barre est un
+ * transport (⏮ ▶ ⏭ + Répétition), sans clips le transport n'a aucun sens et la
+ * place revient aux trois navigations les plus utilisées. Le reste vit dans la
+ * sheet « Options », derrière le menu — c'est ce qui garde la barre courte quelle
+ * que soit la largeur de l'écran.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { decorate } from '@theatre/annotations';
 import {
   createPlayer,
@@ -21,11 +34,12 @@ import {
   type PlayerState,
   type ReadingSettings,
 } from '@theatre/audio-player';
-import type { SearchController } from '@theatre/reader-ui';
+import { ContextBanner, TransportDock, type SearchController } from '@theatre/reader-ui';
+import { Button, Icon, IconButton, Sheet, Toolbar, ToolbarGroup } from '@theatre/ui';
 import { colorFor, FONT_MAX, FONT_MIN, saveState, type PersistedState } from './state';
 import type { ReaderData } from './types';
 
-type SheetName = 'chars' | 'scenes' | 'search' | 'mode' | 'note' | null;
+type SheetName = 'options' | 'chars' | 'scenes' | 'search' | 'mode' | 'note' | null;
 
 const clampFont = (p: number): number => Math.min(FONT_MAX, Math.max(FONT_MIN, p));
 
@@ -36,6 +50,25 @@ const REHEARSAL_OPTIONS: { key: keyof ReadingSettings; label: string; hint: stri
   { key: 'autoAdvance', label: 'Avancement automatique', hint: 'Reprise auto après la durée, sans clic.' },
   { key: 'tick', label: "Bip quand c'est à moi", hint: '' },
 ];
+
+/**
+ * Boîte d'observation des en-têtes : tout ce qui est au-dessus de la ligne des
+ * 12 % de hauteur d'écran. Un en-tête « intersecte » donc exactement quand il a
+ * été franchi, et le bandeau affiche le dernier de la liste dans ce cas.
+ *
+ * Les deux valeurs sont contre-intuitives et toutes deux nécessaires :
+ * - la marge haute doit couvrir la pièce entière (elle fait ici ~40 000 px) :
+ *   un en-tête sorti de la boîte serait considéré comme non franchi ;
+ * - la marge basse est en pourcentage pour suivre les rotations d'écran sans
+ *   avoir à reconstruire l'observateur.
+ *
+ * Une bande fine à hauteur de la ligne (la formulation évidente) ne marche PAS :
+ * l'observateur échantillonne par image, et un saut instantané — c'est le cas de
+ * « aller à une scène » — passe de « sous l'écran » à « au-dessus de la ligne »
+ * sans état intermédiaire, donc sans notification. Mesuré : le bandeau restait
+ * vide après chaque saut.
+ */
+const SCENE_ROOT_MARGIN = '1000000px 0px -88% 0px';
 
 export function Chrome({
   data,
@@ -56,13 +89,11 @@ export function Chrome({
   const [myRoles, setMyRoles] = useState<string[]>(initial.myRoles);
   const [sheet, setSheet] = useState<SheetName>(null);
   // `null` tant qu'aucune note n'a été ouverte : la bulle n'est alors pas montée
-  // du tout. Le chrome vanilla la créait à la demande, et une `.reader-sheet`
-  // fermée projette quand même son ombre au-dessus d'elle — une bulle montée
-  // d'avance assombrirait le bas de l'écran. Une fois affichée, elle reste
-  // montée (là aussi comme avant le portage).
+  // du tout. Une fois affichée, elle reste montée (comme avant le portage React).
   const [noteBody, setNoteBody] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [pstate, setPstate] = useState<PlayerState | null>(null);
+  const [sceneId, setSceneId] = useState<string | null>(null);
 
   const playerRef = useRef<Player | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -119,6 +150,38 @@ export function Chrome({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- montage seul, par conception
   }, []);
 
+  // Scène courante, pour le bandeau : le dernier en-tête franchi. L'observateur
+  // émet un premier lot dès le branchement, ce qui initialise le bandeau sans
+  // écouter le défilement.
+  useEffect(() => {
+    const els = data.toc
+      .map((e) => document.getElementById(e.id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (!els.length) return;
+    const crossed = new Set<string>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) crossed.add(e.target.id);
+          else crossed.delete(e.target.id);
+        }
+        // `els` est en ordre de document : le dernier franchi est le courant.
+        let current: string | null = null;
+        for (const el of els) if (crossed.has(el.id)) current = el.id;
+        setSceneId(current);
+      },
+      { rootMargin: SCENE_ROOT_MARGIN },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- le sommaire est figé à l'export
+  }, []);
+
+  const sceneLabel = useMemo(
+    () => (sceneId ? (data.toc.find((e) => e.id === sceneId)?.label ?? null) : null),
+    [data.toc, sceneId],
+  );
+
   // Taille du texte : posée en inline sur `.play`. useLayoutEffect (et non
   // useEffect) pour que la valeur restaurée soit appliquée avant la peinture,
   // sinon le texte s'affiche brièvement à 100 %.
@@ -152,10 +215,10 @@ export function Chrome({
     if (sheet === 'search') searchInputRef.current?.focus();
   }, [sheet]);
 
+  const closeSheet = (): void => setSheet(null);
+
   const toggleCharacter = (cid: string): void =>
     setSelected((prev) => (prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]));
-
-  const bumpFont = (delta: number): void => setFontPct((p) => clampFont(p + delta));
 
   const changeSettings = (patch: Partial<ReadingSettings>): void => {
     setReading((prev) => ({ ...prev, ...patch }));
@@ -176,39 +239,107 @@ export function Chrome({
 
   return (
     <>
-      <div className={`reader-backdrop${sheet ? ' open' : ''}`} onClick={() => setSheet(null)} />
+      <div className="reader-dock">
+        <ContextBanner scene={sceneLabel} waiting={Boolean(pstate?.waitingForUser)} />
 
-      <div className="reader-bar">
-        <button onClick={() => setSheet('chars')}>Persos</button>
-        <button onClick={() => setSheet('scenes')}>Scènes</button>
-        <button onClick={() => setSheet('search')}>🔍</button>
-        <button aria-haspopup="dialog" onClick={() => setSheet('mode')}>
-          Mode
-        </button>
-        <button onClick={() => bumpFont(-10)}>A−</button>
-        <button onClick={() => bumpFont(10)}>A+</button>
-        {/* Transport audio (uniquement si des clips sont embarqués). */}
-        {hasClips && (
-          <>
-            <button
-              onClick={() => {
+        <Toolbar className="reader-bar" aria-label="Commandes du lecteur">
+          <ToolbarGroup className="reader-bar-side" label="Menu">
+            <IconButton
+              icon="menu"
+              label="Options"
+              size="touch"
+              aria-haspopup="dialog"
+              onClick={() => setSheet('options')}
+            />
+          </ToolbarGroup>
+
+          {hasClips ? (
+            <TransportDock
+              playing={playing}
+              waiting={Boolean(pstate?.waitingForUser)}
+              onPrev={() => playerRef.current?.prev()}
+              onToggle={() => {
                 const p = playerRef.current;
                 if (!p) return;
                 if (pstate?.waitingForUser) p.resume();
                 else p.toggle();
               }}
-            >
-              {playing ? '⏸' : '▶'}
-            </button>
-            <button onClick={() => playerRef.current?.next()}>⏭</button>
-          </>
-        )}
+              onNext={() => playerRef.current?.next()}
+              rehearsal={reading.rehearsal}
+              onRehearsalChange={(on) => changeSettings({ rehearsal: on })}
+            />
+          ) : (
+            <>
+              <ToolbarGroup label="Navigation">
+                <IconButton
+                  icon="users"
+                  label="Personnages"
+                  size="touch"
+                  aria-haspopup="dialog"
+                  onClick={() => setSheet('chars')}
+                />
+                <IconButton
+                  icon="list"
+                  label="Scènes"
+                  size="touch"
+                  aria-haspopup="dialog"
+                  onClick={() => setSheet('scenes')}
+                />
+                <IconButton
+                  icon="search"
+                  label="Recherche"
+                  size="touch"
+                  aria-haspopup="dialog"
+                  onClick={() => setSheet('search')}
+                />
+              </ToolbarGroup>
+              {/* Contrepoids de la zone du menu : c'est lui qui centre la zone
+                  du milieu, les deux côtés ayant la même souplesse. */}
+              <div className="reader-bar-side" aria-hidden="true" />
+            </>
+          )}
+        </Toolbar>
       </div>
 
-      {/* Toutes les sheets sont montées en permanence et n'échangent que la classe
-          `open` : leur transition CSS (translateY) ne jouerait pas si elles
+      {/* Toutes les sheets sont montées en permanence et n'échangent que leur
+          état ouvert : leur transition CSS (translateY) ne jouerait pas si elles
           apparaissaient déjà ouvertes au montage. */}
-      <Sheet title="Personnages à surligner" open={sheet === 'chars'}>
+      <Sheet title="Options" open={sheet === 'options'} onClose={closeSheet}>
+        <div className="sheet-nav">
+          <NavItem icon="users" label="Personnages" onClick={() => setSheet('chars')} />
+          <NavItem icon="list" label="Scènes" onClick={() => setSheet('scenes')} />
+          <NavItem icon="search" label="Recherche" onClick={() => setSheet('search')} />
+          <NavItem
+            icon="sliders"
+            label="Mode de lecture"
+            hint={reading.rehearsal ? 'Répétition' : 'Continu'}
+            onClick={() => setSheet('mode')}
+          />
+        </div>
+
+        {/* Un curseur plutôt qu'un couple A−/A+ : deux boutons pour parcourir
+            70 → 220 % demandaient une quinzaine de taps. */}
+        <div className="sheet-field">
+          <div className="sheet-field-head">
+            <span className="sheet-field-label">
+              <Icon name="type" size={18} /> Taille du texte
+            </span>
+            <span className="sheet-field-value">{fontPct} %</span>
+          </div>
+          <input
+            className="sheet-slider"
+            type="range"
+            min={FONT_MIN}
+            max={FONT_MAX}
+            step={5}
+            value={fontPct}
+            aria-label="Taille du texte, en pourcentage"
+            onInput={(ev) => setFontPct(clampFont(Number((ev.target as HTMLInputElement).value)))}
+          />
+        </div>
+      </Sheet>
+
+      <Sheet title="Personnages à surligner" open={sheet === 'chars'} onClose={closeSheet}>
         {data.characters.map((c) => {
           const idx = selected.indexOf(c.id);
           return (
@@ -229,7 +360,7 @@ export function Chrome({
         })}
       </Sheet>
 
-      <Sheet title="Aller à une scène" open={sheet === 'scenes'}>
+      <Sheet title="Aller à une scène" open={sheet === 'scenes'} onClose={closeSheet}>
         {data.toc.map((e) => (
           <div className="row" key={e.id}>
             <a
@@ -246,7 +377,7 @@ export function Chrome({
         ))}
       </Sheet>
 
-      <Sheet title="Recherche" open={sheet === 'search'}>
+      <Sheet title="Recherche" open={sheet === 'search'} onClose={closeSheet}>
         <div className="reader-search">
           <input
             ref={searchInputRef}
@@ -262,26 +393,38 @@ export function Chrome({
               if (ev.key === 'Enter') search.step(ev.shiftKey ? -1 : 1);
             }}
           />
-          <button onClick={() => search.step(-1)}>‹</button>
-          <button onClick={() => search.step(1)}>›</button>
+          <IconButton
+            icon="chevron-down"
+            label="Occurrence précédente"
+            size="touch"
+            className="reader-search-prev"
+            onClick={() => search.step(-1)}
+          />
+          <IconButton
+            icon="chevron-down"
+            label="Occurrence suivante"
+            size="touch"
+            onClick={() => search.step(1)}
+          />
         </div>
       </Sheet>
 
-      <Sheet title="Mode de lecture" open={sheet === 'mode'}>
-        {/* Interrupteur maître : Continu / Répétition. */}
+      <Sheet title="Mode de lecture" open={sheet === 'mode'} onClose={closeSheet}>
+        {/* Interrupteur maître : Continu / Répétition. Le même `Button` que la
+            bascule de la barre — c'est le même état, il doit se lire pareil. */}
         <div className="mode-seg">
           {[
             { on: false, label: 'Continu' },
             { on: true, label: 'Répétition' },
           ].map((m) => (
-            <button
+            <Button
               key={m.label}
-              type="button"
+              size="touch"
               aria-pressed={reading.rehearsal === m.on}
               onClick={() => changeSettings({ rehearsal: m.on })}
             >
               {m.label}
-            </button>
+            </Button>
           ))}
         </div>
 
@@ -323,7 +466,7 @@ export function Chrome({
       </Sheet>
 
       {noteBody !== null && (
-        <Sheet title="Note" open={sheet === 'note'} id="reader-note">
+        <Sheet title="Note" open={sheet === 'note'} onClose={closeSheet}>
           <p className="reader-note-body" style={{ whiteSpace: 'pre-wrap' }}>
             {noteBody}
           </p>
@@ -333,22 +476,24 @@ export function Chrome({
   );
 }
 
-/** Panneau glissant depuis le bas. Identique au chrome vanilla d'origine. */
-function Sheet({
-  title,
-  open,
-  id,
-  children,
+/** Entrée de la sheet « Options » qui ouvre une autre sheet. */
+function NavItem({
+  icon,
+  label,
+  hint,
+  onClick,
 }: {
-  title: string;
-  open: boolean;
-  id?: string;
-  children: ReactNode;
+  icon: 'users' | 'list' | 'search' | 'sliders';
+  label: string;
+  hint?: string;
+  onClick: () => void;
 }) {
   return (
-    <div className={`reader-sheet${open ? ' open' : ''}`} id={id}>
-      <h2>{title}</h2>
-      {children}
-    </div>
+    <button type="button" className="sheet-nav-item" aria-haspopup="dialog" onClick={onClick}>
+      <Icon name={icon} size={20} />
+      <span className="sheet-nav-label">{label}</span>
+      {hint && <span className="sheet-nav-hint">{hint}</span>}
+      <Icon name="chevron-right" size={18} className="sheet-nav-chevron" />
+    </button>
   );
 }

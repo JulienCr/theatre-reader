@@ -49,11 +49,23 @@ export type ButtonVariant = 'primary' | 'neutral' | 'ghost' | 'danger';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
-  /** `touch` porte les cibles à 44 px : à utiliser sur le lecteur mobile. */
-  size?: 'sm' | 'md' | 'touch';
+  /**
+   * `touch` porte les cibles à 44 px : à utiliser sur le lecteur mobile.
+   * `hero` (56 px, rond) est réservé à l'action centrale d'une barre — au plus
+   * une par écran, cf. la règle d'usage de l'accent dans `tokens.ts`.
+   */
+  size?: 'sm' | 'md' | 'touch' | 'hero';
   icon?: IconName;
   children?: ReactNode;
 }
+
+/** Taille de l'icône par taille de bouton — l'icône doit grandir avec la cible. */
+const ICON_SIZE: Record<NonNullable<ButtonProps['size']>, number> = {
+  sm: 15,
+  md: 17,
+  touch: 22,
+  hero: 26,
+};
 
 export function Button({
   variant = 'neutral',
@@ -70,7 +82,7 @@ export function Button({
       className={['btn', `btn--${variant}`, `btn--${size}`, className].filter(Boolean).join(' ')}
       {...rest}
     >
-      {icon && <Icon name={icon} size={size === 'touch' ? 22 : 17} />}
+      {icon && <Icon name={icon} size={ICON_SIZE[size]} />}
       {children}
     </button>
   );
