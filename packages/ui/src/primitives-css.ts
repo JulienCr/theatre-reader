@@ -141,13 +141,21 @@ export const primitivesCss = `
 .sheet-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);
   border-bottom: 1px solid var(--rule);
 }
+/* Marge négative plutôt qu'un padding conditionnel : le retour vient se loger
+   dans la gouttière du titre, et une sheet sans retour garde exactement la
+   même position de titre qu'avant. */
+.sheet-back { margin-left: calc(-1 * var(--sp-4)); }
 .sheet-title {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--fs-sm);
   font-weight: 600;
   text-transform: uppercase;

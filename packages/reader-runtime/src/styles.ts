@@ -81,7 +81,11 @@ export const STYLE =
 .line-timer-fill { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
 mark.reader-hit { background: var(--hit); color: var(--hit-ink); }
 mark.reader-hit--current { background: var(--hit-current); }
-.line--speaking { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; scroll-margin: 40vh; }
+/* Contour en encre sourde et non en accent : la réplique en cours est un repère
+   permanent (il sert aussi en lecture continue), alors que l'accent signale ce
+   qui réclame une action — le bouton Lecture, la bascule Répétition active et le
+   « à toi » du bandeau. Trois rouges pour un seul et même état, c'était un de trop. */
+.line--speaking { outline: 2px solid var(--ink-muted); outline-offset: 3px; border-radius: 4px; scroll-margin: 40vh; }
 /* Réserve la hauteur du dock (bandeau + barre) : la dernière réplique doit
    rester atteignable. */
 .play { padding-bottom: calc(120px + env(safe-area-inset-bottom)); }

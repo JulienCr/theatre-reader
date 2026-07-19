@@ -168,16 +168,24 @@ export function ToolbarSeparator() {
  * Volontairement sans portail ni focus trap : le lecteur mobile n'a qu'une
  * sheet ouverte à la fois et doit rester minuscule. Côté web, les vraies
  * modales passent par Radix Dialog.
+ *
+ * `onBack` et `onClose` sont deux sorties distinctes, pas une seule : une sheet
+ * ouverte depuis une autre doit pouvoir revenir à celle d'où elle vient, sans
+ * pour autant perdre le moyen de tout fermer d'un geste. Le voile ferme toujours
+ * la pile entière — c'est ce qu'on attend d'un voile.
  */
 export function Sheet({
   open,
   title,
   onClose,
+  onBack,
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  /** Fourni quand la sheet en recouvre une autre : affiche le retour. */
+  onBack?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -195,6 +203,16 @@ export function Sheet({
         aria-hidden={!open}
       >
         <div className="sheet-head">
+          {onBack && (
+            <IconButton
+              icon="chevron-left"
+              label="Retour"
+              variant="ghost"
+              size="touch"
+              className="sheet-back"
+              onClick={onBack}
+            />
+          )}
           <h2 className="sheet-title">{title}</h2>
           <IconButton icon="x" label="Fermer" variant="ghost" size="touch" onClick={onClose} />
         </div>

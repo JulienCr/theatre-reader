@@ -88,6 +88,10 @@ export function Chrome({
   const [reading, setReading] = useState<ReadingSettings>(initial.reading);
   const [myRoles, setMyRoles] = useState<string[]>(initial.myRoles);
   const [sheet, setSheet] = useState<SheetName>(null);
+  // Sheet d'où vient la sheet courante, pour offrir le retour. Volontairement
+  // NON remise à zéro à la fermeture : sinon le bouton « Retour » disparaîtrait
+  // net pendant que le panneau glisse encore vers le bas.
+  const [parent, setParent] = useState<SheetName>(null);
   // `null` tant qu'aucune note n'a été ouverte : la bulle n'est alors pas montée
   // du tout. Une fois affichée, elle reste montée (comme avant le portage React).
   const [noteBody, setNoteBody] = useState<string | null>(null);
@@ -217,6 +221,15 @@ export function Chrome({
 
   const closeSheet = (): void => setSheet(null);
 
+  /** Ouvre une sheet ; `from` la marque comme empilée sur une autre. */
+  const openSheet = (name: SheetName, from: SheetName = null): void => {
+    setParent(from);
+    setSheet(name);
+  };
+  // Une même sheet est atteignable depuis la barre (sans retour) ou depuis
+  // « Options » (avec retour) : c'est `parent` qui tranche, pas la sheet.
+  const backToParent = parent ? () => setSheet(parent) : undefined;
+
   const toggleCharacter = (cid: string): void =>
     setSelected((prev) => (prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]));
 
@@ -249,7 +262,7 @@ export function Chrome({
               label="Options"
               size="touch"
               aria-haspopup="dialog"
-              onClick={() => setSheet('options')}
+              onClick={() => openSheet('options')}
             />
           </ToolbarGroup>
 
@@ -276,21 +289,21 @@ export function Chrome({
                   label="Personnages"
                   size="touch"
                   aria-haspopup="dialog"
-                  onClick={() => setSheet('chars')}
+                  onClick={() => openSheet('chars')}
                 />
                 <IconButton
                   icon="list"
                   label="Scènes"
                   size="touch"
                   aria-haspopup="dialog"
-                  onClick={() => setSheet('scenes')}
+                  onClick={() => openSheet('scenes')}
                 />
                 <IconButton
                   icon="search"
                   label="Recherche"
                   size="touch"
                   aria-haspopup="dialog"
-                  onClick={() => setSheet('search')}
+                  onClick={() => openSheet('search')}
                 />
               </ToolbarGroup>
               {/* Contrepoids de la zone du menu : c'est lui qui centre la zone
@@ -306,14 +319,14 @@ export function Chrome({
           apparaissaient déjà ouvertes au montage. */}
       <Sheet title="Options" open={sheet === 'options'} onClose={closeSheet}>
         <div className="sheet-nav">
-          <NavItem icon="users" label="Personnages" onClick={() => setSheet('chars')} />
-          <NavItem icon="list" label="Scènes" onClick={() => setSheet('scenes')} />
-          <NavItem icon="search" label="Recherche" onClick={() => setSheet('search')} />
+          <NavItem icon="users" label="Personnages" onClick={() => openSheet('chars', 'options')} />
+          <NavItem icon="list" label="Scènes" onClick={() => openSheet('scenes', 'options')} />
+          <NavItem icon="search" label="Recherche" onClick={() => openSheet('search', 'options')} />
           <NavItem
             icon="sliders"
             label="Mode de lecture"
             hint={reading.rehearsal ? 'Répétition' : 'Continu'}
-            onClick={() => setSheet('mode')}
+            onClick={() => openSheet('mode', 'options')}
           />
         </div>
 
@@ -339,7 +352,7 @@ export function Chrome({
         </div>
       </Sheet>
 
-      <Sheet title="Personnages à surligner" open={sheet === 'chars'} onClose={closeSheet}>
+      <Sheet title="Personnages à surligner" open={sheet === 'chars'} onClose={closeSheet} onBack={backToParent}>
         {data.characters.map((c) => {
           const idx = selected.indexOf(c.id);
           return (
@@ -360,7 +373,7 @@ export function Chrome({
         })}
       </Sheet>
 
-      <Sheet title="Aller à une scène" open={sheet === 'scenes'} onClose={closeSheet}>
+      <Sheet title="Aller à une scène" open={sheet === 'scenes'} onClose={closeSheet} onBack={backToParent}>
         {data.toc.map((e) => (
           <div className="row" key={e.id}>
             <a
@@ -377,7 +390,7 @@ export function Chrome({
         ))}
       </Sheet>
 
-      <Sheet title="Recherche" open={sheet === 'search'} onClose={closeSheet}>
+      <Sheet title="Recherche" open={sheet === 'search'} onClose={closeSheet} onBack={backToParent}>
         <div className="reader-search">
           <input
             ref={searchInputRef}
@@ -409,7 +422,7 @@ export function Chrome({
         </div>
       </Sheet>
 
-      <Sheet title="Mode de lecture" open={sheet === 'mode'} onClose={closeSheet}>
+      <Sheet title="Mode de lecture" open={sheet === 'mode'} onClose={closeSheet} onBack={backToParent}>
         {/* Interrupteur maître : Continu / Répétition. Le même `Button` que la
             bascule de la barre — c'est le même état, il doit se lire pareil. */}
         <div className="mode-seg">
