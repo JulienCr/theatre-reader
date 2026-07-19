@@ -15,6 +15,7 @@
     "@theatre/core": "workspace:*",
     "@theatre/import": "workspace:*",
     "@theatre/reader-runtime": "workspace:*",
+    "@theatre/reader-ui": "workspace:*",
     "esbuild": "^0.28.1",
     "fastify": "^5.2.1",
     "pagedjs": "^0.4.3",

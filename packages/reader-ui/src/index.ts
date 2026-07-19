@@ -21,3 +21,9 @@ export {
 export { ContextBanner, type ContextBannerProps } from './ContextBanner';
 export { TransportDock, type TransportDockProps } from './TransportDock';
 export { readerChromeCss } from './chrome-css';
+export {
+  buildReaderDocument,
+  type ReaderData,
+  type ReaderDocument,
+  type ReaderDocumentInput,
+} from './document';
