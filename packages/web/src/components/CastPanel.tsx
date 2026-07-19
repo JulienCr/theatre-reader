@@ -164,8 +164,11 @@ export function CastPanel({
       !q || fold(c.canonicalName).includes(q) || c.aliases.some((a) => fold(a).includes(q));
     const kept = characters.filter(match);
     return { active: kept.filter(isActive), others: kept.filter((c) => !isActive(c)) };
+    // `voices` en dépendance : la liste arrive après coup (null → tableau), et
+    // `isActive` en dépend — sans elle, les rôles déjà dotés d'une voix
+    // resteraient rangés sous « Autres » jusqu'au prochain changement.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [characters, filter, template.highlights, audio.voices, expanded]);
+  }, [characters, filter, template.highlights, audio.voices, expanded, voices]);
 
   // La section repliée ne se justifie que si l'autre a de quoi montrer : sans
   // personnage réglé, replier « autres » ouvrirait le panneau sur du vide. Un

@@ -52,10 +52,10 @@ const SAVE_WIDEST = SAVE_LABELS.saving;
 
 const SAVE_HINTS: Record<SaveState, string> = {
   idle: 'Aucune modification depuis le chargement.',
-  dirty: 'Modifications non enregistrées — sauvegarde automatique dans quelques secondes (⌘S pour forcer).',
+  dirty: 'Modifications non enregistrées — sauvegarde automatique dans quelques secondes (⌘S / Ctrl+S pour forcer).',
   saving: 'Enregistrement en cours…',
   saved: 'Modifications enregistrées sur disque.',
-  error: "Échec de l'enregistrement — réessayez avec ⌘S.",
+  error: "Échec de l'enregistrement — réessayez avec ⌘S / Ctrl+S.",
 };
 
 export interface TopBarProps {

@@ -122,7 +122,65 @@ export function App() {
     return () => clearTimeout(id);
   }, [play?.fountain]);
 
+  // ---- Sauvegarde : automatique (débouncée), manuelle (⌘S), et témoin d'état ----
+  // Déclarée avant les gestionnaires qui remplacent `play` (import, sélection) :
+  // ils doivent pouvoir vider le débounce en attente avant de changer de pièce.
+
+  /** Écrit la pièce sur disque. Toujours passer par ici : c'est le point de sérialisation. */
+  const persistPlay = useCallback(
+    (p: PlayState, opts?: { manual?: boolean }) => {
+      const sig = playSignature(p);
+      // Une écriture peut se terminer APRÈS un changement de pièce (chargement
+      // d'une autre pièce, import). Elle ne doit alors toucher ni le témoin ni
+      // `savedRef` : la référence « propre » porterait le slug de la pièce
+      // quittée, et la première frappe sur la nouvelle serait adoptée comme
+      // base de comparaison au lieu d'être écrite — donc perdue.
+      const current = () => (playRef.current?.slug === p.slug ? playRef.current : null);
+      const run = saveChain.current.then(async () => {
+        if (current()) setSaveState('saving');
+        try {
+          await api.savePlay(p.slug, p.fountain, {
+            name: p.name,
+            characters: p.characters,
+            template: p.template,
+            audio: p.audio,
+          });
+          // Pas de toast à chaque sauvegarde automatique : ce serait un clignotant
+          // permanent. Le témoin suffit ; seule la sauvegarde manuelle est bavarde.
+          if (opts?.manual) flash('Sauvegardé.');
+          const latest = current();
+          if (!latest) return;
+          savedRef.current = { slug: p.slug, sig };
+          // L'utilisateur a pu retaper pendant l'écriture : le témoin doit alors
+          // rester « modifié » — la prochaine écriture est déjà armée par le débounce.
+          setSaveState(playSignature(latest) !== sig ? 'dirty' : 'saved');
+        } catch (e) {
+          if (current()) setSaveState('error');
+          flash(String(e));
+        }
+      });
+      // La chaîne ne doit jamais rester rejetée, sinon toute écriture ultérieure
+      // serait court-circuitée.
+      saveChain.current = run.catch(() => undefined);
+      return run;
+    },
+    [flash],
+  );
+
+  /**
+   * Écrit tout de suite ce que le débounce n'a pas encore envoyé, puis rend la
+   * main. À appeler AVANT de remplacer `play` : le minuteur d'autosauvegarde est
+   * annulé quand la pièce change, et les dernières frappes partiraient avec elle.
+   */
+  const flushPending = useCallback(async () => {
+    const p = playRef.current;
+    const saved = savedRef.current;
+    if (!p || saved?.slug !== p.slug || saved.sig === playSignature(p)) return;
+    await persistPlay(p);
+  }, [persistPlay]);
+
   const onImport = async (file: File) => {
+    await flushPending();
     setBusy('Import en cours…');
     try {
       const r = await api.importPdf(file);
@@ -151,6 +209,9 @@ export function App() {
   const onSelect = useCallback(
     async (slug: string) => {
       if (!slug) return;
+      // Changer de pièce annule le débounce en vol : on écrit d'abord ce qui
+      // traîne, sinon les dernières frappes de la pièce quittée sont perdues.
+      await flushPending();
       setBusy('Chargement…');
       try {
         const { fountain, meta } = await api.loadPlay(slug);
@@ -169,46 +230,7 @@ export function App() {
         setBusy(null);
       }
     },
-    [flash],
-  );
-
-  // ---- Sauvegarde : automatique (débouncée), manuelle (⌘S), et témoin d'état ----
-
-  /** Écrit la pièce sur disque. Toujours passer par ici : c'est le point de sérialisation. */
-  const persistPlay = useCallback(
-    (p: PlayState, opts?: { manual?: boolean }) => {
-      const sig = playSignature(p);
-      const run = saveChain.current.then(async () => {
-        setSaveState('saving');
-        try {
-          await api.savePlay(p.slug, p.fountain, {
-            name: p.name,
-            characters: p.characters,
-            template: p.template,
-            audio: p.audio,
-          });
-          savedRef.current = { slug: p.slug, sig };
-          // L'utilisateur a pu retaper pendant l'écriture : le témoin doit alors
-          // rester « modifié » — la prochaine écriture est déjà armée par le débounce.
-          const latest = playRef.current;
-          const stillDirty = Boolean(
-            latest && latest.slug === p.slug && playSignature(latest) !== sig,
-          );
-          setSaveState(stillDirty ? 'dirty' : 'saved');
-          // Pas de toast à chaque sauvegarde automatique : ce serait un clignotant
-          // permanent. Le témoin suffit ; seule la sauvegarde manuelle est bavarde.
-          if (opts?.manual) flash('Sauvegardé.');
-        } catch (e) {
-          setSaveState('error');
-          flash(String(e));
-        }
-      });
-      // La chaîne ne doit jamais rester rejetée, sinon toute écriture ultérieure
-      // serait court-circuitée.
-      saveChain.current = run.catch(() => undefined);
-      return run;
-    },
-    [flash],
+    [flash, flushPending],
   );
 
   const onSave = useCallback(async () => {
@@ -257,9 +279,10 @@ export function App() {
   // Filet de dernier recours : prévenir avant de fermer un onglet dont les
   // modifications ne sont pas encore parties. L'écouteur n'est posé que quand il
   // y a quelque chose à perdre — présent en permanence, il gênerait chaque
-  // rechargement pour rien.
+  // rechargement pour rien. `error` en fait partie : une écriture qui a échoué
+  // laisse justement des modifications sur le carreau.
   useEffect(() => {
-    if (saveState !== 'dirty' && saveState !== 'saving') return;
+    if (saveState !== 'dirty' && saveState !== 'saving' && saveState !== 'error') return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
