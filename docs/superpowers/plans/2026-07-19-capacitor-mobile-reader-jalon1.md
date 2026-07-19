@@ -19,10 +19,27 @@
 | #22 | T2 · `buildReaderDocument` partagé | ✅ 90 tests, export inchangé |
 | #23 | T3 · paquet `@theatre/mobile-app` (en ligne) | ✅ bundle 70 461 o — rendu KO à ce stade |
 | #24 | **T3bis · CORS serveur** *(non prévu au plan)* | ✅ 95 tests · rendu prouvé : 1243 `p.line`, chrome monté, « directeur » = 91 |
-| — | T4-T5 · store FS + « Préparer hors-ligne » | à faire |
-| — | T6 · local-first + écran de choix | à faire |
-| — | T7 · Capacitor iOS + validation device | **à faire par l'utilisateur** (Xcode) |
+| #25 | T4-T5 · store FS + « Préparer hors-ligne » | ✅ 98 tests · manifeste **200** vs `/tts/batch` **503** · 1220 clips, idempotent |
+| #26 | T6 · local-first + écran de choix | ✅ **serveur arrêté : 1243 `p.line`, chrome monté, 1242 clips locaux** |
+| — | T7 · Capacitor iOS + validation device | **reste à faire** — scaffolding + Xcode (utilisateur) |
 | — | T8 · doc · T9 · retrait différé de l'export | à faire |
+
+### T4-T5 — deuxième correction du plan : la préparation ne doit rien facturer
+
+Le plan faisait appeler `/tts/batch` par « Préparer hors-ligne » pour obtenir les clés — or
+cette route **synthétise les clips manquants** (ElevenLabs, facturé). Préparer une pièce
+depuis un téléphone aurait déclenché des dépenses silencieuses. Remplacé par
+**`POST /api/plays/:slug/audio/manifest`** : calcule les clés, dit lesquelles sont en cache,
+**ne synthétise ni n'écrit jamais**. Les clips absents sont **comptés et signalés**
+(`missing`), jamais produits — décider de dépenser reste le rôle du bouton « 🎙️ Générer
+l'audio » de l'atelier web. Effet de bord : tout devient vérifiable **sans clé**.
+
+### Ce qui reste non vérifié en navigateur
+
+**La lecture audio depuis le FS.** Sur le web, `@capacitor/filesystem` stocke en IndexedDB et
+`convertFileSrc` renvoie un chemin (`/DATA/…`) que `<audio>` ne sait pas lire. Toute la chaîne
+en amont est prouvée (manifeste, téléchargement, écriture, relecture, idempotence, injection,
+rendu sans réseau) — **seul le son qui sort attend l'iPhone**.
 
 ### T3bis — la pièce manquante du plan initial
 
