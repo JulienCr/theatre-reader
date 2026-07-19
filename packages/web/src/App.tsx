@@ -20,7 +20,7 @@ import { CommandPalette, type Command } from './components/CommandPalette';
 import { AudioProgressModal, type AudioGenState } from './components/AudioProgressModal';
 import { TopBar } from './components/TopBar';
 import { ShortcutList } from './components/ShortcutList';
-import { Check } from './components/controls';
+import { Workspace, type DockPanel } from './components/Workspace';
 import { Modal } from './components/ui/Modal';
 import { Toasts, type FlashMessage } from './components/ui/Toasts';
 import { applyTheme, loadTheme, type ThemePref } from './theme';
@@ -429,12 +429,49 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // L'interrupteur de source a quitté la barre du haut pour l'en-tête du panneau
-  // qu'il commande. Il suit le panneau le plus à gauche : dans l'en-tête de la
-  // source quand elle est affichée, dans celui de l'aperçu sinon — sans quoi le
-  // masquage serait une porte à sens unique (l'interrupteur disparaîtrait avec
-  // le panneau qu'il vient de fermer).
-  const sourceToggle = <Check label="Source" checked={showEditor} onChange={setShowEditor} />;
+  // Les panneaux du dock. `Distribution` réunit pour l'instant Personnages et
+  // Voix dans un même onglet : les deux listent les mêmes rôles, leur fusion est
+  // le sujet d'un autre chantier — ici on ne fait que les déplacer.
+  const dockPanels = useMemo<DockPanel[]>(() => {
+    if (!play) return [];
+    return [
+      {
+        id: 'cast',
+        label: 'Distribution',
+        icon: 'users',
+        content: (
+          <>
+            <CharactersPanel
+              characters={play.characters}
+              template={play.template}
+              onChange={setTemplate}
+              onCharactersChange={setCharacters}
+            />
+            <VoicesPanel
+              characters={play.characters}
+              audio={play.audio}
+              voices={voices}
+              slug={play.slug}
+              onChange={setAudio}
+            />
+          </>
+        ),
+      },
+      {
+        id: 'layout',
+        label: 'Mise en page',
+        icon: 'sliders',
+        content: <TemplatePanel template={play.template} onChange={setTemplate} />,
+      },
+      {
+        id: 'notes',
+        label: 'Notes',
+        icon: 'sticky-note',
+        content: <NotesPanel notes={notes} orphans={orphans} onJump={onJumpNote} />,
+      },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [play, voices, notes, orphans]);
 
   return (
     <div className={`app${isFullscreen ? ' fullscreen' : ''}`}>
@@ -504,45 +541,12 @@ export function App() {
           />
         </Suspense>
       ) : (
-        <main className="workspace">
-          <aside className="sidebar">
-            <CharactersPanel
-              characters={play.characters}
-              template={play.template}
-              onChange={setTemplate}
-              onCharactersChange={setCharacters}
-            />
-            <VoicesPanel
-              characters={play.characters}
-              audio={play.audio}
-              voices={voices}
-              slug={play.slug}
-              onChange={setAudio}
-            />
-            <TemplatePanel template={play.template} onChange={setTemplate} />
-            <NotesPanel notes={notes} orphans={orphans} onJump={onJumpNote} />
-          </aside>
-
-          {showEditor && (
-            <section className="editor-pane">
-              <div className="pane-title pane-title--row">
-                <span>Source (Fountain)</span>
-                {sourceToggle}
-              </div>
-              <textarea
-                className="editor"
-                value={play.fountain}
-                spellCheck={false}
-                onChange={(e) => setPlay((p) => (p ? { ...p, fountain: e.target.value } : p))}
-              />
-            </section>
-          )}
-
-          <section className="preview-pane">
-            <div className="pane-title pane-title--row">
-              <span>Aperçu</span>
-              {!showEditor && sourceToggle}
-            </div>
+        <Workspace
+          panels={dockPanels}
+          isFullscreen={isFullscreen}
+          sourceOpen={showEditor}
+          onSourceOpen={setShowEditor}
+          preview={
             <Preview
               fountain={previewFountain}
               characters={play.characters}
@@ -553,8 +557,16 @@ export function App() {
               onRequestCreate={onRequestCreate}
               onOrphans={setOrphans}
             />
-          </section>
-        </main>
+          }
+          source={
+            <textarea
+              className="editor"
+              value={play.fountain}
+              spellCheck={false}
+              onChange={(e) => setPlay((p) => (p ? { ...p, fountain: e.target.value } : p))}
+            />
+          }
+        />
       )}
 
       {popover && play && (
