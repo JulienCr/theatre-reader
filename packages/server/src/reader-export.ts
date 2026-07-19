@@ -41,9 +41,11 @@ export interface ExportAudioOptions {
   bitrate?: string;
   /**
    * 'all' = toutes les voix (défaut) : le fichier est complet. La répétition
-   * (mise en pause de mon rôle) est gérée à l'exécution par le lecteur via
-   * `myCharacterId` + le bouton « Répét. », pas en omettant les clips à l'export.
-   * 'others' = tout sauf mon rôle (export « cue » plus léger, sans ma voix).
+   * (pause/masquage/avancement auto) et le CHOIX DES RÔLES au moment de lire
+   * (multi-rôle) sont gérés à l'exécution par le lecteur — il faut donc 'all' pour
+   * que n'importe quel rôle choisi dispose de sa voix (et de sa durée, pour
+   * l'avancement auto). 'others' = tout sauf mon rôle (export « cue » plus léger) :
+   * figé sur `myCharacterId`, INCOMPATIBLE avec le choix des rôles à la lecture.
    */
   roles?: 'all' | 'others';
 }

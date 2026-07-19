@@ -21,8 +21,16 @@ import {
   type Template,
 } from '@theatre/core';
 import { annotationCss, type AnchorDraft } from '@theatre/annotations';
-import { createPlayer, type AudioTirade, type Player, type PlayerState } from '@theatre/audio-player';
+import {
+  createPlayer,
+  type AudioTirade,
+  type Player,
+  type PlayerState,
+  type ReadingSettings,
+} from '@theatre/audio-player';
 import { useAnnotations } from '../useAnnotations';
+import { loadReadingPrefs, saveReadingPrefs, type ReadingPrefs } from '../readingPrefs';
+import { ReadingModeModal } from './ReadingModeModal';
 import * as api from '../api';
 
 type Status = 'paginating' | 'ready';
@@ -82,6 +90,13 @@ export function Reader({
   const [showHelp, setShowHelp] = useState(false);
   const [pstate, setPstate] = useState<PlayerState | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const fallbackRoles = useMemo(() => (audio.myCharacterId ? [audio.myCharacterId] : []), [audio.myCharacterId]);
+  // Chargé une seule fois (évite deux lectures localStorage + JSON.parse au montage).
+  const initialPrefs = useRef<ReadingPrefs | null>(null);
+  if (initialPrefs.current === null) initialPrefs.current = loadReadingPrefs(slug, fallbackRoles);
+  const [settings, setSettings] = useState<ReadingSettings>(initialPrefs.current.settings);
+  const [myRoles, setMyRoles] = useState<string[]>(initialPrefs.current.myRoles);
+  const [showModeModal, setShowModeModal] = useState(false);
 
   const play = useMemo(() => parseFountain(fountain, characters), [fountain, characters]);
   const toc = useMemo(() => buildToc(play, template), [play, template]);
@@ -93,9 +108,44 @@ export function Reader({
   // Refs pour que resolveAudio/isMine lisent toujours l'état courant sans se recréer.
   const audioCfgRef = useRef<AudioConfig>(audio);
   const slugRef = useRef<string>(slug);
+  const settingsRef = useRef<ReadingSettings>(settings);
+  const myRolesRef = useRef<string[]>(myRoles);
   audioCfgRef.current = audio;
   slugRef.current = slug;
   pstateRef.current = pstate;
+  settingsRef.current = settings;
+  myRolesRef.current = myRoles;
+
+  // Recharge les préférences par appareil quand on change de pièce.
+  useEffect(() => {
+    const roles = audioCfgRef.current.myCharacterId ? [audioCfgRef.current.myCharacterId] : [];
+    const p = loadReadingPrefs(slug, roles);
+    setSettings(p.settings);
+    setMyRoles(p.myRoles);
+  }, [slug]);
+
+  // Change un réglage de répétition : état + ref + moteur + persistance.
+  const changeSettings = useCallback(
+    (patch: Partial<ReadingSettings>) => {
+      const next = { ...settingsRef.current, ...patch };
+      settingsRef.current = next;
+      setSettings(next);
+      playerRef.current?.setSettings(patch);
+      saveReadingPrefs(slug, { settings: next, myRoles: myRolesRef.current });
+    },
+    [slug],
+  );
+
+  // Change mes rôles : état + ref + moteur + persistance.
+  const changeRoles = useCallback(
+    (cids: string[]) => {
+      myRolesRef.current = cids;
+      setMyRoles(cids);
+      playerRef.current?.setRoles(cids);
+      saveReadingPrefs(slug, { settings: settingsRef.current, myRoles: cids });
+    },
+    [slug],
+  );
 
   const nameOf = useCallback(
     (cid: string | null) => (cid ? play.characters.find((c) => c.id === cid)?.canonicalName ?? cid : ''),
@@ -230,7 +280,8 @@ export function Reader({
     const player = createPlayer({
       container,
       resolveAudio,
-      isMine: (cid) => cid === audioCfgRef.current.myCharacterId,
+      roles: myRolesRef.current,
+      settings: settingsRef.current,
       onState: setPstate,
       onError: setAudioError,
       speakingClass: 'line--speaking',
@@ -258,7 +309,13 @@ export function Reader({
       if (target.closest('.note-anchor')) return; // activation d'une note
       const line = target.closest('p.line') as HTMLElement | null;
       const nid = line?.getAttribute('data-nid');
-      if (nid) player.playFrom(nid);
+      if (!nid) return;
+      // Réplique masquée : un clic la révèle (peek), sans la jouer.
+      if (line?.classList.contains('line--masked')) {
+        player.reveal(nid);
+        return;
+      }
+      player.playFrom(nid);
     };
     container.addEventListener('click', onClick);
     return () => container.removeEventListener('click', onClick);
@@ -300,7 +357,8 @@ export function Reader({
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
 
       if (e.key === 'Escape') {
-        if (showHelp) setShowHelp(false);
+        if (showModeModal) setShowModeModal(false);
+        else if (showHelp) setShowHelp(false);
         else if (typing && target === searchRef.current) target.blur();
         else onClose();
         return;
@@ -351,7 +409,7 @@ export function Reader({
           const player = playerRef.current;
           if (!player) break;
           e.preventDefault();
-          if (pstateRef.current?.waitingForUser) player.next();
+          if (pstateRef.current?.waitingForUser) player.resume();
           else player.toggle();
           break;
         }
@@ -361,17 +419,14 @@ export function Reader({
         case ',':
           playerRef.current?.prev();
           break;
-        case 'r': {
-          const player = playerRef.current;
-          if (!player) break;
-          player.setMode(pstateRef.current?.mode === 'rehearsal' ? 'continuous' : 'rehearsal');
+        case 'm':
+          if (hasVoices) setShowModeModal((v) => !v);
           break;
-        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showHelp, step, onClose, onToggleFullscreen]);
+  }, [showHelp, showModeModal, hasVoices, step, onClose, onToggleFullscreen]);
 
   return (
     <div className="reader">
@@ -450,7 +505,7 @@ export function Reader({
               onClick={() => {
                 const p = playerRef.current;
                 if (!p) return;
-                if (pstate?.waitingForUser) p.next();
+                if (pstate?.waitingForUser) p.resume();
                 else p.toggle();
               }}
             >
@@ -471,20 +526,18 @@ export function Reader({
               ⏭
             </button>
             <button
-              className={`reader-rehearse${pstate?.mode === 'rehearsal' ? ' on' : ''}`}
-              aria-pressed={pstate?.mode === 'rehearsal'}
-              title="Mode répétition (r) : pause sur ton rôle"
-              onClick={() =>
-                playerRef.current?.setMode(
-                  pstate?.mode === 'rehearsal' ? 'continuous' : 'rehearsal',
-                )
-              }
+              className={`reader-mode-btn${settings.rehearsal ? ' on' : ''}`}
+              aria-haspopup="dialog"
+              title="Mode de lecture (m)"
+              onClick={() => setShowModeModal(true)}
             >
-              Répétition
+              {settings.rehearsal ? 'Répétition' : 'Continu'}
             </button>
             <span className="reader-speaker">
               {pstate?.waitingForUser
-                ? `À toi — ${nameOf(pstate.currentCharacterId)}`
+                ? pstate.timed
+                  ? `À toi (${Math.ceil((pstate.timedMs ?? 0) / 1000)} s) — ${nameOf(pstate.currentCharacterId)}`
+                  : `À toi — ${nameOf(pstate.currentCharacterId)}`
                 : nameOf(pstate?.currentCharacterId ?? null)}
             </span>
             {audioError && <span className="reader-audio-error">{audioError}</span>}
@@ -505,6 +558,16 @@ export function Reader({
         <div className="reader-pages" ref={containerRef} style={{ zoom }} />
         {status === 'paginating' && <div className="reader-overlay">Pagination en cours…</div>}
         {showHelp && <ShortcutsHelp onClose={() => setShowHelp(false)} />}
+        {showModeModal && hasVoices && (
+          <ReadingModeModal
+            settings={settings}
+            myRoles={myRoles}
+            characters={play.characters}
+            onSettings={changeSettings}
+            onRoles={changeRoles}
+            onClose={() => setShowModeModal(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -516,9 +579,9 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
     ['n  ·  p', 'Résultat suivant · précédent'],
     ['g', 'Aller à une page'],
     ['+  ·  -  ·  0', 'Zoom avant · arrière · réinitialiser'],
-    ['Espace', 'Lecture audio / pause (répétition : réplique suivante)'],
+    ['Espace', 'Lecture / pause · reprend (dit ta réplique)'],
     ['.  ·  ,', 'Réplique audio suivante · précédente'],
-    ['r', 'Mode répétition (pause sur ton rôle)'],
+    ['m', 'Mode de lecture (continu / répétition…)'],
     ['f', 'Plein écran'],
     ['?', 'Afficher / masquer cette aide'],
     ['Échap', 'Fermer le lecteur'],

@@ -499,10 +499,37 @@ mark.reader-hit--current {
   background: #fff;
   cursor: pointer;
 }
-.reader-audio button.reader-rehearse.on {
+.reader-audio button.reader-mode-btn.on {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+/* Tirade masquée (répétition) : texte flouté jusqu'à ce qu'elle soit dite. */
+.line--masked .speech {
+  filter: blur(5px);
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.line--masked.line--revealed .speech {
+  filter: none;
+}
+
+/* Barre de temps (avancement auto) : en haut du bloc de la tirade en cours. */
+.line-timer {
+  display: block;
+  height: 4px;
+  margin: 0 0 6px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+.line-timer-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 2px;
 }
 .reader-speaker {
   font-size: 13px;
@@ -694,6 +721,69 @@ button.ghost {
   margin-top: 18px;
   display: flex;
   justify-content: flex-end;
+}
+
+/* ---- Modale « Mode de lecture » ---- */
+.reading-mode-seg {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.reading-mode-seg button {
+  flex: 1;
+  font: inherit;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+.reading-mode-seg button.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.reading-mode-opts {
+  border: 0;
+  margin: 0 0 14px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.reading-mode-opts:disabled {
+  opacity: 0.45;
+}
+.reading-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.reading-mode-option input {
+  margin-top: 3px;
+}
+.reading-mode-text {
+  display: flex;
+  flex-direction: column;
+}
+.reading-mode-label {
+  font-weight: 600;
+}
+.reading-mode-hint {
+  font-size: 13px;
+  color: var(--muted);
+}
+.reading-mode-subhead {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.reading-mode-role {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
 }
 .help-card dl {
   margin: 0;
