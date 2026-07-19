@@ -18,6 +18,12 @@ import { VoicesPanel } from './components/VoicesPanel';
 import { TemplatePanel } from './components/TemplatePanel';
 import { CommandPalette, type Command } from './components/CommandPalette';
 import { AudioProgressModal, type AudioGenState } from './components/AudioProgressModal';
+import { TopBar } from './components/TopBar';
+import { ShortcutList } from './components/ShortcutList';
+import { Check } from './components/controls';
+import { Modal } from './components/ui/Modal';
+import { Toasts, type FlashMessage } from './components/ui/Toasts';
+import { applyTheme, loadTheme, type ThemePref } from './theme';
 import type { NavTarget } from './components/Reader';
 
 // Paged.js (~500 Ko) chargé à la demande, uniquement à l'ouverture du lecteur.
@@ -36,10 +42,12 @@ export function App() {
   const [summaries, setSummaries] = useState<api.PlaySummary[]>([]);
   const [play, setPlay] = useState<PlayState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<FlashMessage | null>(null);
   const [showEditor, setShowEditor] = useState(true);
   const [mode, setMode] = useState<'edit' | 'read'>('edit');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [theme, setTheme] = useState<ThemePref>(loadTheme);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -52,12 +60,25 @@ export function App() {
   const [popover, setPopover] = useState<{ target: PopoverTarget } | null>(null);
   const pendingDraft = useRef<Note | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const flashId = useRef(0);
+
+  // `flash` garde sa signature (m: string) => void ; seule la destination change :
+  // un toast portalisé au lieu d'un <span> dans la barre. Stable (deps vides) pour
+  // ne pas périmer les callbacks mémoïsées qui l'appellent.
+  const flash = useCallback((m: string) => {
+    flashId.current += 1;
+    // Un id à chaque appel : deux messages identiques à la suite doivent
+    // réapparaître, alors qu'une même chaîne ne déclencherait aucun rendu.
+    setMessage({ id: flashId.current, text: m });
+  }, []);
 
   useEffect(() => {
-    api.listPlays().then(setSummaries).catch(() => setMessage('Serveur injoignable.'));
+    api.listPlays().then(setSummaries).catch(() => flash('Serveur injoignable.'));
     // Voix ElevenLabs (null = synthèse désactivée, pas de clé).
     api.listVoices().then(setVoices).catch(() => setVoices(null));
-  }, []);
+  }, [flash]);
+
+  useEffect(() => applyTheme(theme), [theme]);
 
   // Aperçu débattu : on évite de re-parser à chaque frappe.
   const [previewFountain, setPreviewFountain] = useState('');
@@ -65,11 +86,6 @@ export function App() {
     const id = setTimeout(() => setPreviewFountain(play?.fountain ?? ''), 200);
     return () => clearTimeout(id);
   }, [play?.fountain]);
-
-  const flash = (m: string) => {
-    setMessage(m);
-    setTimeout(() => setMessage((cur) => (cur === m ? null : cur)), 4000);
-  };
 
   const onImport = async (file: File) => {
     setBusy('Import en cours…');
@@ -324,7 +340,7 @@ export function App() {
     if (!play) return;
     const items = audioBatchItems;
     if (!items.length) {
-      setMessage('Aucune voix assignée : rien à générer.');
+      flash('Aucune voix assignée : rien à générer.');
       return;
     }
     const controller = new AbortController();
@@ -364,7 +380,7 @@ export function App() {
         );
       }
     }
-  }, [play, audioBatchItems]);
+  }, [play, audioBatchItems, flash]);
 
   const commands = useMemo<Command[]>(() => {
     const cmds: Command[] = [];
@@ -413,98 +429,51 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // L'interrupteur de source a quitté la barre du haut pour l'en-tête du panneau
+  // qu'il commande. Il suit le panneau le plus à gauche : dans l'en-tête de la
+  // source quand elle est affichée, dans celui de l'aperçu sinon — sans quoi le
+  // masquage serait une porte à sens unique (l'interrupteur disparaîtrait avec
+  // le panneau qu'il vient de fermer).
+  const sourceToggle = <Check label="Source" checked={showEditor} onChange={setShowEditor} />;
+
   return (
     <div className={`app${isFullscreen ? ' fullscreen' : ''}`}>
-      <header className="topbar">
-        <div className="brand">Theatre&nbsp;Reader</div>
-        <select
-          className="play-select"
-          value={play?.slug ?? ''}
-          onChange={(e) => onSelect(e.target.value)}
-        >
-          <option value="">— ouvrir une pièce —</option>
-          {summaries.map((s) => (
-            <option key={s.slug} value={s.slug}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <input
-          ref={fileInput}
-          type="file"
-          accept="application/pdf"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onImport(f);
-            e.target.value = '';
-          }}
-        />
-        <button onClick={() => fileInput.current?.click()}>Importer un PDF</button>
-        <button className="ghost" title="Palette de commandes (⌘K / Ctrl+K)" onClick={() => setPaletteOpen(true)}>
-          ⌘K
-        </button>
-        <div className="spacer" />
-        {play && (
-          <>
-            <div className="seg" role="tablist" aria-label="Mode">
-              <button
-                className={`seg-btn${mode === 'edit' ? ' seg-on' : ''}`}
-                aria-selected={mode === 'edit'}
-                onClick={() => setMode('edit')}
-              >
-                Édition
-              </button>
-              <button
-                className={`seg-btn${mode === 'read' ? ' seg-on' : ''}`}
-                aria-selected={mode === 'read'}
-                onClick={() => setMode('read')}
-              >
-                Lecture
-              </button>
-            </div>
-            {mode === 'edit' && (
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={showEditor}
-                  onChange={(e) => setShowEditor(e.target.checked)}
-                />
-                Source
-              </label>
-            )}
-            <button onClick={onSave}>Sauvegarder</button>
-            <button className="primary" onClick={onExport}>
-              Exporter en PDF
-            </button>
-            <button onClick={onExportReader}>Lecteur mobile</button>
-            {audioBatchItems.length > 0 && (
-              <button
-                onClick={onGenerateAllAudio}
-                disabled={Boolean(audioGen?.running)}
-                title={`Pré-générer l'audio de ${audioBatchItems.length} tirades (réutilise le cache ; prépare aussi l'export mobile)`}
-              >
-                🎙️ Générer l'audio
-              </button>
-            )}
-            {audioEstimate && (
-              <label
-                className="toggle"
-                title={`Embarquer toutes les voix dans l'export mobile (mon rôle inclus ; la répétition met mon rôle en pause côté lecteur) — réutilisé du cache disque (gratuit si déjà généré via 🎙️). Synthèse à la volée uniquement pour les répliques manquantes : ~${audioEstimate.chars} caractères ElevenLabs, ${audioEstimate.lines} répliques au maximum.`}
-              >
-                <input
-                  type="checkbox"
-                  checked={exportWithAudio}
-                  onChange={(e) => setExportWithAudio(e.target.checked)}
-                />
-                🔊 audio
-              </label>
-            )}
-          </>
-        )}
-        {busy && <span className="busy">{busy}</span>}
-        {message && <span className="message">{message}</span>}
-      </header>
+      <input
+        ref={fileInput}
+        type="file"
+        accept="application/pdf"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onImport(f);
+          e.target.value = '';
+        }}
+      />
+
+      <TopBar
+        summaries={summaries}
+        playSlug={play?.slug ?? null}
+        playName={play?.name ?? null}
+        mode={mode}
+        onMode={setMode}
+        onSelectPlay={onSelect}
+        onImport={() => fileInput.current?.click()}
+        onSave={onSave}
+        onExportPdf={onExport}
+        onExportReader={onExportReader}
+        exportWithAudio={exportWithAudio}
+        onExportWithAudio={setExportWithAudio}
+        audioEstimate={audioEstimate}
+        audioBatchCount={audioBatchItems.length}
+        audioRunning={Boolean(audioGen?.running)}
+        onGenerateAudio={onGenerateAllAudio}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={toggleFullscreen}
+        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
+        theme={theme}
+        onTheme={setTheme}
+      />
 
       {!play ? (
         <div className="empty">
@@ -556,7 +525,10 @@ export function App() {
 
           {showEditor && (
             <section className="editor-pane">
-              <div className="pane-title">Source (Fountain)</div>
+              <div className="pane-title pane-title--row">
+                <span>Source (Fountain)</span>
+                {sourceToggle}
+              </div>
               <textarea
                 className="editor"
                 value={play.fountain}
@@ -567,7 +539,10 @@ export function App() {
           )}
 
           <section className="preview-pane">
-            <div className="pane-title">Aperçu</div>
+            <div className="pane-title pane-title--row">
+              <span>Aperçu</span>
+              {!showEditor && sourceToggle}
+            </div>
             <Preview
               fountain={previewFountain}
               characters={play.characters}
@@ -605,6 +580,12 @@ export function App() {
           onClose={() => setAudioGen(null)}
         />
       )}
+
+      <Modal open={shortcutsOpen} onOpenChange={setShortcutsOpen} title="Raccourcis clavier">
+        <ShortcutList />
+      </Modal>
+
+      <Toasts busy={busy} message={message} onDismissMessage={() => setMessage(null)} />
     </div>
   );
 }
