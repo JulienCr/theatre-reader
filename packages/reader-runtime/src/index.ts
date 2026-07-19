@@ -9,7 +9,12 @@
  */
 
 import { decorate, annotationCss } from '@theatre/annotations';
-import { createPlayer, type Player, type PlayerState } from '@theatre/audio-player';
+import {
+  createPlayer,
+  type Player,
+  type PlayerState,
+  type ReadingSettings,
+} from '@theatre/audio-player';
 import type { Note } from '@theatre/core';
 
 export interface ReaderData {
@@ -25,6 +30,8 @@ export interface ReaderData {
 interface PersistedState {
   selected: string[]; // characterId[], l_ordre fixe les couleurs
   fontPct: number; // 100 = base
+  reading: ReadingSettings; // réglages de répétition
+  myRoles: string[]; // rôles joués (surcharge myCharacterId de l'export)
 }
 
 const PALETTE = ['#ffe08a', '#a8e6cf', '#b5d8ff', '#ffc9de', '#d6c8ff', '#ffd6a5'];
@@ -35,14 +42,29 @@ function colorFor(index: number): string {
   return PALETTE[index % PALETTE.length]!;
 }
 
+function boolOr(v: unknown, d: boolean): boolean {
+  return typeof v === 'boolean' ? v : d;
+}
+
 function loadState(key: string, fallback: PersistedState): PersistedState {
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedState>;
+      const r = (parsed.reading ?? {}) as Partial<ReadingSettings>;
       return {
         selected: Array.isArray(parsed.selected) ? parsed.selected : fallback.selected,
         fontPct: typeof parsed.fontPct === 'number' ? parsed.fontPct : fallback.fontPct,
+        reading: {
+          rehearsal: boolOr(r.rehearsal, fallback.reading.rehearsal),
+          mask: boolOr(r.mask, fallback.reading.mask),
+          playMine: boolOr(r.playMine, fallback.reading.playMine),
+          autoAdvance: boolOr(r.autoAdvance, fallback.reading.autoAdvance),
+          tick: boolOr(r.tick, fallback.reading.tick),
+        },
+        myRoles: Array.isArray(parsed.myRoles)
+          ? parsed.myRoles.filter((x): x is string => typeof x === 'string')
+          : fallback.myRoles,
       };
     }
   } catch {
@@ -89,8 +111,14 @@ const STYLE = `
 .reader-search input { flex: 1; font: inherit; font-size: 16px; padding: 10px; border: 1px solid #cfd4dc; border-radius: 10px; }
 .reader-backdrop { position: fixed; inset: 0; z-index: 15; background: rgba(0,0,0,.25); display: none; }
 .reader-backdrop.open { display: block; }
-.line.rehearse .speech { display: inline-block; filter: blur(5px); transition: filter .12s; cursor: pointer; }
-.line.rehearse.revealed .speech { filter: none; }
+.line--masked .speech { display: inline-block; filter: blur(5px); transition: filter .12s; cursor: pointer; }
+.line--masked.line--revealed .speech { filter: none; }
+.reader-sheet .mode-hint { display: block; font-size: 13px; color: #666; margin: 4px 0 0 30px; }
+.reader-sheet .mode-subhead { font-weight: 600; margin: 16px 0 6px; }
+.reader-sheet .row input:disabled { opacity: .4; }
+.mode-seg { display: flex; gap: 6px; margin-bottom: 12px; }
+.mode-seg button { flex: 1; font: inherit; font-size: 15px; padding: 10px; border: 1px solid #cfd4dc; border-radius: 10px; background: #fff; }
+.mode-seg button[aria-pressed="true"] { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
 mark.reader-hit { background: #fde68a; }
 mark.reader-hit--current { background: #fb923c; }
 .line--speaking { outline: 2px solid #2b6cb0; outline-offset: 3px; border-radius: 4px; scroll-margin: 40vh; }
@@ -98,7 +126,8 @@ mark.reader-hit--current { background: #fb923c; }
 `;
 
 let selected: string[] = [];
-let rehearsal = false;
+let reading: ReadingSettings = { rehearsal: false, mask: true, playMine: false, autoAdvance: false, tick: false };
+let myRoles: string[] = [];
 let fontPct = 100;
 let data: ReaderData;
 let play: HTMLElement;
@@ -106,9 +135,10 @@ let key: string;
 let player: Player | null = null;
 let audioPlayBtn: HTMLButtonElement | null = null;
 let lastPlayerState: PlayerState | null = null;
+let hasClips = false;
 
 function persist(): void {
-  saveState(key, { selected, fontPct });
+  saveState(key, { selected, fontPct, reading, myRoles });
 }
 
 function applyFont(): void {
@@ -117,14 +147,13 @@ function applyFont(): void {
 }
 
 function applyHighlights(): void {
+  // Coloration des personnages sélectionnés (le masquage « répétition » est
+  // désormais piloté par le moteur audio via le mode de lecture + mon rôle).
   const lines = play.querySelectorAll<HTMLElement>('.line');
   lines.forEach((line) => {
     const cid = line.getAttribute('data-cid');
     const idx = cid ? selected.indexOf(cid) : -1;
     line.style.backgroundColor = idx >= 0 ? colorFor(idx) : '';
-    const active = rehearsal && idx >= 0;
-    line.classList.toggle('rehearse', active);
-    if (!active) line.classList.remove('revealed');
   });
 }
 
@@ -306,7 +335,12 @@ function buildSearchSheet(): () => void {
   };
 }
 
-function buildBar(openChars: () => void, openScenes: () => void, openSearch: () => void): void {
+function buildBar(
+  openChars: () => void,
+  openScenes: () => void,
+  openSearch: () => void,
+  openMode: () => void,
+): void {
   const bar = el('div', { class: 'reader-bar' });
   const mk = (label: string, onClick: () => void): HTMLButtonElement => {
     const b = el('button', {}, label);
@@ -317,6 +351,8 @@ function buildBar(openChars: () => void, openScenes: () => void, openSearch: () 
   mk('Persos', openChars);
   mk('Scènes', openScenes);
   mk('🔍', openSearch);
+  const modeBtn = mk('Mode', openMode);
+  modeBtn.setAttribute('aria-haspopup', 'dialog');
   mk('A−', () => {
     fontPct -= 10;
     applyFont();
@@ -327,23 +363,92 @@ function buildBar(openChars: () => void, openScenes: () => void, openSearch: () 
     applyFont();
     persist();
   });
-  const reh = mk('Répét.', () => {
-    rehearsal = !rehearsal;
-    reh.setAttribute('aria-pressed', String(rehearsal));
-    applyHighlights();
-    player?.setMode(rehearsal ? 'rehearsal' : 'continuous');
-  });
-  reh.setAttribute('aria-pressed', 'false');
   // Transport audio (uniquement si des clips sont embarqués).
-  if (player) {
+  if (hasClips) {
     audioPlayBtn = mk('▶', () => {
       if (!player) return;
-      if (lastPlayerState?.waitingForUser) player.next();
+      if (lastPlayerState?.waitingForUser) player.resume();
       else player.toggle();
     });
     mk('⏭', () => player?.next());
   }
   document.body.appendChild(bar);
+}
+
+function buildModeSheet(): () => void {
+  const { sheet, open } = buildSheet('Mode de lecture');
+  const subInputs: HTMLInputElement[] = [];
+
+  // Interrupteur maître : Continu / Répétition.
+  const setRehearsal = (on: boolean): void => {
+    reading.rehearsal = on;
+    player?.setSettings({ rehearsal: on });
+    subInputs.forEach((i) => (i.disabled = !on));
+    persist();
+  };
+  const seg = el('div', { class: 'mode-seg' });
+  const segButtons: { on: boolean; btn: HTMLButtonElement }[] = [];
+  const refreshSeg = (): void =>
+    segButtons.forEach(({ on, btn }) => btn.setAttribute('aria-pressed', String(reading.rehearsal === on)));
+  for (const m of [
+    { on: false, label: 'Continu' },
+    { on: true, label: 'Répétition' },
+  ]) {
+    const b = el('button', { type: 'button' }, m.label);
+    b.addEventListener('click', () => {
+      setRehearsal(m.on);
+      refreshSeg();
+    });
+    segButtons.push({ on: m.on, btn: b });
+    seg.appendChild(b);
+  }
+  refreshSeg();
+  sheet.appendChild(seg);
+
+  // Options de répétition (indépendantes).
+  const opts: { key: keyof ReadingSettings; label: string; hint: string }[] = [
+    { key: 'mask', label: 'Masquer mes répliques', hint: "Floutées jusqu'à ce qu'elles soient dites." },
+    { key: 'playMine', label: 'Me faire répéter', hint: 'À la reprise, le TTS lit ma réplique.' },
+    { key: 'autoAdvance', label: 'Avancement automatique', hint: 'Reprise auto après la durée, sans clic.' },
+    { key: 'tick', label: "Bip quand c'est à moi", hint: '' },
+  ];
+  for (const o of opts) {
+    const row = el('label', { class: 'row' });
+    const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
+    cb.checked = reading[o.key];
+    cb.disabled = !reading.rehearsal;
+    cb.addEventListener('change', () => {
+      reading[o.key] = cb.checked;
+      player?.setSettings({ [o.key]: cb.checked } as Partial<ReadingSettings>);
+      persist();
+    });
+    subInputs.push(cb);
+    row.appendChild(cb);
+    row.appendChild(document.createTextNode(o.label));
+    if (o.hint) row.appendChild(el('span', { class: 'mode-hint' }, o.hint));
+    sheet.appendChild(row);
+  }
+
+  // Mes rôles (multi-sélection).
+  sheet.appendChild(el('div', { class: 'mode-subhead' }, 'Mes rôles'));
+  for (const ch of data.characters) {
+    const row = el('label', { class: 'row' });
+    const cb = el('input', { type: 'checkbox', value: ch.id }) as HTMLInputElement;
+    cb.checked = myRoles.includes(ch.id);
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        if (!myRoles.includes(ch.id)) myRoles = [...myRoles, ch.id];
+      } else {
+        myRoles = myRoles.filter((r) => r !== ch.id);
+      }
+      player?.setRoles(myRoles);
+      persist();
+    });
+    row.appendChild(cb);
+    row.appendChild(document.createTextNode(ch.name));
+    sheet.appendChild(row);
+  }
+  return open;
 }
 
 function init(d: ReaderData): void {
@@ -356,10 +461,15 @@ function init(d: ReaderData): void {
   const defaults: PersistedState = {
     selected: d.highlightsDefault.map((h) => h.characterId),
     fontPct: 100,
+    reading: { rehearsal: false, mask: true, playMine: false, autoAdvance: false, tick: false },
+    myRoles: d.audio?.myCharacterId ? [d.audio.myCharacterId] : [],
   };
   const state = loadState(key, defaults);
   selected = state.selected;
   fontPct = state.fontPct;
+  reading = state.reading;
+  myRoles = state.myRoles;
+  hasClips = Boolean(d.audio && Object.keys(d.audio.clips).length);
 
   document.head.appendChild(el('style', {})).textContent = STYLE;
   backdrop = el('div', { class: 'reader-backdrop' });
@@ -370,29 +480,29 @@ function init(d: ReaderData): void {
     const t = e.target;
     if (!(t instanceof Element)) return; // ex. clic sur un nœud texte
     const line = t.closest('.line') as HTMLElement | null;
-    if (rehearsal) {
-      if (line) line.classList.toggle('revealed');
+    if (!line) return;
+    const nid = line.getAttribute('data-nid');
+    // Réplique masquée : un tap la révèle (peek), sans la jouer.
+    if (line.classList.contains('line--masked')) {
+      if (nid) player?.reveal(nid);
       return;
     }
-    // Hors répétition : cliquer une réplique la joue (si audio embarqué).
-    if (player && line) {
-      const nid = line.getAttribute('data-nid');
-      if (nid) player.playFrom(nid);
-    }
+    // Sinon : cliquer une réplique la joue (si audio embarqué).
+    if (hasClips && nid) player?.playFrom(nid);
   });
 
-  // Lecture audio si l'export a embarqué des clips.
-  if (d.audio && Object.keys(d.audio.clips).length) {
-    player = createPlayer({
-      container: play,
-      resolveAudio: (t) => Promise.resolve(d.audio!.clips[t.nodeId] ?? null),
-      isMine: (cid) => cid === d.audio!.myCharacterId,
-      onState: updateAudioBar,
-      speakingClass: 'line--speaking',
-    });
-  }
+  // Le moteur pilote le masquage « répétition » (réglages + rôles), même sans clips :
+  // sans audio, on garde le déroulé + tap-to-peek ; avec audio, la répétition joue.
+  player = createPlayer({
+    container: play,
+    resolveAudio: (t) => Promise.resolve(d.audio?.clips[t.nodeId] ?? null),
+    roles: myRoles,
+    settings: reading,
+    onState: updateAudioBar,
+    speakingClass: 'line--speaking',
+  });
 
-  buildBar(buildCharactersSheet(), buildScenesSheet(), buildSearchSheet());
+  buildBar(buildCharactersSheet(), buildScenesSheet(), buildSearchSheet(), buildModeSheet());
   applyFont();
   applyHighlights();
 
