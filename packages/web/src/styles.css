@@ -79,12 +79,20 @@ body {
 .topbar .btn--icon svg {
   stroke-width: 2.8;
 }
+/* Le nom de la pièce est la seule longueur imprévisible de la barre : il doit se
+   rogner plutôt que pousser la colonne. `max-width` ne suffit pas — le bouton et
+   son libellé sont des éléments flex, dont le `min-width: auto` implicite leur
+   interdit de descendre sous la largeur de leur contenu et l'emporte sur toute
+   largeur maximale. D'où `min-width: 0` sur les deux niveaux. */
 .play-trigger {
   font-weight: 600;
   max-width: 100%;
+  min-width: 0;
 }
 .play-trigger > span {
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* Tabulaire : « ⌘K » ne doit pas changer de largeur d'une police à l'autre. */
@@ -308,21 +316,24 @@ input[type='number'] {
   overflow: hidden;
   text-overflow: ellipsis;
   /* Le filet d'état vit sous le libellé et non en bordure du bouton : une
-     bordure décalerait le texte d'un pixel au changement d'onglet. */
-  box-shadow: inset 0 -2px 0 transparent;
+     bordure décalerait le texte d'un pixel au changement d'onglet. La couleur
+     passe par une variable pour que la bague de focus puisse le reprendre —
+     `box-shadow` n'est pas cumulatif, la déclarer au focus l'effacerait. */
+  --tab-rail: transparent;
+  box-shadow: inset 0 -2px 0 var(--tab-rail);
 }
 .tabs-trigger:hover {
   background: var(--panel);
   color: var(--text);
 }
 .tabs-trigger[data-state='active'] {
+  --tab-rail: var(--accent);
   background: var(--panel);
   color: var(--accent);
-  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .tabs-trigger:focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
+  box-shadow: var(--focus-ring), inset 0 -2px 0 var(--tab-rail);
 }
 .tabs-content {
   flex: 1 1 auto;
@@ -373,10 +384,12 @@ input[type='number'] {
   background: var(--table);
   padding: 24px;
 }
+/* --sheet et non --paper-raised : c'est la feuille rendue par @theatre/core,
+   dont l'encre est fixée à #111 — elle reste blanche même en thème sombre. */
 .preview-sheet {
   max-width: 820px;
   margin: 0 auto;
-  background: var(--paper-raised);
+  background: var(--sheet);
   padding: 40px 48px;
   box-shadow: var(--sh-2);
   border-radius: 2px;
@@ -626,7 +639,8 @@ input[type='number'] {
 .reader-pages .pagedjs_page {
   position: relative;
   margin: 30px auto 0;
-  background: var(--paper-raised);
+  /* Idem .preview-sheet : surface de document, hors thème. */
+  background: var(--sheet);
   box-shadow: var(--sh-1);
 }
 .reader-pages .pagedjs_page:first-child {

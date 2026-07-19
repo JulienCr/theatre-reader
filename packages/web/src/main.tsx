@@ -8,7 +8,9 @@ import './styles.css';
 // la feuille de l'app doit pouvoir surcharger les primitives, jamais l'inverse.
 // Ils arrivent en chaîne et non en fichier .css parce que le lecteur mobile
 // exporté inline exactement le même CSS (cf. packages/ui/src/index.ts).
-const tokens = document.createElement('style');
+// Réutilisé s'il existe déjà : en dev, une réévaluation du module (HMR) ne doit
+// pas empiler des <style> successifs qui rendraient la cascade illisible.
+const tokens = document.getElementById('theatre-ui') ?? document.createElement('style');
 tokens.id = 'theatre-ui';
 tokens.textContent = uiCss;
 document.head.prepend(tokens);
