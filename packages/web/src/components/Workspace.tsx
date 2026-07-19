@@ -46,11 +46,18 @@ export interface DockPanel {
 const WIDE = '(min-width: 1100px)';
 
 const DOCK_KEY = 'theatre.workspace.dock';
+/**
+ * Sentinelle « replié ». Effacer la clé ne suffirait pas : l'absence de clé,
+ * c'est la première visite, et une première visite ouvre le dock. Sans cette
+ * valeur explicite, replier le dock puis recharger le rouvrirait.
+ */
+const DOCK_CLOSED = '';
 
 /** `null` = dock replié. Lu une seule fois, à l'initialisation de l'état. */
 function loadDock(panels: DockPanel[]): string | null {
   const saved = localStorage.getItem(DOCK_KEY);
   if (saved === null) return panels[0]?.id ?? null;
+  if (saved === DOCK_CLOSED) return null;
   // Un onglet disparu (panneau renommé, version antérieure) ne doit pas laisser
   // le dock ouvert sur du vide.
   return panels.some((p) => p.id === saved) ? saved : null;
@@ -102,8 +109,7 @@ export function Workspace({
   });
 
   useEffect(() => {
-    if (dock === null) localStorage.removeItem(DOCK_KEY);
-    else localStorage.setItem(DOCK_KEY, dock);
+    localStorage.setItem(DOCK_KEY, dock ?? DOCK_CLOSED);
   }, [dock]);
 
   const select = wide ? setDock : setSheet;

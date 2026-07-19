@@ -308,21 +308,24 @@ input[type='number'] {
   overflow: hidden;
   text-overflow: ellipsis;
   /* Le filet d'état vit sous le libellé et non en bordure du bouton : une
-     bordure décalerait le texte d'un pixel au changement d'onglet. */
-  box-shadow: inset 0 -2px 0 transparent;
+     bordure décalerait le texte d'un pixel au changement d'onglet. La couleur
+     passe par une variable pour que la bague de focus puisse le reprendre —
+     `box-shadow` n'est pas cumulatif, la déclarer au focus l'effacerait. */
+  --tab-rail: transparent;
+  box-shadow: inset 0 -2px 0 var(--tab-rail);
 }
 .tabs-trigger:hover {
   background: var(--panel);
   color: var(--text);
 }
 .tabs-trigger[data-state='active'] {
+  --tab-rail: var(--accent);
   background: var(--panel);
   color: var(--accent);
-  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .tabs-trigger:focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
+  box-shadow: var(--focus-ring), inset 0 -2px 0 var(--tab-rail);
 }
 .tabs-content {
   flex: 1 1 auto;
