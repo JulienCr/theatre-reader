@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Previewer } from 'pagedjs';
 import {
   buildToc,
+  filterScenesByRoles,
   parseFountain,
   renderBody,
   renderCSS,
@@ -103,7 +104,14 @@ export function Reader({
   const [showModeModal, setShowModeModal] = useState(false);
 
   const play = useMemo(() => parseFountain(fountain, characters), [fountain, characters]);
-  const toc = useMemo(() => buildToc(play, template), [play, template]);
+  // Option « n'afficher que mes scènes » : on filtre la pièce AVANT rendu, pour que
+  // pagination, sommaire, recherche et audio ne voient que les scènes gardées.
+  // `filterScenesByRoles` renvoie `play` inchangé si rien n'est exclu (pas de re-pagination).
+  const displayPlay = useMemo(
+    () => (settings.onlyMyScenes && myRoles.length ? filterScenesByRoles(play, myRoles) : play),
+    [play, settings.onlyMyScenes, myRoles],
+  );
+  const toc = useMemo(() => buildToc(displayPlay, template), [displayPlay, template]);
 
   // ---- Lecture audio (ElevenLabs) ----
   const playerRef = useRef<Player | null>(null);
@@ -229,7 +237,7 @@ export function Reader({
       container.innerHTML = '';
       try {
         const flow = await new Previewer().preview(
-          renderBody(play, template),
+          renderBody(displayPlay, template),
           [{ template: renderCSS(template) }],
           container,
         );
@@ -244,7 +252,7 @@ export function Reader({
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [play, template]);
+  }, [displayPlay, template]);
 
   const goToEntry = useCallback((id: string) => {
     containerRef.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'start' });

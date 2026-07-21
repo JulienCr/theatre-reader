@@ -75,6 +75,9 @@ export const STYLE =
 .mode-seg .btn { flex: 1; }
 
 /* ── Classes posées sur .play par le moteur audio et la recherche ───────── */
+/* Option « mes scènes » : les plages exclues sont retirées du flux ; !important
+   pour l'emporter sur le display propre aux répliques/en-têtes. */
+.scene--hidden { display: none !important; }
 .line--masked .speech { display: inline-block; filter: blur(5px); transition: filter .12s; cursor: pointer; }
 .line--masked.line--revealed .speech { filter: none; }
 .line-timer { display: block; height: 4px; margin: 0 0 6px; border-radius: 2px; background: color-mix(in srgb, var(--ink) 12%, transparent); overflow: hidden; }

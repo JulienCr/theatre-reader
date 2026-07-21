@@ -32,4 +32,18 @@ describe('buildReaderDocument', () => {
     expect(doc.data.audio?.clips['n-1']).toBe('file:///local/a.mp3');
     expect(doc.data.audio?.myCharacterId).toBe('michel');
   });
+
+  it('embarque la présence des personnages par scène (option « mes scènes »)', () => {
+    const doc = buildReaderDocument({
+      fountain: SRC,
+      characters: [],
+      template: actorReadingTemplate,
+      storageKey: 'k',
+    });
+    expect(doc.data.sceneMembers).toEqual([
+      { id: expect.stringMatching(/^h-\d+$/), characterIds: ['michel', 'benji'] },
+    ]);
+    // L'id doit être celui du sommaire (pour que le runtime relie scène ↔ présence).
+    expect(doc.data.toc.some((e) => e.id === doc.data.sceneMembers[0]!.id)).toBe(true);
+  });
 });

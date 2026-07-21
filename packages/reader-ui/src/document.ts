@@ -18,6 +18,7 @@ import {
   parseFountain,
   renderBody,
   renderCSS,
+  sceneMembers,
   type Character,
   type Note,
   type Template,
@@ -26,6 +27,8 @@ import {
 export interface ReaderData {
   characters: { id: string; name: string }[];
   toc: { id: string; label: string; scene: boolean }[];
+  /** Personnages présents par scène (id = celui du sommaire), pour l'option « mes scènes ». */
+  sceneMembers: { id: string; characterIds: string[] }[];
   highlightsDefault: { characterId: string; color: string }[];
   notes?: Note[];
   storageKey: string;
@@ -67,6 +70,7 @@ export function buildReaderDocument(input: ReaderDocumentInput): ReaderDocument 
   const data: ReaderData = {
     characters: play.characters.map((c) => ({ id: c.id, name: c.canonicalName })),
     toc,
+    sceneMembers: sceneMembers(play),
     highlightsDefault: input.template.highlights.map((h) => ({
       characterId: h.characterId,
       color: h.color,

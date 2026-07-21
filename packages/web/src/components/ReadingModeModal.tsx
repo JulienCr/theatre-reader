@@ -114,6 +114,25 @@ export function ReadingModeModal({
           ))}
         </fieldset>
 
+        <label
+          className={`reading-mode-option reading-mode-standalone${myRoles.length === 0 ? ' is-disabled' : ''}`}
+        >
+          <input
+            type="checkbox"
+            checked={settings.onlyMyScenes}
+            disabled={myRoles.length === 0}
+            onChange={(e) => onSettings({ onlyMyScenes: e.target.checked })}
+          />
+          <span className="reading-mode-text">
+            <span className="reading-mode-label">N'afficher que mes scènes</span>
+            <span className="reading-mode-hint">
+              {myRoles.length === 0
+                ? 'Sélectionnez au moins un rôle ci-dessous.'
+                : "Masque les scènes où aucun de mes rôles n'apparaît."}
+            </span>
+          </span>
+        </label>
+
         <div className="reading-mode-roles">
           <div className="reading-mode-subhead">Mes rôles</div>
           {characters.map((c) => (
