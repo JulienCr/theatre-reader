@@ -10,7 +10,8 @@ Theatre Reader: a **local, single-user** tool to import a theatre play from PDF,
 pnpm install
 pnpm setup:browser            # install Chromium for Playwright (export + ad-hoc e2e) — once
 pnpm dev                      # server (:3001) + Vite web (:5173) via concurrently
-pnpm build                    # build the web front to packages/web/dist
+pnpm build                    # web front → packages/web/dist, THEN build:ios (keeps the iOS bundle current)
+pnpm build:ios                # mobile-app Vite build + `cap sync ios` (regenerates ios/App/App/{public,capacitor.config.json,config.xml})
 pnpm start                    # run only the server (serves packages/web/dist if present)
 pnpm test                     # all vitest unit tests (core + import)
 pnpm typecheck                # tsc --noEmit in every package
