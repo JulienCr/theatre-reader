@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Previewer } from 'pagedjs';
 import {
+  buildNodeIds,
   buildToc,
   filterScenesByRoles,
   parseFountain,
@@ -111,6 +112,15 @@ export function Reader({
     () => (settings.onlyMyScenes && myRoles.length ? filterScenesByRoles(play, myRoles) : play),
     [play, settings.onlyMyScenes, myRoles],
   );
+  // Ids de nœuds de la pièce COMPLÈTE reportés sur les nœuds survivants : garde les
+  // `data-nid` stables sous le filtre (sinon les notes se décrochent, cf. buildNodeIds).
+  // `undefined` quand rien n'est filtré → renderBody recalcule (chemin par défaut).
+  const displayNodeIds = useMemo(() => {
+    if (displayPlay === play) return undefined;
+    const fullIds = buildNodeIds(play);
+    const idOf = new Map(play.nodes.map((n, i) => [n, fullIds[i]!]));
+    return displayPlay.nodes.map((n) => idOf.get(n)!);
+  }, [play, displayPlay]);
   const toc = useMemo(() => buildToc(displayPlay, template), [displayPlay, template]);
 
   // ---- Lecture audio (ElevenLabs) ----
@@ -237,7 +247,7 @@ export function Reader({
       container.innerHTML = '';
       try {
         const flow = await new Previewer().preview(
-          renderBody(displayPlay, template),
+          renderBody(displayPlay, template, displayNodeIds),
           [{ template: renderCSS(template) }],
           container,
         );
@@ -252,7 +262,7 @@ export function Reader({
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [displayPlay, template]);
+  }, [displayPlay, displayNodeIds, template]);
 
   const goToEntry = useCallback((id: string) => {
     containerRef.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'start' });

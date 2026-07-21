@@ -244,6 +244,14 @@ export function Chrome({
     playerRef.current?.refresh();
   }, [play, hiddenIds]);
 
+  // Après un changement de visibilité, re-marque la recherche : sinon des
+  // occurrences dans des scènes désormais masquées resteraient comptées et
+  // « cadrées dans le vide ». Rien à faire tant qu'aucune recherche n'est active.
+  useEffect(() => {
+    if (query) search.run(query);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- déclenché par le filtre, pas la frappe (gérée par onInput)
+  }, [hiddenIds]);
+
   // Persistance : un seul point d'écriture, sauté au montage pour ne pas
   // réécrire l'état qu'on vient tout juste de lire.
   const mounted = useRef(false);

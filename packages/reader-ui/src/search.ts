@@ -26,6 +26,13 @@ const CURRENT_CLASS = 'reader-hit--current';
 const SKIPPED_TAGS = new Set(['SCRIPT', 'STYLE', 'MARK']);
 
 /**
+ * Classe d'une scène masquée (option « mes scènes » du lecteur mobile ; valeur de
+ * `HIDDEN_SCENE_CLASS` de @theatre/audio-player). Son texte est ignoré : sinon la
+ * recherche compterait et cadrerait des occurrences invisibles (saut « dans le vide »).
+ */
+const HIDDEN_SUBTREE_CLASS = 'scene--hidden';
+
+/**
  * Parcours explicite plutôt que `document.createTreeWalker(root, SHOW_TEXT, …)` :
  * happy-dom, l'environnement de test du dépôt, ignore le masque `SHOW_TEXT` et
  * ne renvoie alors aucun nœud — le module deviendrait intestable sans ajouter
@@ -37,7 +44,11 @@ function collectTextNodes(root: Node): Text[] {
   for (const child of Array.from(root.childNodes)) {
     if (child.nodeType === 3) {
       if (child.nodeValue) out.push(child as Text);
-    } else if (child.nodeType === 1 && !SKIPPED_TAGS.has((child as Element).tagName)) {
+    } else if (
+      child.nodeType === 1 &&
+      !SKIPPED_TAGS.has((child as Element).tagName) &&
+      !(child as Element).classList.contains(HIDDEN_SUBTREE_CLASS)
+    ) {
       out.push(...collectTextNodes(child));
     }
   }

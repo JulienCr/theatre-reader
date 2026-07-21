@@ -50,31 +50,55 @@ export function sceneMembers(play: Play): { id: string; characterIds: string[] }
 }
 
 /**
- * Ne garde que les scènes où au moins un des `roleIds` a une réplique. Les nœuds
- * hors-scène (en-têtes d'acte, contenu avant la première scène) sont conservés ;
- * un acte dont plus aucune scène/contenu ne survit est retiré. `roleIds` vide, ou
- * aucune scène à exclure → renvoie `play` inchangé (même référence : évite une
- * re-pagination inutile côté web).
+ * Ne garde que les scènes où au moins un des `roleIds` a une réplique.
+ *
+ * Raisonnement par bloc d'acte (d'un en-tête d'acte au suivant) : si un acte a des
+ * scènes mais qu'AUCUNE ne survit, tout le bloc est retiré — en-tête ET contenu
+ * hors-scène (didascalie d'ouverture comprise). C'est le comportement « je saute
+ * l'acte entier » et il aligne le web sur le lecteur mobile (qui masque de même).
+ * Sinon on garde le bloc en retirant seulement les plages de scènes exclues. Le
+ * contenu avant le premier acte n'a pas d'en-tête : on y filtre juste les scènes.
+ *
+ * `roleIds` vide, ou rien à exclure → renvoie `play` inchangé (même référence :
+ * évite une re-pagination inutile côté web).
  */
 export function filterScenesByRoles(play: Play, roleIds: string[]): Play {
   if (!roleIds.length) return play;
   const roles = new Set(roleIds);
-  const excluded = new Set<number>();
-  for (const r of sceneRanges(play)) {
-    if (!r.characterIds.some((c) => roles.has(c))) {
-      for (let k = r.start; k < r.end; k++) excluded.add(k);
+  const nodes = play.nodes;
+  const kept: Node[] = [];
+  let i = 0;
+  while (i < nodes.length) {
+    const isAct = nodes[i]!.type === 'act';
+    // Fin du bloc : le prochain en-tête d'acte, ou la fin.
+    let j = i + 1;
+    while (j < nodes.length && nodes[j]!.type !== 'act') j++;
+    // Scènes du bloc + leurs plages exclues.
+    const excluded = new Set<number>();
+    let hadScene = false;
+    let keptScene = false;
+    let k = isAct ? i + 1 : i;
+    while (k < j) {
+      if (nodes[k]!.type !== 'scene') {
+        k++;
+        continue;
+      }
+      hadScene = true;
+      const start = k++;
+      let present = false;
+      while (k < j && nodes[k]!.type !== 'scene') {
+        const n = nodes[k]!;
+        if (n.type === 'line' && roles.has(n.characterId)) present = true;
+        k++;
+      }
+      if (present) keptScene = true;
+      else for (let x = start; x < k; x++) excluded.add(x);
     }
+    // Acte entièrement muet pour ces rôles → on drop tout le bloc.
+    if (!(isAct && hadScene && !keptScene)) {
+      for (let x = i; x < j; x++) if (!excluded.has(x)) kept.push(nodes[x]!);
+    }
+    i = j;
   }
-  if (!excluded.size) return play;
-  const kept = play.nodes.filter((_, i) => !excluded.has(i));
-  return { ...play, nodes: dropEmptyActs(kept) };
-}
-
-/** Retire un en-tête d'acte suivi de rien ou d'un autre acte (aucun contenu survivant). */
-function dropEmptyActs(nodes: Node[]): Node[] {
-  return nodes.filter((node, i) => {
-    if (node.type !== 'act') return true;
-    const next = nodes[i + 1];
-    return next !== undefined && next.type !== 'act';
-  });
+  return kept.length === nodes.length ? play : { ...play, nodes: kept };
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { slugify } from './ast';
 import { parseFountain } from './fountain';
 import { buildToc, renderBody, renderCSS } from './render';
+import { filterScenesByRoles } from './scenes';
 import { buildNodeIds } from './notes';
 import { actorReadingTemplate, cloneTemplate } from './template';
 
@@ -150,6 +152,23 @@ describe('data-nid', () => {
     expect(html).toContain(`class="scene" id="h-1" data-nid="${ids[1]}"`);
     expect(html).toContain(`<p class="stage" data-nid="${ids[2]}"`);
     expect(html).toMatch(new RegExp(`<p class="line" data-cid="[^"]*" data-nid="${ids[3]}"`));
+  });
+
+  it('honore des ids imposés : garde les data-nid d\'origine sous le filtre « mes scènes »', () => {
+    // Deux en-têtes « SCENE I. » (contenu identique) → ordinaux #0 et #1.
+    const p = parseFountain('# ACTE I.\n\n## SCENE I.\n\nGERALD\nA.\n\n# ACTE II.\n\n## SCENE I.\n\nBENJI\nB.\n');
+    const fullIds = buildNodeIds(p);
+    const filtered = filterScenesByRoles(p, [slugify('BENJI')]); // ACTE I (GERALD) tombe
+    const si = filtered.nodes.findIndex((n) => n.type === 'scene'); // « SCENE I. » de l'ACTE II
+    // Sans correction, buildNodeIds renumérote la scène survivante (#1 → #0).
+    const naive = buildNodeIds(filtered);
+    const idOf = new Map(p.nodes.map((n, i) => [n, fullIds[i]!]));
+    const stableIds = filtered.nodes.map((n) => idOf.get(n)!);
+    expect(naive[si]).not.toBe(stableIds[si]); // le décalage existe bien
+    // renderBody avec ids imposés garde l'id d'origine → les notes restent ancrées.
+    const html = renderBody(filtered, actorReadingTemplate, stableIds);
+    expect(html).toContain(`data-nid="${stableIds[si]}"`);
+    expect(html).not.toContain(`data-nid="${naive[si]}"`);
   });
 });
 

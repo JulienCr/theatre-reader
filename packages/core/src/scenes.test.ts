@@ -72,9 +72,20 @@ describe('filterScenesByRoles', () => {
     expect(filterScenesByRoles(play, [])).toBe(play);
   });
 
-  it('conserve le contenu hors-scène (didascalie avant la première scène)', () => {
+  it('conserve le contenu hors-scène d\'un acte partiellement gardé', () => {
+    // Acte I garde SCENE II (MICHEL) → sa didascalie d'ouverture reste.
     const filtered = filterScenesByRoles(play, [MICHEL]);
     expect(filtered.nodes.some((n) => n.type === 'stage' && n.text === 'Noir total.')).toBe(true);
+  });
+
+  it('retire tout un acte muet, didascalie d\'ouverture comprise (parité mobile)', () => {
+    const p = parseFountain(
+      '# ACTE I.\n\n## SCENE I.\n\nGERALD\nSalut.\n\n# ACTE II.\n\nLe rideau se lève.\n\n## SCENE I.\n\nBENJI\nBonjour.\n',
+    );
+    const filtered = filterScenesByRoles(p, [GERALD]);
+    // ACTE II entier tombe (GERALD absent), y compris « Le rideau se lève. ».
+    expect(buildToc(filtered, actorReadingTemplate).map((e) => e.label)).toEqual(['ACTE I.', 'SCENE I.']);
+    expect(filtered.nodes.some((n) => n.type === 'stage' && n.text === 'Le rideau se lève.')).toBe(false);
   });
 
   it('garde les data-nid des scènes survivantes (notes/audio restent ancrés)', () => {
