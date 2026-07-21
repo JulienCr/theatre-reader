@@ -65,6 +65,19 @@ describe('@theatre/audio-player', () => {
     p.destroy();
   });
 
+  it('ignore les répliques d\'une scène masquée (option « mes scènes »)', () => {
+    const cont = mount(
+      '<h3 class="scene" data-nid="s1#0">SCENE I</h3>' +
+        line('michel', 'm#0', 'Présent.') +
+        // Plage masquée : la classe est posée sur chaque élément (comme le runtime mobile).
+        '<h3 class="scene scene--hidden" data-nid="s2#0">SCENE II</h3>' +
+        '<p class="line scene--hidden" data-cid="benji" data-nid="b#0"><span class="speech">Caché.</span></p>',
+    );
+    const p = buildPlayer(cont);
+    expect(p.getState().total).toBe(1); // seule la réplique visible est indexée
+    p.destroy();
+  });
+
   it('joue la 1re tirade : surbrillance + resolveAudio', async () => {
     const p = make();
     p.play();

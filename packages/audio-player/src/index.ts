@@ -35,6 +35,8 @@ export interface ReadingSettings {
   playMine: boolean;
   autoAdvance: boolean;
   tick: boolean;
+  /** N'afficher que les scènes où l'un de mes rôles joue (masque les autres). */
+  onlyMyScenes: boolean;
 }
 
 const DEFAULT_SETTINGS: ReadingSettings = {
@@ -43,7 +45,16 @@ const DEFAULT_SETTINGS: ReadingSettings = {
   playMine: false,
   autoAdvance: false,
   tick: false,
+  onlyMyScenes: false,
 };
+
+/**
+ * Classe posée sur les éléments d'une scène masquée (option « mes scènes »).
+ * Le lecteur mobile la pose sur les plages DOM exclues (pas de re-pagination) ;
+ * `collectTirades` l'ignore pour que la lecture saute ces répliques. Le lecteur
+ * web n'en a pas besoin : il re-rend une pièce filtrée, ces répliques sont absentes.
+ */
+export const HIDDEN_SCENE_CLASS = 'scene--hidden';
 
 export interface PlayerState {
   playing: boolean;
@@ -114,6 +125,8 @@ function collectTirades(container: HTMLElement): AudioTirade[] {
     const nodeId = el.getAttribute('data-nid');
     const characterId = el.getAttribute('data-cid');
     if (!nodeId || !characterId) return;
+    // Scène masquée (option « mes scènes ») : on ne l'indexe pas → lecture sautée.
+    if (el.closest(`.${HIDDEN_SCENE_CLASS}`)) return;
     // Paged.js peut fragmenter une même réplique sur 2 pages : on garde la 1re.
     if (seen.has(nodeId)) return;
     const text = Array.from(el.querySelectorAll<HTMLElement>('.speech'))

@@ -125,8 +125,16 @@ export function buildToc(play: Play, template: Template): TocEntry[] {
   return entries;
 }
 
-/** Fragment HTML du corps de la pièce (sans <html>/<head>). */
-export function renderBody(play: Play, template: Template): string {
+/**
+ * Fragment HTML du corps de la pièce (sans <html>/<head>).
+ *
+ * `nodeIds` permet d'imposer les `data-nid` au lieu de les recalculer : le lecteur
+ * web, en mode « mes scènes », rend une pièce FILTRÉE mais veut garder les ids de la
+ * pièce COMPLÈTE (sinon `buildNodeIds` renumérote les nœuds au contenu identique et
+ * les notes, ancrées sur l'id complet, deviennent orphelines ou se déplacent). Il
+ * passe donc les ids d'origine des nœuds survivants ; par défaut on les calcule.
+ */
+export function renderBody(play: Play, template: Template, nodeIds: string[] = buildNodeIds(play)): string {
   const header: string[] = [];
   if (play.title) header.push(`<h1 class="title">${escapeHtml(play.title)}</h1>`);
   if (play.author) header.push(`<div class="author">de ${escapeHtml(play.author)}</div>`);
@@ -135,7 +143,6 @@ export function renderBody(play: Play, template: Template): string {
 
   const entries = buildToc(play, template);
   const byIndex = new Map(entries.map((e) => [e.nodeIndex, e]));
-  const nodeIds = buildNodeIds(play);
 
   const out: string[] = [];
   const nodes = play.nodes;

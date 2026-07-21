@@ -968,6 +968,15 @@ button.ghost {
 .reading-mode-option input {
   margin-top: 3px;
 }
+.reading-mode-standalone {
+  border-top: 1px solid var(--border);
+  margin-bottom: 14px;
+  padding-top: 12px;
+}
+.reading-mode-option.is-disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .reading-mode-text {
   display: flex;
   flex-direction: column;

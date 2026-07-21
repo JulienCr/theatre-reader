@@ -30,6 +30,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { decorate } from '@theatre/annotations';
 import {
   createPlayer,
+  HIDDEN_SCENE_CLASS,
   type Player,
   type PlayerState,
   type ReadingSettings,
@@ -203,6 +204,54 @@ export function Chrome({
     });
   }, [play, selected]);
 
+  // Option « n'afficher que mes scènes » : ids d'en-têtes à masquer — les scènes
+  // où aucun de mes rôles ne joue, plus les actes dont TOUTES les scènes tombent.
+  // Calculé depuis la présence embarquée à l'export (le runtime n'a pas l'AST).
+  const hiddenIds = useMemo(() => {
+    const hidden = new Set<string>();
+    if (!reading.onlyMyScenes || !myRoles.length) return hidden;
+    const roles = new Set(myRoles);
+    for (const s of data.sceneMembers) {
+      if (!s.characterIds.some((c) => roles.has(c))) hidden.add(s.id);
+    }
+    // Acte vidé : dans le sommaire (ordonné), aucune de ses scènes n'a survécu.
+    const toc = data.toc;
+    for (let i = 0; i < toc.length; i++) {
+      if (toc[i]!.scene) continue;
+      let j = i + 1;
+      let anyKept = false;
+      for (; j < toc.length && toc[j]!.scene; j++) if (!hidden.has(toc[j]!.id)) anyKept = true;
+      if (j > i + 1 && !anyKept) hidden.add(toc[i]!.id);
+    }
+    return hidden;
+  }, [reading.onlyMyScenes, myRoles, data.sceneMembers, data.toc]);
+
+  // Masque les plages DOM des en-têtes exclus (l'en-tête + ses frères jusqu'au
+  // prochain en-tête), puis réindexe le player pour qu'il saute ces répliques.
+  // useLayoutEffect : pas de flash des scènes exclues au montage (état persisté).
+  useLayoutEffect(() => {
+    const HEAD = 'h2.act, h3.scene';
+    play.querySelectorAll<HTMLElement>(HEAD).forEach((h) => {
+      const hide = hiddenIds.has(h.id);
+      let el: Element | null = h;
+      while (el) {
+        el.classList.toggle(HIDDEN_SCENE_CLASS, hide);
+        const next: Element | null = el.nextElementSibling;
+        if (!next || next.matches(HEAD)) break;
+        el = next;
+      }
+    });
+    playerRef.current?.refresh();
+  }, [play, hiddenIds]);
+
+  // Après un changement de visibilité, re-marque la recherche : sinon des
+  // occurrences dans des scènes désormais masquées resteraient comptées et
+  // « cadrées dans le vide ». Rien à faire tant qu'aucune recherche n'est active.
+  useEffect(() => {
+    if (query) search.run(query);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- déclenché par le filtre, pas la frappe (gérée par onInput)
+  }, [hiddenIds]);
+
   // Persistance : un seul point d'écriture, sauté au montage pour ne pas
   // réécrire l'état qu'on vient tout juste de lire.
   const mounted = useRef(false);
@@ -374,7 +423,7 @@ export function Chrome({
       </Sheet>
 
       <Sheet title="Aller à une scène" open={sheet === 'scenes'} onClose={closeSheet} onBack={backToParent}>
-        {data.toc.map((e) => (
+        {data.toc.filter((e) => !hiddenIds.has(e.id)).map((e) => (
           <div className="row" key={e.id}>
             <a
               className={`scene-link${e.scene ? ' is-scene' : ''}`}
@@ -456,6 +505,21 @@ export function Chrome({
             {o.hint && <span className="mode-hint">{o.hint}</span>}
           </label>
         ))}
+
+        {/* N'afficher que mes scènes — indépendant du mode (toujours disponible),
+            désactivé tant qu'aucun rôle n'est choisi. */}
+        <label className="row">
+          <input
+            type="checkbox"
+            checked={reading.onlyMyScenes}
+            disabled={myRoles.length === 0}
+            onChange={(ev) => changeSettings({ onlyMyScenes: ev.currentTarget.checked })}
+          />
+          N'afficher que mes scènes
+          <span className="mode-hint">
+            {myRoles.length === 0 ? 'Choisir un rôle ci-dessous.' : 'Masque les scènes où je ne joue pas.'}
+          </span>
+        </label>
 
         {/* Mes rôles (multi-sélection). */}
         <div className="mode-subhead">Mes rôles</div>

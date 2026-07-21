@@ -28,6 +28,7 @@ export const DEFAULT_READING: ReadingSettings = {
   playMine: false,
   autoAdvance: false,
   tick: false,
+  onlyMyScenes: false,
 };
 
 function boolOr(v: unknown, d: boolean): boolean {
@@ -58,6 +59,7 @@ export function loadState(key: string, fallback: PersistedState): PersistedState
           playMine: boolOr(r.playMine, fallback.reading.playMine),
           autoAdvance: boolOr(r.autoAdvance, fallback.reading.autoAdvance),
           tick: boolOr(r.tick, fallback.reading.tick),
+          onlyMyScenes: boolOr(r.onlyMyScenes, fallback.reading.onlyMyScenes),
         },
         myRoles: stringsOr(parsed.myRoles, fallback.myRoles),
       };

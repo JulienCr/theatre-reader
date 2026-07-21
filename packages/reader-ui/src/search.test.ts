@@ -82,6 +82,20 @@ describe('@theatre/reader-ui — recherche', () => {
     expect(marks()).toHaveLength(2);
   });
 
+  it('ignore le texte des scènes masquées (option « mes scènes »)', () => {
+    // Une scène masquée porte .scene--hidden : son texte ne doit pas être compté
+    // ni cadré, sinon la recherche saute « dans le vide » (occurrence invisible).
+    root.innerHTML =
+      '<h3 class="scene"><span>SCENE I</span></h3>' +
+      '<p class="line"><span class="speech">Le directeur parle.</span></p>' +
+      '<div class="scene--hidden">' +
+      '<h3 class="scene"><span>SCENE II</span></h3>' +
+      '<p class="line"><span class="speech">Le directeur caché.</span></p>' +
+      '</div>';
+    const search = createSearch(root);
+    expect(search.run('directeur')).toBe(1); // seule l'occurrence visible compte
+  });
+
   it('retombe sur ses pieds si le conteneur a été vidé entre-temps', () => {
     const search = createSearch(root);
     search.run('directeur');
