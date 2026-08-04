@@ -128,7 +128,9 @@ pid_logs=()
 for dev in "${selected[@]}"; do
     name="$(dev_name "$dev")"
     identifier="$(dev_id "$dev")"
-    logfile="$TMP_LOGS/${name// /_}.log"
+    # Le nom du device est libre côté iOS : on le réduit à un basename sûr, sinon un « / »
+    # dans le nom produirait un chemin de log invalide.
+    logfile="$TMP_LOGS/${name//[^A-Za-z0-9._-]/_}.log"
     install_on_device "$name" "$identifier" "$logfile" &
     pids+=($!)
     pid_names+=("$name")
@@ -138,7 +140,10 @@ done
 failures=0
 for i in "${!pids[@]}"; do
     if ! wait "${pids[$i]}"; then
-        ((failures++))
+        # Forme volontairement explicite : ((failures++)) renvoie 1 quand failures vaut 0,
+        # ce qui interromprait la boucle sous `set -e` dans un shell POSIX ou zsh (bash, lui,
+        # ne s'arrête pas — vérifié). L'affectation ne dépend pas de cette subtilité.
+        failures=$((failures + 1))
         echo ""
         echo "--- Log de ${pid_names[$i]} ---"
         cat "${pid_logs[$i]}"

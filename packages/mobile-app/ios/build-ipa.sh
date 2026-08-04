@@ -33,6 +33,17 @@ if [ -z "$CURRENT_BUILD" ]; then
   exit 1
 fi
 NEW_BUILD=$((CURRENT_BUILD + 1))
+# Si la suite échoue (archive, signature, export), le bump ne doit pas rester dans le
+# pbxproj : sans ça un échec laisse un numéro de build sans IPA correspondante, et il
+# faut le rétablir à la main — vécu au premier run, bloqué par le Program License Agreement.
+restore_build_number() {
+  local code=$?
+  if [ "$code" -ne 0 ]; then
+    perl -pi -e "s/CURRENT_PROJECT_VERSION = \d+;/CURRENT_PROJECT_VERSION = $CURRENT_BUILD;/g" "$PBXPROJ"
+    echo "↩️  Build échoué : numéro de build rétabli à $CURRENT_BUILD."
+  fi
+}
+trap restore_build_number EXIT
 perl -pi -e "s/CURRENT_PROJECT_VERSION = \d+;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" "$PBXPROJ"
 MARKETING_VERSION=$(perl -ne 'if (/MARKETING_VERSION = (.+);/) { print $1; exit }' "$PBXPROJ")
 echo "   Version : $MARKETING_VERSION ($NEW_BUILD)"
