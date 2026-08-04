@@ -17,14 +17,22 @@ if [ ! -f "$IPA_PATH" ]; then
 fi
 
 # Nettoyage des fichiers temporaires
-cleanup() { rm -f "$TMP_JSON"; rm -rf "$TMP_LOGS"; }
+cleanup() { rm -f "$TMP_JSON" "$TMP_ERR"; rm -rf "$TMP_LOGS"; }
 trap cleanup EXIT
 
 # Récupère les devices sous forme de lignes "nom|identifiant|modèle"
 TMP_JSON=$(mktemp /tmp/theatre-devices.XXXXXX.json)
+TMP_ERR=$(mktemp /tmp/theatre-devicectl.XXXXXX.log)
 TMP_LOGS=""
 
-xcrun devicectl list devices --json-output "$TMP_JSON" >/dev/null 2>&1
+# devicectl écrit son tableau de devices sur stderr même quand tout va bien : on le met de
+# côté plutôt que de le laisser passer, et on ne l'affiche qu'en cas d'échec — sans quoi une
+# erreur (Command Line Tools absents, device non appairé, permissions) sortirait en silence.
+if ! xcrun devicectl list devices --json-output "$TMP_JSON" >/dev/null 2>"$TMP_ERR"; then
+    echo "Erreur : « xcrun devicectl list devices » a échoué." >&2
+    cat "$TMP_ERR" >&2
+    exit 1
+fi
 
 devices=()
 while IFS= read -r line; do
