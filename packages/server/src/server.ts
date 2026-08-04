@@ -5,6 +5,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
@@ -127,6 +128,21 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
+
+  /**
+   * Carte d'identité de l'instance, consommée par la découverte de l'app mobile.
+   *
+   * `app: 'theatre-reader'` est le marqueur qui compte : sans lui, une sonde qui se
+   * contente d'un HTTP 200 conclurait « Mac trouvé » devant n'importe quel service
+   * qui écoute par hasard sur ce port, et l'app enchaînerait sur des appels absurdes.
+   * `host` s'affiche dans l'app (« Connecté · <machine> ») pour lever le doute quand
+   * plusieurs Mac tournent.
+   */
+  app.get('/api/health', async () => ({
+    app: 'theatre-reader',
+    host: os.hostname(),
+    plays: (await listPlays()).length,
+  }));
 
   app.get('/api/plays', async () => ({ plays: await listPlays() }));
 

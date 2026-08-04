@@ -66,6 +66,16 @@ Clips live at `data/<slug>/audio/<key>.mp3`; the key is `sha1(model + voiceId + 
 
 `POST /api/plays/:slug/tts/batch` pre-warms the cache with 3 concurrent workers (quota-friendly), cache-first, returning `{ manifest: nodeId->{key,cached}, characters }` in one response (no streaming — drive progress client-side by chunking).
 
+### How the iOS app finds the Mac (mDNS + ATS)
+
+The phone reaches the Mac with **no address to type**, and the whole chain hinges on one thing: **a `.local` name, never an IP**.
+
+- Fastify listens on `0.0.0.0` (`server/src/main.ts`, `THEATRE_HOST=127.0.0.1` closes it back to loopback). The API has **no authentication** — anyone on the same Wi-Fi can read the plays and notes. Assumed trade-off, not an oversight.
+- `server/src/discovery.ts` publishes `_theatre._tcp` with `host: 'theatre-reader.local'` via `bonjour-service`. The `host` option is the point: it names the **A records** the lib emits for every non-internal IPv4 interface, which is what makes the name resolvable from the phone. Verify with `dns-sd -B _theatre._tcp` then `dns-sd -G v4 theatre-reader.local`. Publishing failure is logged and swallowed — the server must still start.
+- iOS blocks cleartext HTTP (**App Transport Security**) — this is why the app originally required Tailscale HTTPS. `NSAllowsLocalNetworking` in `ios/App/App/Info.plist` is the Apple-sanctioned exception, and it covers **Bonjour `.local` names and link-local only, not RFC1918 IPs** like `192.168.x.x`. Pointing the app at an IP would silently re-break it. `NSLocalNetworkUsageDescription` must be present too, or iOS 14+ never asks for the permission and denies every LAN call. These are plist keys, not entitlements: signing and provisioning are unaffected.
+- `mobile-app/src/discovery.ts` probes `GET /api/health` and requires `body.app === 'theatre-reader'` — a bare 200 proves nothing (captive portals, other services on 3001). It probes through **`CapacitorHttp`** (native `URLSession`) rather than `fetch`, because a WebView request can fail *without ever triggering the local-network prompt*; once granted, ordinary `fetch` (clip downloads) works. Order is manual-address-first (Tailscale, works off-network and in HTTPS), then `http://theatre-reader.local:3001`.
+- The LAN candidate hardcodes port 3001: a different `PORT` forces manual entry. `ADVERTISED_HOST` (server) and `LAN_BASE` (app) must stay in sync.
+
 ### Paged.js (pagination engine)
 
 Used in two places, must stay behaviourally identical:
@@ -80,7 +90,7 @@ Used in two places, must stay behaviourally identical:
 
 ## Environment & tooling
 
-- `ANTHROPIC_API_KEY` — enables LLM character normalization at import (default model `claude-sonnet-4-6`, override `THEATRE_LLM_MODEL`). `THEATRE_DATA_DIR` overrides `./data`; `PORT` overrides `3001`.
+- `ANTHROPIC_API_KEY` — enables LLM character normalization at import (default model `claude-sonnet-4-6`, override `THEATRE_LLM_MODEL`). `THEATRE_DATA_DIR` overrides `./data`; `PORT` overrides `3001`; `THEATRE_HOST` overrides the listen address (see below).
 - pnpm 10 blocks build scripts: only `esbuild` is allowlisted in `pnpm-workspace.yaml` (`onlyBuiltDependencies`). Playwright browsers are NOT auto-downloaded — run `pnpm setup:browser`.
 - **Node ≥ 22** (`engines.node`), imposed by `@capacitor/cli` — the `ios` / `cap:sync` scripts refuse to run below that.
 - **iOS signing — team `U3P93WXUHR` ("Compagnie Avolo", *paid* Apple Developer Program)**. `DEVELOPMENT_TEAM` is committed in the four build configs of `packages/mobile-app/ios/App/App.xcodeproj/project.pbxproj` (a Team ID is not a secret; committing it avoids re-picking the team in Signing & Capabilities after every clone). This is what makes a build last **1 year** instead of 7 days — the free "personal team" that Xcode offers by default issues profiles with `TimeToLive = 7`. Everything else is automatic (`CODE_SIGN_STYLE = Automatic`, no `PROVISIONING_PROFILE_SPECIFIER`, no `CODE_SIGN_IDENTITY`); `xcodebuild -allowProvisioningUpdates` creates and renews the profile. Two consequences: the target device must be **registered on that team** to appear in the profile, and switching teams changes `application-identifier`, so iOS treats it as a different app — **the previously installed build must be deleted first, which wipes its container** (locally stored plays + offline audio). `App/ExportOptions.plist` exports with `method = debugging` (ex-`development`), **not** `release-testing` (ex-`ad-hoc`): measured on 2026-08-05, an ad-hoc export yields a profile expiring with the Apple Distribution certificate (30/01/2027, ~6 months) while a development profile is freshly issued for a full 365 days — the only trade-off is `get-task-allow = true`. That file and the shared scheme `App.xcscheme` exist only to make `xcodebuild archive`/`-exportArchive` work headlessly; if you ever add an entitlement, also set `CODE_SIGN_ENTITLEMENTS` and verify with `codesign -d --entitlements -` that it really landed in the binary.
