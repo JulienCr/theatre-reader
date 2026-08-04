@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- "debugging" = l'ancien "development". Volontairement PAS "release-testing" (ex-"ad-hoc") :
+         un profil de distribution est aligné sur l'expiration du certificat Apple Distribution
+         (30/01/2027 ici, soit ~6 mois), alors qu'un profil Development est émis à 365 jours.
+         Seule contrepartie : get-task-allow = true, sans conséquence pour un usage interne. -->
+    <key>method</key>
+    <string>debugging</string>
+    <key>teamID</key>
+    <string>U3P93WXUHR</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>stripSwiftSymbols</key>
+    <true/>
+    <key>compileBitcode</key>
+    <false/>
+</dict>
+</plist>
