@@ -147,6 +147,19 @@ export function evaluate(
         lastExpected = op.e;
         break;
       }
+      // La dictée a coupé un mot en deux (« chévéloure » → « chévé lourd ») ou collé
+      // deux mots en un. Ce n'est pas une faute de l'acteur : le mot a été prononcé,
+      // c'est la segmentation qui diffère. Compté comme un seul écart, jamais comme
+      // « un mot faux plus un mot en trop ».
+      case 'merge':
+        words[op.e]!.status = 'ok';
+        lastExpected = op.e;
+        break;
+      case 'split':
+        words[op.e]!.status = 'ok';
+        words[op.e + 1]!.status = 'ok';
+        lastExpected = op.e + 1;
+        break;
       case 'ins': {
         const h = heard[op.h]!;
         if (p.ignoreFillers && FILLERS.has(h.key)) break;

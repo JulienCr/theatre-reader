@@ -15,6 +15,7 @@
  *    passerait aussi, et l'issue l'exclut explicitement.
  */
 import type { Token } from './normalize';
+import { phoneticKey } from './phonetic';
 
 export type Op =
   /** Mot attendu retrouvé (à la tolérance de similarité près). */
@@ -26,7 +27,14 @@ export type Op =
   /** Mot prononcé en trop. */
   | { type: 'ins'; h: number }
   /** Mot prononcé avant la bonne version — l'amorce d'une autocorrection, ignorée. */
-  | { type: 'skip'; h: number };
+  | { type: 'skip'; h: number }
+  /**
+   * Un mot attendu pour DEUX mots entendus (`h` et `h+1`) : la dictée l'a coupé.
+   * N'existe que franc (cf. `mergeCost`) — donc toujours une correspondance.
+   */
+  | { type: 'merge'; e: number; h: number }
+  /** DEUX mots attendus (`e` et `e+1`) pour un seul entendu : la dictée les a collés. */
+  | { type: 'split'; e: number; h: number };
 
 export interface AlignOptions {
   /** Nombre de mots que l'énoncé peut gaspiller en tête sans être pénalisé. */
@@ -85,10 +93,48 @@ export function similarity(a: Token, b: Token): number {
   return 1 - levenshtein(a.key, b.key) / max;
 }
 
+/**
+ * Deux mots pris comme un seul.
+ *
+ * La clé phonétique est RECALCULÉE sur la concaténation, jamais obtenue en collant
+ * les deux clés : les règles dépendent du contexte, et la coupure en fabrique un
+ * faux. « chévé » se termine sur un `e` muet qui disparaît (`Sev`), alors qu'au
+ * milieu de « chévéloure » ce même `e` se prononce (`SevelUr`). Recalculer sur
+ * « chévélourd » redonne `SevelUr`, et les deux formes se retrouvent.
+ */
+function joined(a: Token, b: Token): Token {
+  const key = a.key + b.key;
+  return { key, raw: `${a.raw} ${b.raw}`, proper: a.proper || b.proper, phon: phoneticKey(key) };
+}
+
 export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op[] {
   const n = expected.length;
   const m = heard.length;
   const maxSkip = Math.max(0, Math.min(opts.maxSkip, m));
+
+  // Paires adjacentes, calculées une fois : la matrice les consulte n×m fois.
+  // `pairH[j]` colle heard[j-1] et heard[j] ; `pairE[i]` fait de même côté attendu.
+  const pairH: (Token | null)[] = heard.map((h, j) => (j > 0 ? joined(heard[j - 1]!, h) : null));
+  const pairE: (Token | null)[] = expected.map((e, i) => (i > 0 ? joined(expected[i - 1]!, e) : null));
+  /**
+   * Coût d'un regroupement, ou `Infinity` s'il n'est pas franc.
+   *
+   * Le seuil est ce qui rend la règle sûre. Sans lui, un regroupement médiocre
+   * revient moins cher qu'un mot en trop, et l'alignement se met à coller les
+   * voisins pour économiser : « je pars euh demain » devenait « demain remplacé par
+   * euh-demain » au lieu de « euh en trop ». Une segmentation différente du MÊME
+   * mot est franche ou n'est pas — sinon « mot faux, mot en trop » dit la vérité.
+   */
+  const mergeCost = (i: number, j: number): number => {
+    if (j < 2) return Infinity;
+    const s = similarity(expected[i - 1]!, pairH[j - 1]!);
+    return s >= opts.matchSim ? 1 - s : Infinity;
+  };
+  const splitCost = (i: number, j: number): number => {
+    if (i < 2) return Infinity;
+    const s = similarity(pairE[i - 1]!, heard[j - 1]!);
+    return s >= opts.matchSim ? 1 - s : Infinity;
+  };
 
   const cost: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
   for (let i = 1; i <= n; i++) cost[i]![0] = i * GAP;
@@ -102,21 +148,37 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
     const e = expected[i - 1]!;
     for (let j = 1; j <= m; j++) {
       const sub = above[j - 1]! + (1 - similarity(e, heard[j - 1]!));
-      row[j] = Math.min(sub, above[j]! + GAP, row[j - 1]! + GAP);
+      let best = Math.min(sub, above[j]! + GAP, row[j - 1]! + GAP);
+      // La dictée décide seule de la segmentation : elle coupe un mot qu'elle ne
+      // connaît pas et colle ceux qu'elle croit liés. Ces deux transitions sont ce
+      // qui empêche de compter une coupure comme « un mot faux + un mot en trop ».
+      if (j >= 2) best = Math.min(best, above[j - 2]! + mergeCost(i, j));
+      if (i >= 2) best = Math.min(best, cost[i - 2]![j - 1]! + splitCost(i, j));
+      row[j] = best;
     }
   }
 
   const ops: Op[] = [];
   let i = n;
   let j = m;
+  const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
   while (i > 0 && j > 0) {
     const sim = similarity(expected[i - 1]!, heard[j - 1]!);
     const diagonal = cost[i - 1]![j - 1]! + (1 - sim);
-    if (Math.abs(cost[i]![j]! - diagonal) < 1e-9) {
+    // Le 1-pour-1 est essayé en premier : à coût égal, deux mots restent deux mots.
+    if (near(cost[i]![j]!, diagonal)) {
       ops.push(sim >= opts.matchSim ? { type: 'match', e: i - 1, h: j - 1 } : { type: 'sub', e: i - 1, h: j - 1 });
       i--;
       j--;
-    } else if (Math.abs(cost[i]![j]! - (cost[i - 1]![j]! + GAP)) < 1e-9) {
+    } else if (near(cost[i]![j]!, cost[i - 1]![j - 2]! + mergeCost(i, j))) {
+      ops.push({ type: 'merge', e: i - 1, h: j - 2 });
+      i--;
+      j -= 2;
+    } else if (near(cost[i]![j]!, cost[i - 2]![j - 1]! + splitCost(i, j))) {
+      ops.push({ type: 'split', e: i - 2, h: j - 1 });
+      i -= 2;
+      j--;
+    } else if (near(cost[i]![j]!, cost[i - 1]![j]! + GAP)) {
       ops.push({ type: 'del', e: i - 1 });
       i--;
     } else {

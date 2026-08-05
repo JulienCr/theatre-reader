@@ -153,6 +153,38 @@ describe('homophones', () => {
   });
 });
 
+// La dictée décide seule de la segmentation : elle coupe les mots qu'elle ne
+// connaît pas — et une pièce en est pleine — et colle ceux qu'elle croit liés.
+describe('découpage des mots par la dictée', () => {
+  it('accepte un mot inventé coupé en deux', () => {
+    const r = evaluate('La chévéloure non ! Alors arrête de tricher.', 'La Chévé lourd non alors arrête de tricher');
+    expect(r.verdict).toBe('ok');
+    expect(r.score).toBe(1);
+    expect(r.added).toEqual([]);
+  });
+
+  it("accepte l'élision rendue en deux mots", () => {
+    expect(verdict("Y'a pas de o.", 'y a pas de o')).toBe('ok');
+    expect(verdict("Y'a pas de o.", 'y a pas de o', 'strict')).toBe('ok');
+  });
+
+  it('accepte deux mots rendus collés', () => {
+    expect(verdict('Il part tout de suite.', 'il part tout desuite')).toBe('ok');
+  });
+
+  it('ne colle pas des voisins pour absorber un mot en trop', () => {
+    const r = evaluate('Je pars demain.', 'je pars euh demain', { tolerance: 'strict' });
+    expect(r.words.find((w) => w.text === 'demain')?.status).toBe('ok');
+    expect(r.added.map((a) => a.text)).toEqual(['euh']);
+  });
+
+  it('ne regroupe pas deux mots qui ne sonnent pas comme celui attendu', () => {
+    const r = evaluate('Le portail était ouvert.', 'le chien noir était ouvert');
+    expect(r.verdict).toBe('fail');
+    expect(r.words.find((w) => w.text === 'portail')?.status).not.toBe('ok');
+  });
+});
+
 describe('autocorrection orale', () => {
   it('accepte une reprise immédiate', () => {
     const r = evaluate('Je ne reviendrai jamais.', 'je reviendrai non je ne reviendrai jamais');
