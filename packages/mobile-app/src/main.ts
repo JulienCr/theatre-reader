@@ -120,7 +120,16 @@ async function openPlay(slug: string): Promise<void> {
   // lancement, la demande de permission « réseau local ». Une pièce déjà rapatriée
   // n'a besoin ni de l'un ni de l'autre — c'est ce qui garde l'ouverture instantanée
   // Mac éteint.
-  await discover();
+  //
+  // Le résultat doit être testé, jamais ignoré : sans instance trouvée, `getApiBase()`
+  // rend une chaîne vide et `apiUrl('/api/…')` produit une URL RELATIVE, résolue
+  // contre `capacitor://localhost`. L'utilisateur verrait alors une erreur réseau
+  // opaque là où la cause est simplement « Mac introuvable ».
+  if (!(await discover())) {
+    throw new Error(
+      'Mac introuvable — allume-le et connecte-toi au même réseau, ou saisis son adresse dans « Connexion ».',
+    );
+  }
   mountReader(buildDocument(slug, await loadServerSource(slug)));
 }
 
