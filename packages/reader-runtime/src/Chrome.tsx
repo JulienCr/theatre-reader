@@ -126,6 +126,9 @@ export function Chrome({
   const [sceneId, setSceneId] = useState<string | null>(null);
   // Répétition vocale : réglage global (toutes pièces), d'où sa propre clé.
   const [voice, setVoice] = useState(loadVoice);
+  // Autorisation micro refusée : la case reste décochée, et il faut le dire —
+  // sinon on croit avoir activé un mode qui n'écoutera jamais.
+  const [voiceDenied, setVoiceDenied] = useState(false);
 
   const playerRef = useRef<Player | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -321,13 +324,30 @@ export function Chrome({
     playerRef.current?.setSettings(patch);
   };
 
-  const changeVoice = (patch: { enabled?: boolean; tolerance?: Tolerance }): void => {
+  const applyVoice = (patch: { enabled?: boolean; tolerance?: Tolerance }): void => {
     setVoice((prev) => {
       const next = { ...prev, ...patch };
       saveVoice(next);
       return next;
     });
     playerRef.current?.setVoice(patch);
+  };
+
+  const changeVoice = async (patch: { enabled?: boolean; tolerance?: Tolerance }): Promise<void> => {
+    // Cocher la case est le seul moment où demander l'autorisation a du sens : iOS
+    // affiche alors sa demande sur un geste qu'on vient de faire, et non au milieu
+    // d'une réplique. Sans cet appel, `available()` — donc la demande système —
+    // n'arrive jamais, et le micro échoue à s'ouvrir sans que rien ne l'explique.
+    if (patch.enabled && recognizer) {
+      setVoiceDenied(false);
+      const granted = await recognizer.available().catch(() => false);
+      if (!granted) {
+        // On ne coche pas : un réglage actif qui n'écoute rien est pire que refusé.
+        setVoiceDenied(true);
+        return;
+      }
+    }
+    applyVoice(patch);
     // Deux réglages deviennent contradictoires dès que l'écoute décide de la reprise :
     // « Me faire répéter » rejouerait la tirade qu'on vient de dire, et l'avancement
     // automatique couperait la parole au bout de son minuteur. On les éteint plutôt
@@ -623,11 +643,13 @@ export function Chrome({
                 type="checkbox"
                 checked={voice.enabled}
                 disabled={!reading.rehearsal}
-                onChange={(ev) => changeVoice({ enabled: ev.currentTarget.checked })}
+                onChange={(ev) => void changeVoice({ enabled: ev.currentTarget.checked })}
               />
               Validation vocale
               <span className="mode-hint">
-                Le micro s'ouvre sur mes répliques et attend que je les dise.
+                {voiceDenied
+                  ? 'Micro refusé : autorise Theatre Reader dans Réglages, puis recoche.'
+                  : "Le micro s'ouvre sur mes répliques et attend que je les dise."}
               </span>
             </label>
 
@@ -641,7 +663,7 @@ export function Chrome({
                     key={t.key}
                     size="touch"
                     aria-pressed={voice.tolerance === t.key}
-                    onClick={() => changeVoice({ tolerance: t.key })}
+                    onClick={() => void changeVoice({ tolerance: t.key })}
                   >
                     {t.label}
                   </Button>

@@ -47,10 +47,17 @@ function listen<T>(event: 'partial' | 'final' | 'error', cb: (d: T) => void): ()
     (d) => {
       if (!off) cb(d);
     },
-  ).then((h) => {
-    handle = h;
-    if (off) void h.remove();
-  });
+  )
+    .then((h) => {
+      handle = h;
+      if (off) void h.remove();
+    })
+    // Plugin absent ou pont en échec : l'auditeur reste inactif, ce qui se voit
+    // ensuite comme une écoute qui ne rend rien. Sans ce `catch`, l'échec sort en
+    // rejet non géré, à un endroit qui ne dit rien de sa cause.
+    .catch(() => {
+      off = true;
+    });
   return () => {
     off = true;
     void handle?.remove();

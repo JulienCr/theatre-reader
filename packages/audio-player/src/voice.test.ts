@@ -16,6 +16,13 @@ function fakeRecognizer() {
   const errors: ((t: string) => void)[] = [];
   let live = false;
   let starts = 0;
+  // `indexOf` rend -1 quand le rappel n'est plus là (double désabonnement), et
+  // `splice(-1, 1)` retire alors le DERNIER — un désabonnement qui débranche
+  // quelqu'un d'autre, ce qui se lit ensuite comme un moteur devenu muet.
+  const drop = <T>(list: T[], item: T) => (): void => {
+    const i = list.indexOf(item);
+    if (i >= 0) list.splice(i, 1);
+  };
   const api: SpeechRecognizer = {
     available: () => Promise.resolve(true),
     start: () => {
@@ -33,15 +40,15 @@ function fakeRecognizer() {
     },
     onPartial: (cb) => {
       partials.push(cb);
-      return () => partials.splice(partials.indexOf(cb), 1);
+      return drop(partials, cb);
     },
     onFinal: (cb) => {
       finals.push(cb);
-      return () => finals.splice(finals.indexOf(cb), 1);
+      return drop(finals, cb);
     },
     onError: (cb) => {
       errors.push(cb);
-      return () => errors.splice(errors.indexOf(cb), 1);
+      return drop(errors, cb);
     },
   };
   return {
@@ -282,6 +289,50 @@ describe('@theatre/audio-player — répétition vocale', () => {
     await tick(TO_MIC);
     expect(rec.live).toBe(false);
     expect(last?.voice).toBeNull();
+    p.destroy();
+  });
+
+  // Sur iOS, c'est `available()` qui déclenche la demande de permission : ne jamais
+  // l'appeler ouvrirait le micro sans l'avoir obtenu, et `start()` échouerait sans
+  // que personne n'ait vu passer la moindre demande.
+  it("demande l'autorisation avant d'ouvrir le micro", async () => {
+    const asked: string[] = [];
+    const guarded = { ...rec.api, available: () => (asked.push('ask'), Promise.resolve(true)) };
+    const p = build({ voice: { recognizer: guarded, enabled: true } });
+    await upToMic(p);
+    expect(asked).toEqual(['ask']);
+    expect(rec.live).toBe(true);
+    p.destroy();
+  });
+
+  it("n'ouvre pas le micro quand l'autorisation est refusée", async () => {
+    const denied = { ...rec.api, available: () => Promise.resolve(false) };
+    const p = build({ voice: { recognizer: denied, enabled: true } });
+    await upToMic(p);
+    expect(rec.starts).toBe(0);
+    expect(last?.voice?.phase).toBe('error');
+    expect(last?.voice?.message).toContain('autorisé');
+    p.destroy();
+  });
+
+  it('coupe le clip de référence quand le mode est désactivé en pleine lecture', async () => {
+    const paused: string[] = [];
+    HTMLMediaElement.prototype.pause = function pause(this: HTMLMediaElement) {
+      paused.push(this.src);
+    };
+    const p = build();
+    await upToMic(p);
+    rec.finalize('je reviendrai');
+    await flush();
+    await tick(900);
+    rec.finalize('je reviendrai');
+    await flush();
+    await tick(900);
+    expect(last?.voice?.phase).toBe('reference');
+    paused.length = 0;
+
+    p.setVoice({ enabled: false });
+    expect(paused.some((src) => src.includes('m#0'))).toBe(true);
     p.destroy();
   });
 

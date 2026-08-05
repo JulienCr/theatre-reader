@@ -134,6 +134,13 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   let listening = false;
   let timers: ReturnType<typeof setTimeout>[] = [];
   let idleId: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Autorisation du moteur, retenue pour la session : `null` tant qu'on n'a pas
+   * demandé. C'est `available()` qui déclenche la demande système côté iOS, donc
+   * ne jamais l'appeler revient à ouvrir le micro sans l'avoir obtenu — `start()`
+   * échoue alors sans que personne n'ait vu passer la moindre demande.
+   */
+  let authorized: boolean | null = null;
 
   function emit(): void {
     o.onState({ phase, heard, result, failures, message });
@@ -197,6 +204,22 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     message = null;
     phase = 'listening';
     emit();
+
+    if (authorized === null) {
+      try {
+        authorized = await o.recognizer.available();
+      } catch {
+        authorized = false;
+      }
+      if (destroyed || my !== gen) return;
+    }
+    if (!authorized) {
+      phase = 'error';
+      message = 'Micro non autorisé. Autorise-le dans Réglages, puis relance la lecture.';
+      emit();
+      return;
+    }
+
     try {
       await o.recognizer.start({ locale: o.locale ?? 'fr-FR' });
     } catch (e) {

@@ -893,7 +893,11 @@ export function createPlayer(opts: PlayerOptions): Player {
         // Éteindre coupe l'écoute SUR-LE-CHAMP, sans attendre la fin de la tirade.
         // La pause de répétition, elle, reste : on retombe simplement sur le geste
         // manuel, qui est l'état d'avant le mode vocal.
-        coach.cancel();
+        //
+        // `cancelPending()` et non `coach.cancel()` : éteindre pendant la lecture du
+        // modèle laissait le clip aller jusqu'au bout, alors que l'écran venait
+        // d'annoncer que le mode était coupé.
+        cancelPending();
         voiceStatus = null;
         emit();
         return;
