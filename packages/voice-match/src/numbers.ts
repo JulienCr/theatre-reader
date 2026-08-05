@@ -129,10 +129,14 @@ export function canonicalizeNumbers(tokens: Token[]): Token[] {
       continue;
     }
     const words = tokens.slice(i, i + found.length);
+    const key = `#${found.value}`;
     out.push({
-      key: `#${found.value}`,
+      key,
       raw: words.map((w) => w.raw).join(' '),
       proper: false,
+      // Un nombre canonique n'a plus de graphie : sa clé phonétique est lui-même,
+      // et deux nombres différents ne se ressemblent jamais (cf. `similarity`).
+      phon: key,
     });
     i += found.length;
   }

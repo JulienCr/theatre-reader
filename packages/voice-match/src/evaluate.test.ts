@@ -123,6 +123,36 @@ describe('verdicts', () => {
   });
 });
 
+describe('homophones', () => {
+  // Le cas qui a motivé la comparaison phonétique : la reconnaissance écrit
+  // « haut » là où la pièce écrit « o », et la réplique porte sur ce mot-là.
+  it('valide une réplique dont la dictée a choisi une autre graphie', () => {
+    const attendu = 'Je suis désolé de te le dire mais dans « chevelure » y’a pas de « o ».';
+    const r = evaluate(attendu, "je suis désolé de te le dire mais dans chevelure y'a pas de haut");
+    expect(r.verdict).toBe('ok');
+    expect(r.score).toBe(1);
+    expect(r.words.every((w) => w.status === 'ok')).toBe(true);
+  });
+
+  it('accepte les confusions classiques de la dictée, même en strict', () => {
+    expect(verdict('Il est là.', 'il et la', 'strict')).toBe('ok');
+    expect(verdict('Regarde ce verre.', 'regarde ce vert', 'strict')).toBe('ok');
+    expect(verdict("C'est à toi.", 'ces a toi', 'strict')).toBe('ok');
+  });
+
+  it('ne rapproche pas deux mots qui sonnent différemment', () => {
+    expect(verdict('Le ciel est bon.', 'le ciel est beau')).not.toBe('ok');
+    expect(verdict('Il descend la rue.', 'il descend la roue')).not.toBe('ok');
+  });
+
+  // Arbitrage assumé des deux modes : une lettre d'écart reste absorbée en souple
+  // (c'est le filet contre une transcription approximative), et refusée en strict.
+  it('laisse au mode strict les paires à une lettre près', () => {
+    expect(verdict('Passe-moi le poisson.', 'passe moi le poison')).toBe('ok');
+    expect(verdict('Passe-moi le poisson.', 'passe moi le poison', 'strict')).toBe('fail');
+  });
+});
+
 describe('autocorrection orale', () => {
   it('accepte une reprise immédiate', () => {
     const r = evaluate('Je ne reviendrai jamais.', 'je reviendrai non je ne reviendrai jamais');

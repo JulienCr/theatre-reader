@@ -14,6 +14,7 @@ export type { EvaluatedWord, Evaluation, Tolerance, Verdict } from './evaluate';
 export { fold, splitWords, FILLERS } from './normalize';
 export type { Token } from './normalize';
 export { canonicalizeNumbers } from './numbers';
+export { phoneticKey } from './phonetic';
 export { align, similarity } from './align';
 export type { Op } from './align';
 export { blocks, weightOf, CRITICAL } from './weight';

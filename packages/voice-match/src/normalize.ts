@@ -11,6 +11,8 @@
  *   dépouillé de sa majuscule se lit moins bien, et `#22` pas du tout.
  */
 
+import { phoneticKey } from './phonetic';
+
 /** Un mot, dans ses deux formes. */
 export interface Token {
   /** Forme comparée. Les nombres portent le préfixe `#` (cf. `canonicalizeNumbers`). */
@@ -23,6 +25,11 @@ export interface Token {
    * sur un article, d'où le poids que `weight.ts` en tire.
    */
   proper: boolean;
+  /**
+   * Clé phonétique (cf. `phonetic.ts`). Calculée une fois ici plutôt qu'à chaque
+   * comparaison : l'alignement croise chaque mot attendu avec chaque mot entendu.
+   */
+  phon: string;
 }
 
 /**
@@ -67,10 +74,12 @@ export function splitWords(text: string): Token[] {
     // majuscule est grammaticale (aucun signal) ou distinctive (un nom propre).
     if (SENTENCE_END.test(text.slice(cursor, at))) sentenceStart = true;
     const first = raw[0] ?? '';
+    const key = fold(raw);
     out.push({
-      key: fold(raw),
+      key,
       raw,
       proper: !sentenceStart && first !== first.toLowerCase() && first === first.toUpperCase(),
+      phon: phoneticKey(key),
     });
     sentenceStart = false;
     cursor = at + raw.length;

@@ -53,7 +53,24 @@ function levenshtein(a: string, b: string): number {
 }
 
 /**
+ * Deux mots qui sonnent pareil, à la lettre près.
+ *
+ * Volontairement juste EN DESSOUS de 1 : l'orthographe exacte reste préférée quand
+ * l'alignement a le choix, mais la valeur passe tous les seuils de correspondance,
+ * y compris en `strict`. C'est voulu — la reconnaissance vocale choisit la graphie,
+ * pas l'acteur. Il a dit le bon son ; « haut » pour « o » est une faute de la
+ * machine, et la lui reprocher serait lui demander d'articuler autrement un mot
+ * qu'il prononce déjà juste.
+ */
+const HOMOPHONE_SIM = 0.95;
+
+/**
  * Proximité de deux mots, entre 0 et 1.
+ *
+ * Trois façons de se ressembler, dans l'ordre : la même graphie, le même son, des
+ * lettres proches. La deuxième est ce qui rattrape les homophones que la dictée
+ * choisit au hasard — `vers`/`vert`/`verre`, `c'est`/`ses`/`ces`, `o`/`haut` —, que
+ * la distance sur les lettres classe pourtant comme des mots étrangers.
  *
  * Les nombres n'ont pas de « presque » : `#22` et `#23` partagent deux caractères
  * sur trois, et ce sont pourtant deux répliques différentes. Même chose face à un
@@ -62,6 +79,7 @@ function levenshtein(a: string, b: string): number {
 export function similarity(a: Token, b: Token): number {
   if (a.key === b.key) return 1;
   if (a.key.startsWith('#') || b.key.startsWith('#')) return 0;
+  if (a.phon && a.phon === b.phon) return HOMOPHONE_SIM;
   const max = Math.max(a.key.length, b.key.length);
   if (max === 0) return 1;
   return 1 - levenshtein(a.key, b.key) / max;
