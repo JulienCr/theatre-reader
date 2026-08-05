@@ -23,6 +23,19 @@ export const ADVERTISED_HOST = 'theatre-reader.local';
 /** `_theatre._tcp`, déclaré aussi dans `NSBonjourServices` côté iOS. */
 const SERVICE_TYPE = 'theatre';
 
+/**
+ * Adresse d'écoute qui ne sort pas de la machine, sous toutes ses écritures.
+ *
+ * Annoncer `theatre-reader.local` alors que le serveur n'écoute que sur la loopback
+ * est pire que ne rien annoncer : le nom résout vers l'IP LAN, le téléphone s'y
+ * connecte, et se fait refuser sans que rien n'explique pourquoi. Ne comparer qu'à
+ * `127.0.0.1` laisserait passer `localhost` et `::1`, qui referment tout autant.
+ */
+export function isLoopbackHost(host: string): boolean {
+  const bare = host.trim().replace(/^\[|\]$/g, '').toLowerCase();
+  return bare === 'localhost' || bare === '::1' || /^127(\.\d{1,3}){3}$/.test(bare);
+}
+
 let bonjour: Bonjour | null = null;
 
 /**

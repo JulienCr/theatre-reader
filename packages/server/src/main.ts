@@ -1,5 +1,11 @@
 import { fileURLToPath } from 'node:url';
-import { ADVERTISED_HOST, lanAddresses, startDiscovery, stopDiscovery } from './discovery';
+import {
+  ADVERTISED_HOST,
+  isLoopbackHost,
+  lanAddresses,
+  startDiscovery,
+  stopDiscovery,
+} from './discovery';
 import { buildServer } from './server';
 import { dataDir } from './storage';
 
@@ -24,8 +30,8 @@ const PORT = Number(process.env.PORT ?? 3001);
  * Mac sur le Wi-Fi de la salle, sans Tailscale ni adresse à saisir.
  *
  * Contrepartie assumée : l'API n'a aucune authentification, donc quiconque est sur
- * le même réseau peut lire les pièces et les notes. `THEATRE_HOST=127.0.0.1` referme
- * l'accès à la loopback.
+ * le même réseau peut lire les pièces et les notes. N'importe quelle adresse de
+ * loopback (`127.0.0.1`, `localhost`, `::1`) referme l'accès ET coupe l'annonce mDNS.
  */
 const HOST = process.env.THEATRE_HOST ?? '0.0.0.0';
 
@@ -34,7 +40,7 @@ try {
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`Données stockées dans : ${dataDir()}`);
 
-  if (HOST !== '127.0.0.1') {
+  if (!isLoopbackHost(HOST)) {
     startDiscovery(PORT, (message) => {
       app.log.warn(`Annonce mDNS impossible (${message}) — saisir l'adresse à la main dans l'app.`);
     });
