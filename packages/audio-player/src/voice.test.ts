@@ -76,8 +76,8 @@ const tick = async (ms: number): Promise<void> => {
   await flush();
 };
 
-/** Respiration + signal : le temps qu'il faut au micro pour s'ouvrir. */
-const TO_MIC = 700 + 200 + 10;
+/** Respiration : le temps au bout duquel l'écoute est annoncée (le micro, lui, est déjà ouvert). */
+const TO_MIC = 700 + 10;
 
 describe('@theatre/audio-player — répétition vocale', () => {
   let container: HTMLElement;
@@ -150,17 +150,33 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
-  it('respecte la respiration avant d’ouvrir le micro', async () => {
+  // Le micro s'ouvre AVANT le signal, et c'est tout l'intérêt : la chauffe du
+  // moteur (session audio, AVAudioEngine) se paie pendant la respiration, au lieu
+  // de manger le début de la réplique. Mesuré en répétition avant ce changement :
+  // le début se perdait presque à chaque fois.
+  it('ouvre le micro dès la respiration, et n’annonce l’écoute qu’au signal', async () => {
     const p = build();
     p.play();
     await flush();
     audios[0]!.dispatchEvent(new Event('ended'));
     await flush();
-    expect(last?.voice?.phase).toBe('waiting');
-    expect(rec.live).toBe(false);
+    expect(rec.live).toBe(true); // déjà chaud
+    expect(last?.voice?.phase).toBe('waiting'); // mais on n'attend pas encore la réplique
     await tick(TO_MIC);
-    expect(rec.live).toBe(true);
     expect(last?.voice?.phase).toBe('listening');
+    p.destroy();
+  });
+
+  it('capte une réplique commencée avant le signal', async () => {
+    const p = build();
+    p.play();
+    await flush();
+    audios[0]!.dispatchEvent(new Event('ended'));
+    await flush();
+    await tick(200); // en plein dans la respiration
+    rec.say(TEXT.toLowerCase());
+    await flush();
+    expect(last?.currentNodeId).toBe('b#1'); // validée, rien n'est perdu
     p.destroy();
   });
 
@@ -259,6 +275,23 @@ describe('@theatre/audio-player — répétition vocale', () => {
     expect(rec.live).toBe(false);
     await tick(5000);
     expect(rec.live).toBe(false); // et ça ne se rallume pas tout seul
+    p.destroy();
+  });
+
+  // « Deux tentatives muettes » veut dire deux d'affilée : une réplique dite entre
+  // les deux, même fausse, prouve qu'il y a quelqu'un.
+  it('ne compte comme muettes que des tentatives consécutives', async () => {
+    const p = build();
+    await upToMic(p);
+    await tick(6100); // 1er silence
+    await tick(900);
+    rec.finalize('je reviendrai'); // on parle, mais faux
+    await flush();
+    expect(last?.voice?.failures).toBe(1);
+    await tick(900);
+    await tick(6100); // 2e silence, mais pas consécutif au premier
+    expect(last?.voice?.message).toBeNull(); // la main n'est pas rendue
+    expect(last?.voice?.phase).toBe('no-speech');
     p.destroy();
   });
 

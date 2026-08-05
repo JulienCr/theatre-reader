@@ -88,14 +88,6 @@ export interface VoiceCoach {
  */
 const BREATH_MS = 700;
 
-/**
- * Délai entre le signal et l'ouverture du micro.
- *
- * Le bip dure 150 ms et sort du même haut-parleur que tout le reste : ouvrir le
- * micro pendant qu'il sonne, c'est le transcrire.
- */
-const CUE_TO_MIC_MS = 200;
-
 /** Silence qui clôt une tentative, faute de validation anticipée (issue : ~800 ms). */
 const SILENCE_MS = 800;
 
@@ -198,11 +190,29 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     });
   }
 
-  async function listen(): Promise<void> {
+  /**
+   * Ouvre le micro tout de suite, et n'annonce l'écoute qu'au bout de `delay`.
+   *
+   * L'ordre est le point important, et il vient d'une mesure en répétition : le
+   * début des répliques se perdait presque à chaque fois. Ouvrir le micro APRÈS le
+   * signal additionnait deux retards — l'attente elle-même, puis le temps qu'iOS
+   * bascule la session en `playAndRecord` et démarre `AVAudioEngine`. Or c'est le
+   * signal qui donne le départ : on parlait donc exactement pendant que le moteur
+   * s'installait.
+   *
+   * Démarrer d'abord fait payer cette chauffe pendant la respiration, où personne
+   * n'attend rien. Le micro capte alors le signal sonore, sans conséquence : un son
+   * pur ne produit pas de mots, et le départ libre de l'alignement absorberait de
+   * toute façon une amorce parasite.
+   *
+   * `delay` court depuis l'APPEL, pas depuis le démarrage effectif : le signal doit
+   * tomber à la même seconde quelle que soit la lenteur du moteur ce jour-là.
+   */
+  async function listen(delay: number, cue: boolean): Promise<void> {
     const my = gen;
+    const dueAt = Date.now() + delay;
     heard = '';
     message = null;
-    phase = 'listening';
     emit();
 
     if (authorized === null) {
@@ -235,7 +245,16 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       return;
     }
     listening = true;
-    armIdle();
+
+    // Le micro est chaud. L'écoute ne « commence » — signal, affichage, minuteur —
+    // qu'une fois la respiration écoulée. Ce qui serait dit avant est capté quand
+    // même : quelqu'un qui part en avance ne perd plus son début.
+    at(Math.max(0, dueAt - Date.now()), () => {
+      if (cue) o.sound('cue');
+      phase = 'listening';
+      emit();
+      armIdle();
+    });
   }
 
   function onPartial(text: string): void {
@@ -275,6 +294,10 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       noSpeech();
       return;
     }
+    // Quelque chose a été dit : la série de tentatives muettes est rompue, même si
+    // la réplique est fausse. Sans cette remise à zéro, « silence, erreur, silence »
+    // rendait la main comme si personne n'avait ouvert la bouche.
+    silent = 0;
     // La transcription a joué son rôle : elle disparaît ici, et seuls les écarts
     // (quelques mots) restent affichables.
     heard = '';
@@ -306,7 +329,10 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     phase = 'failed';
     emit();
     o.sound('reject');
-    at(FEEDBACK_MS, failures >= MAX_FAILURES ? () => void reference() : () => void listen());
+    // Le micro se rouvre pendant que le son de refus joue et que les écarts
+    // s'affichent : la nouvelle tentative n'attend pas que le moteur redémarre.
+    if (failures >= MAX_FAILURES) at(FEEDBACK_MS, () => void reference());
+    else void listen(FEEDBACK_MS, false);
   }
 
   /**
@@ -332,7 +358,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     }
     message = null;
     emit();
-    at(FEEDBACK_MS, () => void listen());
+    void listen(FEEDBACK_MS, false);
   }
 
   async function reference(): Promise<void> {
@@ -349,7 +375,9 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     // Le compteur repart de zéro après CHAQUE référence : le cycle « deux erreurs,
     // puis on réécoute le modèle » se répète à l'identique jusqu'à validation.
     failures = 0;
-    void listen();
+    // Même respiration et même signal qu'à la première fois : après avoir écouté le
+    // modèle, on redémarre une tentative, pas la fin d'une autre.
+    void listen(BREATH_MS, true);
   }
 
   const off = [
@@ -377,10 +405,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       message = null;
       phase = 'waiting';
       emit();
-      at(BREATH_MS, () => {
-        o.sound('cue');
-        at(CUE_TO_MIC_MS, () => void listen());
-      });
+      void listen(BREATH_MS, true);
     },
     cancel() {
       gen++;
