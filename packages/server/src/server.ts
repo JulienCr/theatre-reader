@@ -261,6 +261,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (typeof fountain !== 'string' || !template) {
       return reply.code(400).send({ error: 'fountain et template requis' });
     }
+    // La seule route où le slug voyage dans le CORPS : le hook `onRequest` ne lit
+    // que `req.params` et ne peut donc pas le voir. Il désigne pourtant le même
+    // dossier (lecture du cache audio, écriture des clips synthétisés), d'où le
+    // même contrôle ici — sans quoi la garde ferme la porte et laisse la fenêtre.
+    if (slug !== undefined && !isValidSlug(slug)) {
+      return reply.code(400).send({ error: 'slug invalide' });
+    }
     let result;
     try {
       result = await exportReaderHtml(fountain, characters ?? [], template, notes ?? [], {

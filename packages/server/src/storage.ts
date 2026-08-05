@@ -173,8 +173,15 @@ export function audioCacheKey(
 export async function readAudioCache(slug: string, key: string): Promise<Buffer | null> {
   try {
     return await readFile(join(playDir(slug), 'audio', `${key}.mp3`));
-  } catch {
-    return null;
+  } catch (e) {
+    // Clip absent → cas nominal, tout le cache est bâti là-dessus. Le reste doit
+    // remonter, comme dans loadNotes : un cache devenu illisible (droits, disque)
+    // rendu comme « absent » relance une synthèse ElevenLabs — c'est-à-dire une
+    // dépense réelle — à chaque lecture, et sans jamais rien dire. Un slug
+    // invalide s'y ajoute depuis playDir : le taire renverrait « clip absent »
+    // pour une requête qui n'a simplement pas le droit d'exister.
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw e;
   }
 }
 

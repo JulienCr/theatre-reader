@@ -14,7 +14,7 @@ const DATA = mkdtempSync(join(tmpdir(), 'theatre-slug-'));
 process.env.THEATRE_DATA_DIR = DATA;
 
 const { buildServer } = await import('./server');
-const { savePlay, saveNotes, loadPlay } = await import('./storage');
+const { savePlay, saveNotes, loadPlay, readAudioCache } = await import('./storage');
 type App = Awaited<ReturnType<typeof buildServer>>;
 
 /**
@@ -85,6 +85,18 @@ describe('garde du paramètre slug', () => {
     });
     expect(put.statusCode).toBe(200);
   });
+
+  // Le hook ne lit que `req.params` : cette route-ci porte son slug dans le corps
+  // et serait donc restée le seul passage non gardé.
+  it('400 sur le slug du corps de /api/export/reader', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/export/reader',
+      payload: { fountain: 'Salut.', template: {}, slug: `../${CIBLE}` },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: 'slug invalide' });
+  });
 });
 
 describe('storage refuse les slugs invalides sans passer par le serveur', () => {
@@ -98,5 +110,13 @@ describe('storage refuse les slugs invalides sans passer par le serveur', () => 
   // invalide y ressort donc en `null`, pas en exception. C'est le hook qui rend le 400.
   it('loadPlay renvoie null', async () => {
     expect(await loadPlay('../evade')).toBeNull();
+  });
+
+  // readAudioCache, lui, ne doit PAS confondre « pas le droit d'exister » avec
+  // « pas encore généré » : rendu comme absent, un slug invalide (ou un cache
+  // illisible) relancerait une synthèse ElevenLabs payante, en silence.
+  it('readAudioCache lève sur slug invalide et rend null sur clip absent', async () => {
+    await expect(readAudioCache('../evade', 'a'.repeat(40))).rejects.toThrow('slug invalide');
+    expect(await readAudioCache('piece-sans-audio', 'b'.repeat(40))).toBeNull();
   });
 });
