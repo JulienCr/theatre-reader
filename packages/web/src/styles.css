@@ -721,6 +721,13 @@ mark.reader-hit--current {
 .line--masked.line--revealed .speech {
   filter: none;
 }
+/* Coup d'œil : rester appuyé dévoile la réplique (createPeek, @theatre/reader-ui).
+   Pas de `user-select: none` ici, contrairement au lecteur mobile : sélectionner le
+   texte est ce qui crée une note. Commencer une sélection déplace le pointeur, ce
+   qui annule le maintien avant qu'il n'aboutisse — les deux gestes coexistent. */
+.line--masked.line--peek .speech {
+  filter: none;
+}
 
 /* Barre de temps (avancement auto) : en haut du bloc de la tirade en cours. */
 .line-timer {
