@@ -61,7 +61,7 @@ describe('buildStudyIcs', () => {
     expect(lines(ics)).toContain('DTEND:20260807T002000');
   });
 
-  it('donne à chaque jour un UID stable, pour qu_un ré-export remplace', () => {
+  it('donne à chaque jour un UID stable, pour qu\'un ré-export remplace', () => {
     const twice = buildStudyIcs([day(), day({ day: '2026-08-07' })], opts)!;
     expect(twice).toContain('UID:benji-plan-2026-08-06@theatre-reader');
     expect(twice).toContain('UID:benji-plan-2026-08-07@theatre-reader');
@@ -103,7 +103,7 @@ describe('buildStudyIcs', () => {
     expect(ics.replace(/\r\n /g, '')).toContain('É'.repeat(90));
   });
 
-  it('renvoie null plutôt qu_un calendrier vide', () => {
+  it('renvoie null plutôt qu\'un calendrier vide', () => {
     expect(buildStudyIcs([], opts)).toBeNull();
   });
 });

@@ -29,7 +29,7 @@ describe('endpoints study', () => {
   beforeAll(async () => { app = await buildServer(); });
   afterAll(async () => { await app.close(); });
 
-  it('GET renvoie null quand aucun plan n_existe', async () => {
+  it('GET renvoie null quand aucun plan n\'existe', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/plays/inconnue/study' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ study: null });
@@ -42,7 +42,7 @@ describe('endpoints study', () => {
     expect(get.json()).toEqual({ study: sample });
   });
 
-  it('PUT 400 sur un corps qui n_est pas un plan', async () => {
+  it('PUT 400 sur un corps qui n\'est pas un plan', async () => {
     for (const study of [
       'x',
       null,
@@ -56,7 +56,7 @@ describe('endpoints study', () => {
     }
   });
 
-  it('accepte un plan écrit avant l_heure de séance et lui donne le défaut', async () => {
+  it('accepte un plan écrit avant l\'heure de séance et lui donne le défaut', async () => {
     const { startTime, ...legacy } = sample.config;
     expect(startTime).toBe('19:30');
     const put = await app.inject({
@@ -108,5 +108,14 @@ describe('loadStudy (robustesse)', () => {
     await writeFile(join(dir, 'study.json'), '{ pas du json', 'utf8');
     // Sinon un saveStudy() ultérieur écraserait des semaines de progression.
     await expect(loadStudy('corrompue')).rejects.toThrow();
+  });
+
+  it('relance sur un JSON valide mais structurellement faux', async () => {
+    const dir = join(process.env.THEATRE_DATA_DIR!, 'incoherente');
+    await mkdir(dir, { recursive: true });
+    // Parseable, donc l'ancien cast le renvoyait tel quel : le client recevait
+    // un état qu'il ne sait pas interpréter.
+    await writeFile(join(dir, 'study.json'), JSON.stringify({ version: 99 }), 'utf8');
+    await expect(loadStudy('incoherente')).rejects.toThrow();
   });
 });

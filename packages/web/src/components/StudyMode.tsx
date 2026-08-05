@@ -232,6 +232,23 @@ export function StudyMode({
       .catch((e: unknown) => onError(String(e)));
   };
 
+  /**
+   * Ouvre la portion dans le lecteur, en prévenant si elle risque d'y être
+   * invisible : « mes scènes seulement » filtre sur les rôles du LECTEUR, qui ne
+   * sont pas forcément ceux du plan. La cible sortirait alors du DOM et le saut
+   * n'irait nulle part, sans rien dire.
+   */
+  const openPortion = (nodeId: string): void => {
+    const planned = state?.config.roleIds ?? [];
+    const prefs = loadReadingPrefs(slug, audio.myCharacterId ? [audio.myCharacterId] : []);
+    if (prefs.settings.onlyMyScenes && !planned.every((r) => prefs.myRoles.includes(r))) {
+      onError(
+        "Le lecteur n'affiche que tes scènes, pour un rôle différent du plan : le passage peut y être masqué.",
+      );
+    }
+    onOpenPortion(nodeId);
+  };
+
   const grade = (p: Portion, g: Grade): void => {
     if (!state) return;
     const range = p.toTirade === p.fromTirade ? `${p.fromTirade}` : `${p.fromTirade}→${p.toTirade}`;
@@ -377,13 +394,13 @@ export function StudyMode({
                 <PortionList
                   title="À réviser"
                   portions={session.due}
-                  onOpen={onOpenPortion}
+                  onOpen={openPortion}
                   onGrade={grade}
                 />
                 <PortionList
                   title="Nouveau"
                   portions={session.fresh}
-                  onOpen={onOpenPortion}
+                  onOpen={openPortion}
                   onGrade={grade}
                   empty={
                     today > state.config.target
@@ -577,7 +594,19 @@ function StudyForm({
 
   const totalMinutes = portions.reduce((s, p) => s + p.cost, 0) / COST_PER_MINUTE;
   const dateValid = daysBetween(today, draft.target) > 0;
-  const ready = draft.roleIds.length > 0 && dateValid && portions.length > 0;
+  /**
+   * Les bornes des champs numériques comptent dans la validité : `NumberField`
+   * rend 0 pour un champ vidé et laisse taper hors bornes. Sans ce contrôle, on
+   * quittait l'édition sur un état que `parseStudyState` refuse côté serveur —
+   * l'écran affichait alors une séance calculée depuis un plan jamais enregistré,
+   * qui disparaissait au rechargement.
+   */
+  const minutesValid =
+    Number.isFinite(draft.sessionMinutes) && draft.sessionMinutes >= 5 && draft.sessionMinutes <= 180;
+  const daysValid =
+    Number.isInteger(draft.daysPerWeek) && draft.daysPerWeek >= 1 && draft.daysPerWeek <= 7;
+  const ready =
+    draft.roleIds.length > 0 && dateValid && minutesValid && daysValid && portions.length > 0;
 
   return (
     <div className="study-form">
@@ -654,6 +683,10 @@ function StudyForm({
           </>
         )}
         {!dateValid && <p className="study-hint">Choisis une date postérieure à aujourd'hui.</p>}
+        {!minutesValid && (
+          <p className="study-hint">Une séance dure entre 5 et 180 minutes.</p>
+        )}
+        {!daysValid && <p className="study-hint">Entre 1 et 7 jours par semaine.</p>}
       </div>
 
       <div className="study-form__actions">

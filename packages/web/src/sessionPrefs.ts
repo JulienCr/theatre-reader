@@ -1,5 +1,5 @@
 /**
- * Session de travail par appareil (pièce ouverte + mode Édition/Lecture).
+ * Session de travail par appareil (pièce ouverte + mode courant, cf. `APP_MODES`).
  *
  * Même nature que `readingPrefs` — un réglage propre au poste, pas à la
  * production : il vit dans le localStorage et jamais dans `meta.json`, qui est

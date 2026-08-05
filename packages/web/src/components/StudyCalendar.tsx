@@ -195,8 +195,13 @@ export function StudyCalendar({
     const a = document.createElement('a');
     a.href = url;
     a.download = `${slug}-${roleName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`;
+    // Ancre dans le DOM et révocation différée, comme l'export du lecteur dans
+    // App.tsx : un lien détaché et une URL révoquée dans la foulée du clic
+    // suffisent à faire annuler le téléchargement par certains navigateurs.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
   return (

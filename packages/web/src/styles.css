@@ -128,7 +128,9 @@ button.primary:hover {
 }
 select,
 input[type='text'],
-input[type='number'] {
+input[type='number'],
+input[type='date'],
+input[type='time'] {
   font: inherit;
   padding: 5px 8px;
   border: 1px solid var(--border);
@@ -1664,9 +1666,12 @@ kbd {
   gap: var(--sp-1);
   font-size: var(--fs-sm);
 }
+/* Grille et non flex : la liste accueille les trois notes en fin de ligne, et
+   les libellés ne doivent pas se déplacer d'une ligne à l'autre. */
 .study-progress li {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
   gap: var(--sp-4);
   padding: var(--sp-1) 0;
   border-bottom: 1px solid var(--border);
@@ -1869,14 +1874,6 @@ kbd {
   margin-right: auto;
 }
 
-/* La liste d'avancement accueille les trois notes : elle passe en grille pour
-   que les libellés ne se déplacent pas d'une ligne à l'autre. */
-.study-progress li {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-}
-
 @media (max-width: 620px) {
   /* Trop étroit pour sept colonnes : la grille redevient une colonne unique,
      et les cases vides disparaissent au lieu de laisser des trous. */
@@ -1902,12 +1899,6 @@ kbd {
     grid-template-columns: 1fr;
     gap: var(--sp-1);
   }
-}
-
-/* Journée projetée au-delà de la durée demandée : signalée, pas masquée. */
-.study-day--over .study-day__time {
-  color: var(--warn-ink);
-  font-weight: 600;
 }
 
 /* Bloc de travail : une ligne qui dit quoi et où, une ligne qui cite les deux

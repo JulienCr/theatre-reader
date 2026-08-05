@@ -10,7 +10,15 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { AudioConfig, Character, Note, StudyState, Template, slugify } from '@theatre/core';
+import {
+  AudioConfig,
+  Character,
+  Note,
+  StudyState,
+  Template,
+  parseStudyState,
+  slugify,
+} from '@theatre/core';
 
 export interface PlayMeta {
   name: string;
@@ -87,8 +95,9 @@ export async function saveNotes(slug: string, notes: Note[]): Promise<void> {
 
 /** Charge le plan d'apprentissage d'une pièce (null s'il n'a jamais été configuré). */
 export async function loadStudy(slug: string): Promise<StudyState | null> {
+  let raw: string;
   try {
-    return JSON.parse(await readFile(join(DATA_DIR, slug, 'study.json'), 'utf8')) as StudyState;
+    raw = await readFile(join(DATA_DIR, slug, 'study.json'), 'utf8');
   } catch (e) {
     // Fichier absent → pas encore de plan. Toute autre erreur (JSON corrompu,
     // I/O) doit remonter, pour la même raison que loadNotes : sinon un
@@ -97,6 +106,13 @@ export async function loadStudy(slug: string): Promise<StudyState | null> {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw e;
   }
+  // Un JSON syntaxiquement valide mais structurellement faux (version inconnue,
+  // champs manquants) doit être refusé ICI, sinon le GET sert un état incohérent
+  // que le client ne sait pas interpréter. Même verdict que la corruption : on
+  // lève plutôt que de renvoyer null, qui inviterait à écraser le fichier.
+  const study = parseStudyState(JSON.parse(raw));
+  if (!study) throw new Error(`study.json inexploitable pour « ${slug} »`);
+  return study;
 }
 
 /** Écrit le plan d'apprentissage dans data/<slug>/study.json. */
