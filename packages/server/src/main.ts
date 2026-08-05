@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import {
   ADVERTISED_HOST,
+  APP_PROBE_PORT,
   isLoopbackHost,
   lanAddresses,
   startDiscovery,
@@ -54,7 +55,15 @@ try {
     //
     // Les IP, elles, sont vraies dès maintenant puisque le serveur écoute dessus,
     // mais elles servent depuis un navigateur du réseau, pas depuis l'app.
-    app.log.info(`Découverte par l'app iOS : http://${ADVERTISED_HOST}:${PORT}`);
+    if (PORT === APP_PROBE_PORT) {
+      app.log.info(`Découverte par l'app iOS : http://${ADVERTISED_HOST}:${PORT}`);
+    } else {
+      // L'annonce est correcte, mais l'app sonde un port en dur : elle ne trouvera
+      // rien. Le dire ici évite de chercher du côté du mDNS, qui n'y est pour rien.
+      app.log.warn(
+        `PORT=${PORT} : l'app iOS ne sonde que le ${APP_PROBE_PORT}, la découverte automatique ne marchera pas — saisir http://${ADVERTISED_HOST}:${PORT} à la main dans l'app.`,
+      );
+    }
     for (const ip of lanAddresses()) {
       app.log.info(`Depuis un navigateur du réseau : http://${ip}:${PORT}`);
     }

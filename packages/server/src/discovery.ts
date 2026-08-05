@@ -20,6 +20,16 @@ import { Bonjour } from 'bonjour-service';
 /** Nom d'hôte annoncé. Doit rester synchrone avec `LAN_BASE` de l'app mobile. */
 export const ADVERTISED_HOST = 'theatre-reader.local';
 
+/**
+ * Port que l'app mobile sonde, codé en dur dans son `LAN_BASE`.
+ *
+ * L'app ne lit pas l'enregistrement SRV — elle ne parcourt pas Bonjour, elle résout un
+ * nom et tape sur un port fixe. Un serveur démarré sur un autre `PORT` est donc
+ * parfaitement annoncé et parfaitement introuvable. Cette constante existe pour que
+ * le démarrage puisse le DIRE au lieu de laisser chercher.
+ */
+export const APP_PROBE_PORT = 3001;
+
 /** `_theatre._tcp`, déclaré aussi dans `NSBonjourServices` côté iOS. */
 const SERVICE_TYPE = 'theatre';
 
