@@ -115,8 +115,11 @@ export const STYLE =
   font-size: var(--fs-md); font-variant: small-caps; letter-spacing: .04em;
   color: var(--ink-muted); white-space: nowrap;
 }
-/* L'écoute, la réécoute du modèle et l'indice sont les moments où l'on attend
-   quelque chose de la personne : ce sont les seuls à porter la couleur d'accent. */
+/* L'écoute, la réécoute du modèle et l'accusé de réception d'un ordre : les trois
+   moments où la boucle a la main et où l'on attend quelque chose. Seuls ceux-là
+   portent la couleur d'accent. La phase "command" couvre les QUATRE ordres et pas
+   seulement l'indice — les trois autres relancent la lecture, qui repasse aussitôt le
+   bandeau à vide : leur libellé ne fait que passer, mais il passe en accent. */
 .voice-panel[data-phase="listening"] .voice-state,
 .voice-panel[data-phase="command"] .voice-state,
 .voice-panel[data-phase="reference"] .voice-state { color: var(--accent); }
