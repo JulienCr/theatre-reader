@@ -59,6 +59,10 @@ export function createPeek(opts: PeekOptions): PeekController {
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let origin: { x: number; y: number } | null = null;
+  // Le doigt qui lit. Les autres sont ignorés : sur un téléphone tenu à deux mains,
+  // une paume qui se repose ou un pouce qui traîne enverraient sinon le `pointerup`
+  // qui refloute le texte qu'on est en train de lire.
+  let activePointer: number | null = null;
   let shown: HTMLElement[] = [];
   // Armé par un coup d'œil abouti, consommé par le `click` qui suit le relâchement.
   let swallowClick = false;
@@ -73,6 +77,7 @@ export function createPeek(opts: PeekOptions): PeekController {
     if (timer !== null) clearTimeout(timer);
     timer = null;
     origin = null;
+    activePointer = null;
   }
 
   function hide(): void {
@@ -85,6 +90,10 @@ export function createPeek(opts: PeekOptions): PeekController {
     // `click` ne serait jamais venu (doigt relâché hors du texte) avalerait à sa
     // place le tap suivant, qui lui était légitime.
     swallowClick = false;
+    // Un appui, même d'un autre doigt, repart de zéro : c'est ce qui garantit
+    // qu'un coup d'œil dont le relâchement se serait perdu ne laisse pas un
+    // texte dévoilé derrière lui. Le filtrage par pointeur ci-dessous ne porte
+    // que sur la fin du geste, jamais sur son début.
     disarm();
     hide();
     if (e.button !== 0) return; // clic droit / auxiliaire
@@ -97,6 +106,7 @@ export function createPeek(opts: PeekOptions): PeekController {
     const nodeId = line.getAttribute('data-nid');
     if (!nodeId) return;
     origin = { x: e.clientX, y: e.clientY };
+    activePointer = e.pointerId;
     timer = setTimeout(() => {
       timer = null;
       shown = fragmentsOf(nodeId);
@@ -109,12 +119,19 @@ export function createPeek(opts: PeekOptions): PeekController {
     // Seulement pendant le maintien : une fois le texte dévoilé, un doigt qui
     // tremble ne doit pas le reprendre en pleine lecture. Si c'est un vrai
     // défilement qui s'engage, le navigateur émet `pointercancel`.
-    if (timer === null || !origin) return;
+    if (timer === null || !origin || e.pointerId !== activePointer) return;
     if (Math.hypot(e.clientX - origin.x, e.clientY - origin.y) <= tolerance) return;
     disarm();
   }
 
-  function onRelease(): void {
+  /** Fin du geste. Seul le doigt qui lit y met fin — les autres ne comptent pas. */
+  function onPointerRelease(e: PointerEvent): void {
+    if (e.pointerId !== activePointer) return;
+    release();
+  }
+
+  /** Fin inconditionnelle : perte de focus, `destroy()`. */
+  function release(): void {
     disarm();
     hide();
   }
@@ -137,19 +154,19 @@ export function createPeek(opts: PeekOptions): PeekController {
   // Sur window : le doigt peut se relever hors du texte, et l'appui doit finir
   // quand même — un flou resté ouvert ne se voit pas, il se subit.
   window.addEventListener('pointermove', onPointerMove);
-  window.addEventListener('pointerup', onRelease);
-  window.addEventListener('pointercancel', onRelease);
-  window.addEventListener('blur', onRelease);
+  window.addEventListener('pointerup', onPointerRelease);
+  window.addEventListener('pointercancel', onPointerRelease);
+  window.addEventListener('blur', release);
 
   return {
     destroy(): void {
       opts.container.removeEventListener('pointerdown', onPointerDown);
       opts.container.removeEventListener('click', onClickCapture, true);
       window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onRelease);
-      window.removeEventListener('pointercancel', onRelease);
-      window.removeEventListener('blur', onRelease);
-      onRelease();
+      window.removeEventListener('pointerup', onPointerRelease);
+      window.removeEventListener('pointercancel', onPointerRelease);
+      window.removeEventListener('blur', release);
+      release();
     },
   };
 }

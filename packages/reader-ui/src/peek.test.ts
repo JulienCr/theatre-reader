@@ -2,18 +2,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPeek, PEEK_DELAY_MS, type PeekController } from './peek';
 
-/** Un appui : `pointerdown` sur la cible, le reste sur window (le doigt peut sortir). */
-function down(el: Element, x = 10, y = 10): void {
-  el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: 1 }));
+/**
+ * Un appui : `pointerdown` sur la cible, le reste sur window (le doigt peut sortir).
+ * `id` distingue les doigts — le multi-touch est le cas que le contrôleur filtre.
+ */
+function down(el: Element, x = 10, y = 10, id = 1): void {
+  el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, pointerId: id }));
 }
-function move(x: number, y: number): void {
-  window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y, pointerId: 1 }));
+function move(x: number, y: number, id = 1): void {
+  window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x, clientY: y, pointerId: id }));
 }
-function up(): void {
-  window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+function up(id = 1): void {
+  window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: id }));
 }
-function cancel(): void {
-  window.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }));
+function cancel(id = 1): void {
+  window.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: id }));
 }
 
 describe('@theatre/reader-ui — peek (appui long sur une réplique floutée)', () => {
@@ -135,6 +138,23 @@ describe('@theatre/reader-ui — peek (appui long sur une réplique floutée)', 
     down(speechOf('d#0'));
     vi.advanceTimersByTime(PEEK_DELAY_MS);
     expect(peeked('d#0')).toEqual([false]);
+  });
+
+  it("ignore le second doigt : sa main qui se repose ne coupe pas le coup d'œil", () => {
+    down(speechOf('a#0'), 10, 10, 1);
+    vi.advanceTimersByTime(PEEK_DELAY_MS);
+    move(300, 700, 2); // paume, pouce qui traîne — pas le doigt qui lit
+    up(2);
+    expect(peeked('a#0')).toEqual([true]);
+    up(1);
+    expect(peeked('a#0')).toEqual([false]);
+  });
+
+  it("ignore le second doigt pendant le maintien, avant l'échéance", () => {
+    down(speechOf('a#0'), 10, 10, 1);
+    move(300, 700, 2);
+    vi.advanceTimersByTime(PEEK_DELAY_MS);
+    expect(peeked('a#0')).toEqual([true]);
   });
 
   it('refloute quand la fenêtre perd le focus, doigt encore posé', () => {
