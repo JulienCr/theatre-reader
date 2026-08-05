@@ -53,13 +53,20 @@ export interface StudyModeProps {
   onError: (message: string) => void;
 }
 
-const STATUS_LABEL: Record<string, string> = {
+/**
+ * Typés sur l'union réelle des statuts, et non sur `Record<string, string>` :
+ * ajouter un statut au moteur casse alors la compilation ici, au lieu d'afficher
+ * un `undefined` que rien ne signale.
+ */
+type Status = ReturnType<typeof forecast>['status'];
+
+const STATUS_LABEL: Record<Status, string> = {
   ok: 'Dans les temps',
   tight: 'Tendu',
   late: 'Hors délai',
 };
 
-const STATUS_ADVICE: Record<string, string> = {
+const STATUS_ADVICE: Record<Status, string> = {
   ok: '',
   tight: 'Peu de marge : ne saute pas de séance cette semaine.',
   late: 'Il faut allonger les séances, ajouter des jours, ou reculer la date.',

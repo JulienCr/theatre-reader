@@ -23,6 +23,7 @@ import {
   icsStamp,
   isoDay,
   mergeTiradeRanges,
+  slugify,
 } from '@theatre/core';
 import { Button } from '@theatre/ui';
 
@@ -65,19 +66,20 @@ function buildWeeks(days: PlannedDay[]): (PlannedDay | null)[][] {
   const cursor = new Date(first);
   cursor.setDate(cursor.getDate() - ((cursor.getDay() + 6) % 7)); // reculer au lundi
 
+  // Nombre de semaines déduit de la plage réelle, sans borne arbitraire : un
+  // garde-fou fixe tronquait la fin du calendrier en silence dès qu'un rythme
+  // lent (un jour par semaine) et une date lointaine dépassaient sa valeur.
+  const spanDays = Math.round((localDate(lastDay).getTime() - cursor.getTime()) / 86_400_000);
+  const weekCount = Math.max(1, Math.ceil((spanDays + 1) / 7));
+
   const weeks: (PlannedDay | null)[][] = [];
-  let guard = 0;
-  while (guard++ < 60) {
+  for (let w = 0; w < weekCount; w++) {
     const week: (PlannedDay | null)[] = [];
-    let reachedEnd = false;
     for (let i = 0; i < 7; i++) {
-      const iso = isoDay(cursor);
-      week.push(byDay.get(iso) ?? null);
-      if (iso >= lastDay) reachedEnd = true;
+      week.push(byDay.get(isoDay(cursor)) ?? null);
       cursor.setDate(cursor.getDate() + 1);
     }
     weeks.push(week);
-    if (reachedEnd) break;
   }
   return weeks;
 }
@@ -194,7 +196,9 @@ export function StudyCalendar({
     const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${slug}-${roleName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`;
+    // `slugify` plutôt qu'un remplacement maison : il retire les accents au lieu
+    // de les jeter, si bien qu'« ÉMILIE » donne `emilie` et non `-milie`.
+    a.download = `${slug}-${slugify(roleName)}.ics`;
     // Ancre dans le DOM et révocation différée, comme l'export du lecteur dans
     // App.tsx : un lien détaché et une URL révoquée dans la foulée du clic
     // suffisent à faire annuler le téléchargement par certains navigateurs.

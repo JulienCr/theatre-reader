@@ -1964,7 +1964,11 @@ kbd {
 .study-reset .study-hint {
   flex-basis: 100%;
 }
-.linklike--danger {
+/* Le survol doit être redéclaré : `.linklike:hover` est plus spécifique que la
+   seule classe, donc une action destructive virait à l'accent au passage de la
+   souris — exactement la confusion que les jetons interdisent. */
+.linklike--danger,
+.linklike--danger:hover {
   color: var(--danger);
 }
 .study-danger {
