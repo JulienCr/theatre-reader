@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { formatLogMessage } from './logger';
+import { formatLogMessage, parseLevel } from './logger';
+
+describe('parseLevel', () => {
+  it('accepte les niveaux connus, quelle que soit la casse', () => {
+    expect(parseLevel('debug')).toBe('debug');
+    expect(parseLevel('SILENT')).toBe('silent');
+  });
+
+  it('retombe sur info quand la valeur est absente ou inconnue', () => {
+    expect(parseLevel(undefined)).toBe('info');
+    expect(parseLevel('bavard')).toBe('info');
+  });
+
+  // `raw in ORDER` les laissait passer : `threshold` valait alors `undefined` et
+  // plus aucun message n'était filtré.
+  it("refuse les propriétés héritées d'Object.prototype", () => {
+    expect(parseLevel('constructor')).toBe('info');
+    expect(parseLevel('toString')).toBe('info');
+    expect(parseLevel('valueOf')).toBe('info');
+  });
+});
 
 describe('formatLogMessage', () => {
   it('rend un appel `(msg)` et `(msg, extra)`', () => {

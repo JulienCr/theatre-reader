@@ -48,10 +48,25 @@ const LEVEL_TAG: Record<Level, string> = {
   fatal: paint('magenta', 'fatal'),
 };
 
+/**
+ * Niveau demandé, `info` si la valeur n'en est pas un.
+ *
+ * `Object.hasOwn` et non `raw in ORDER` : `in` remonte la chaîne de prototypes,
+ * si bien que `THEATRE_LOG_LEVEL=constructor` (ou `toString`, `valueOf`…) était
+ * accepté, `threshold` valait alors `undefined`, et TOUT le filtrage par niveau
+ * sautait — chaque comparaison `< undefined` étant fausse.
+ *
+ * Séparée de `resolveLevel` pour rester testable : celui-ci court-circuite sous
+ * vitest, donc ce chemin-là ne serait jamais atteint par un test.
+ */
+export function parseLevel(raw: string | undefined): Level | 'silent' {
+  const value = (raw ?? 'info').toLowerCase();
+  return Object.hasOwn(ORDER, value) ? (value as Level | 'silent') : 'info';
+}
+
 function resolveLevel(): Level | 'silent' {
   if (process.env.VITEST) return 'silent';
-  const raw = (process.env.THEATRE_LOG_LEVEL ?? 'info').toLowerCase();
-  return raw in ORDER ? (raw as Level | 'silent') : 'info';
+  return parseLevel(process.env.THEATRE_LOG_LEVEL);
 }
 
 function hhmmss(): string {
