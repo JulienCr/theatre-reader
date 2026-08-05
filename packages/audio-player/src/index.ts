@@ -670,6 +670,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       cancelTimer();
       playing = false;
       waitingForUser = false;
+      silentSkips = 0; // geste de l'utilisateur, comme play/next/prev/playFrom
       index = i;
       // Comme après un `refresh()` qui a déplacé la position : le prochain ⏭ doit
       // démarrer ICI, et la tirade visée reste devant nous, donc floutée.
