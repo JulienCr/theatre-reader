@@ -13,7 +13,19 @@ const UNITS = [
   { seuil: KO, suffixe: 'Ko' },
 ];
 
-/** Virgule décimale et espace insécable : c'est du texte français, pas un log. */
+/**
+ * Insécable, en séquence d'échappement et non en caractère littéral : à l'écran
+ * il est indistinguable d'une espace ordinaire, et une relecture ultérieure le
+ * « corrigerait » sans le voir.
+ *
+ * Il sépare toujours une valeur de son unité — « 412 Mo », « il y a 25 min ».
+ * Une ligne meta se compose de plusieurs fragments et enjambe volontiers deux
+ * lignes sur un téléphone : sans lui, le nombre part d'un côté et son unité de
+ * l'autre.
+ */
+const NBSP = '\u00A0';
+
+/** Virgule décimale : c'est du texte français, pas un log. */
 function number(value: number, decimals: number): string {
   return value.toFixed(decimals).replace('.', ',');
 }
@@ -30,10 +42,10 @@ export function formatBytes(bytes: number): string | null {
   for (const { seuil, suffixe } of UNITS) {
     if (bytes >= seuil) {
       const value = bytes / seuil;
-      return `${number(value, value < 100 ? 1 : 0).replace(/,0$/, '')} ${suffixe}`;
+      return `${number(value, value < 100 ? 1 : 0).replace(/,0$/, '')}${NBSP}${suffixe}`;
     }
   }
-  return `${Math.round(bytes)} o`;
+  return `${Math.round(bytes)}${NBSP}o`;
 }
 
 /**
@@ -49,7 +61,7 @@ export function formatAge(at: number | undefined, now: number = Date.now()): str
   // aucune formulation honnête, donc rien.
   if (ms < 0) return null;
   if (ms < 60_000) return "à l'instant";
-  if (ms < 3600_000) return `il y a ${Math.floor(ms / 60_000)} min`;
-  if (ms < 86_400_000) return `il y a ${Math.floor(ms / 3600_000)} h`;
-  return `il y a ${Math.floor(ms / 86_400_000)} j`;
+  if (ms < 3600_000) return `il y a ${Math.floor(ms / 60_000)}${NBSP}min`;
+  if (ms < 86_400_000) return `il y a ${Math.floor(ms / 3600_000)}${NBSP}h`;
+  return `il y a ${Math.floor(ms / 86_400_000)}${NBSP}j`;
 }
