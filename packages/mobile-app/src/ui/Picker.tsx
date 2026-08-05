@@ -421,13 +421,20 @@ async function localRows(): Promise<Row[]> {
   const local = await store.listLocalPlays();
   return Promise.all(
     local.map(async (play) => {
-      const manifest = await store.loadManifest(play.slug);
+      // Ensemble, pas l'un après l'autre : ce sont deux allers-retours indépendants
+      // vers le pont natif (lecture du manifeste, parcours du dossier audio), et les
+      // enchaîner doublerait l'attente d'un écran qui doit être complet dès la
+      // première frame, Mac éteint.
+      const [manifest, bytes] = await Promise.all([
+        store.loadManifest(play.slug),
+        store.audioBytes(play.slug),
+      ]);
       return {
         ...play,
         local: true,
         resume: resumeOf(play.slug),
         preparedAt: manifest?.preparedAt,
-        bytes: await store.audioBytes(play.slug),
+        bytes,
         // Dédoublonné par clé, comme le bilan de `prepareOffline` : deux répliques au
         // texte identique dites par la même voix partagent un seul fichier. Compter les
         // entrées du manifeste (une par réplique) afficherait un nombre plus élevé que
