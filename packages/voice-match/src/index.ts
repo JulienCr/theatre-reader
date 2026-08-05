@@ -11,6 +11,8 @@
  */
 export { evaluate, tokenize } from './evaluate';
 export type { EvaluatedWord, Evaluation, Tolerance, Verdict } from './evaluate';
+export { matchCommand } from './commands';
+export type { VoiceCommand } from './commands';
 export { fold, splitWords, FILLERS } from './normalize';
 export type { Token } from './normalize';
 export { canonicalizeNumbers } from './numbers';

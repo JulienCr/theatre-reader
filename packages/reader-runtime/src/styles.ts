@@ -95,6 +95,13 @@ export const STYLE =
 /* Sous-segment (Souple/Strict) : décalé sous sa case pour se lire comme un détail
    de l'option cochée juste au-dessus, et non comme un troisième mode de lecture. */
 .mode-seg--sub { margin: var(--sp-2) 0 var(--sp-4) 30px; }
+/* Commandes vocales : aligné sur le sous-segment, donc rattaché à la même case.
+   Deux colonnes plutôt qu'une phrase par ligne — ce qu'on vient chercher ici,
+   c'est le mot à dire, pas l'explication. */
+.voice-commands { margin: calc(-1 * var(--sp-2)) 0 var(--sp-4) 30px; font-size: var(--fs-md); }
+.voice-commands-row { display: flex; gap: var(--sp-2); align-items: baseline; }
+.voice-commands dt { flex: none; color: var(--ink); }
+.voice-commands dd { margin: 0; color: var(--ink-muted); }
 
 /* ── Répétition vocale : retour au-dessus de la barre ──────────────────────── */
 .voice-panel {
@@ -108,9 +115,13 @@ export const STYLE =
   font-size: var(--fs-md); font-variant: small-caps; letter-spacing: .04em;
   color: var(--ink-muted); white-space: nowrap;
 }
-/* L'écoute et la réécoute du modèle sont les deux moments où l'on attend quelque
-   chose de la personne : ce sont les seuls à porter la couleur d'accent. */
+/* L'écoute, la réécoute du modèle et l'accusé de réception d'un ordre : les trois
+   moments où la boucle a la main et où l'on attend quelque chose. Seuls ceux-là
+   portent la couleur d'accent. La phase "command" couvre les QUATRE ordres et pas
+   seulement l'indice — les trois autres relancent la lecture, qui repasse aussitôt le
+   bandeau à vide : leur libellé ne fait que passer, mais il passe en accent. */
 .voice-panel[data-phase="listening"] .voice-state,
+.voice-panel[data-phase="command"] .voice-state,
 .voice-panel[data-phase="reference"] .voice-state { color: var(--accent); }
 .voice-panel[data-phase="failed"] .voice-state { color: var(--danger); }
 .voice-panel[data-phase="validated"] .voice-state { color: var(--ok); }

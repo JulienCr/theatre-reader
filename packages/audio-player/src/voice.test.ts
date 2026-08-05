@@ -557,4 +557,196 @@ describe('@theatre/audio-player — répétition vocale', () => {
     expect(rec.live).toBe(false);
     p.destroy();
   });
+
+  /* Les ordres dits à voix haute pendant la pause : le seul moment où le micro est
+     ouvert et où rien ne joue. La reconnaissance elle-même est éprouvée à part
+     (@theatre/voice-match) ; ce qui se vérifie ici, c'est ce que le lecteur EN FAIT
+     — et surtout qu'il ne laisse jamais un micro ouvert ni une pause morte. */
+  describe('commandes vocales', () => {
+    it('« passe » joue ma réplique, puis enchaîne', async () => {
+      const p = build();
+      await upToMic(p);
+      rec.finalize('passe');
+      await flush();
+      expect(rec.live).toBe(false); // le micro ne doit rien entendre du clip
+      expect(last?.waitingForUser).toBe(false); // la pause est levée
+      const audio = audios[0]!;
+      expect(audio.src).toContain('m#0'); // ma réplique, jouée
+      audio.dispatchEvent(new Event('ended'));
+      await flush();
+      expect(last?.currentNodeId).toBe('b#1'); // puis on est passé à la suite
+      p.destroy();
+    });
+
+    it('« indice » joue le début du clip, le coupe, et rouvre le micro', async () => {
+      const p = build();
+      await upToMic(p);
+      const startsBefore = rec.starts;
+      rec.finalize('indice');
+      await flush();
+      expect(last?.voice?.phase).toBe('command');
+      expect(last?.voice?.command).toBe('hint');
+      expect(rec.live).toBe(false);
+      expect(audios[0]!.src).toContain('m#0');
+
+      // Le compte à rebours part du SON, pas de l'appel : ici le clip met 800 ms à
+      // démarrer, et l'indice doit quand même durer ses deux secondes pleines.
+      await tick(800);
+      audios[0]!.dispatchEvent(new Event('playing'));
+      await tick(1900);
+      expect(rec.live).toBe(false); // pas encore : la troncature court depuis 1,9 s
+
+      // Le clip n'a NI `ended` ni erreur : c'est la troncature qui rend la main.
+      await tick(200);
+      await tick(TO_MIC);
+      expect(rec.live).toBe(true);
+      expect(rec.starts).toBe(startsBefore + 1);
+      expect(last?.voice?.phase).toBe('listening');
+      expect(last?.currentNodeId).toBe('m#0'); // l'indice n'a pas fait avancer la lecture
+      p.destroy();
+    });
+
+    /* Le revers du départ au son : un clip qui ne démarre jamais laisserait la pause
+       suspendue et le micro fermé — l'état qu'on ne voit pas. */
+    it('rend le micro même si le clip de l’indice ne démarre jamais', async () => {
+      const p = build();
+      await upToMic(p);
+      rec.finalize('indice');
+      await flush();
+      expect(rec.live).toBe(false);
+      await tick(2000 + 3000);
+      await tick(TO_MIC);
+      expect(rec.live).toBe(true);
+      expect(last?.voice?.phase).toBe('listening');
+      p.destroy();
+    });
+
+    // Un indice n'est ni une faute ni un pardon : la référence complète reste due
+    // au deuxième échec, sans qu'un coup de pouce remette le compteur à zéro.
+    it('n’efface pas les échecs déjà accumulés', async () => {
+      const p = build();
+      await upToMic(p);
+      rec.finalize('je reviendrai');
+      await flush();
+      expect(last?.voice?.failures).toBe(1);
+      await tick(900);
+      rec.finalize('indice');
+      await flush();
+      await tick(2000);
+      await tick(TO_MIC);
+      expect(last?.voice?.failures).toBe(1);
+      p.destroy();
+    });
+
+    /* La règle qui protège le texte : ce qui entoure l'ordre le disqualifie. */
+    it('ne prend pas pour un ordre ce qui n’en est qu’un morceau', async () => {
+      const p = build();
+      await upToMic(p);
+      rec.finalize('passe la porte et referme-la');
+      await flush();
+      expect(last?.voice?.phase).toBe('failed'); // une tentative ratée, pas un saut
+      expect(last?.currentNodeId).toBe('m#0');
+      p.destroy();
+    });
+
+    /* Et quand la tirade contient elle-même l'ordre, c'est la pièce qui gagne. */
+    it('désactive l’ordre que ma réplique contient', async () => {
+      document.body.innerHTML =
+        '<div id="c">' +
+        '<p class="line" data-cid="benji" data-nid="b#0"><span class="speech">Tu pars ?</span></p>' +
+        '<p class="line" data-cid="moi" data-nid="m#0"><span class="speech">Je passe par là, et je te croise.</span></p>' +
+        '</div>';
+      container = document.getElementById('c') as HTMLElement;
+      const p = build();
+      await upToMic(p);
+      rec.finalize('passe');
+      await flush();
+      expect(last?.voice?.phase).toBe('failed');
+      expect(last?.currentNodeId).toBe('m#0');
+      // L'autre formulation, elle, reste utilisable : on n'est pas enfermé.
+      await tick(900);
+      rec.finalize('suivant');
+      await flush();
+      expect(last?.waitingForUser).toBe(false);
+      expect(last?.playing).toBe(true);
+      p.destroy();
+    });
+
+    describe('navigation par scène', () => {
+      const RANGES: Record<string, string> = { 'b#0': 'h-1', 'm#0': 'h-1', 'b#1': 'h-2' };
+      const withRanges = (): ReturnType<typeof build> =>
+        build({ rangeOf: (t) => RANGES[t.nodeId] ?? null });
+
+      it('« scène suivante » saute à la première tirade de la scène d’après', async () => {
+        const p = withRanges();
+        await upToMic(p);
+        rec.finalize('scène suivante');
+        await flush();
+        expect(rec.live).toBe(false);
+        expect(last?.currentNodeId).toBe('b#1');
+        expect(last?.playing).toBe(true); // la lecture repart toute seule
+        p.destroy();
+      });
+
+      it('« début de la scène » repart de la première tirade de la scène courante', async () => {
+        const p = withRanges();
+        await upToMic(p);
+        rec.finalize('on reprend');
+        await flush();
+        expect(last?.currentNodeId).toBe('b#0');
+        expect(last?.playing).toBe(true);
+        p.destroy();
+      });
+
+      /* Cas limite du « on reprend » : le début de la scène est MA réplique, donc
+         l'ordre nous ramène sur la pause depuis laquelle il a été dit. Le coach se
+         voit alors clore son épisode et en rouvrir un dans le même souffle — c'est
+         là qu'un micro peut rester ouvert ou, à l'inverse, ne jamais se rouvrir. */
+      it('rouvre proprement l’écoute quand la scène commence par ma réplique', async () => {
+        // Ma réplique OUVRE sa plage : l'ordre ramène donc exactement là où on est.
+        const p = build({ rangeOf: (t) => (t.nodeId === 'b#0' ? 'h-1' : 'h-2') });
+        await upToMic(p);
+        rec.finalize('début de la scène');
+        await flush();
+        expect(last?.currentNodeId).toBe('m#0');
+        await tick(TO_MIC);
+        expect(last?.voice?.phase).toBe('listening');
+        expect(rec.live).toBe(true); // ni micro oublié, ni écoute jamais rouverte
+        p.destroy();
+      });
+
+      /* Un ordre sans destination ne doit pas laisser une pause micro fermé qui
+         n'attend plus rien : une lecture bloquée, et rien à l'écran pour le dire. */
+      it('rouvre l’écoute quand il n’y a pas de scène suivante', async () => {
+        const p = build({ rangeOf: () => 'h-1' }); // une seule plage : rien après
+        await upToMic(p);
+        rec.finalize('scène suivante');
+        await flush();
+        expect(last?.currentNodeId).toBe('m#0'); // on n'a pas bougé
+        await tick(900 + TO_MIC);
+        expect(rec.live).toBe(true);
+        expect(last?.voice?.message).toContain('Rien à cet endroit');
+
+        // Et cette phrase ne survit pas au verdict suivant : elle expliquait la
+        // réouverture du micro, elle n'explique rien de la tirade qu'on vient de
+        // dire. La validation anticipée ne repasse pas par `listen` — c'est le
+        // chemin par lequel elle restait affichée sous « validé ».
+        rec.say(TEXT.toLowerCase());
+        await flush();
+        expect(last?.voice?.message).toBeNull();
+        p.destroy();
+      });
+
+      it('rouvre l’écoute quand l’hôte n’a pas fourni de plages', async () => {
+        const p = build(); // pas de rangeOf
+        await upToMic(p);
+        rec.finalize('début de la scène');
+        await flush();
+        expect(last?.currentNodeId).toBe('m#0');
+        await tick(900 + TO_MIC);
+        expect(rec.live).toBe(true);
+        p.destroy();
+      });
+    });
+  });
 });
