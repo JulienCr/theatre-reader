@@ -3,6 +3,14 @@
 Date : 2026-08-05
 Branche : `worktree-plan-apprentissage` (basée sur `main` @967fc1c)
 
+> Amendé après implémentation. Sept points de la conception initiale se sont
+> révélés faux ou infaisables une fois le code écrit et vérifié dans le
+> navigateur : le type de `Session.orphans`, la longueur de l'échelle
+> d'espacement, la sémantique d'erreur de `loadStudy`, la provenance du rôle
+> pré-rempli, la formule de `capacityPerDay`, la navigation vers une portion, et
+> le sort des répliques hors scène. Le document ci-dessous dit l'état réel du
+> code, pas l'intention de départ.
+
 ## Objectif
 
 Aider un comédien à apprendre son rôle d'ici une date donnée, en dérivant le travail
@@ -96,7 +104,7 @@ export type Grade = 'again' | 'hard' | 'good';
 export interface Session {
   due: Portion[];      // à réviser, les plus en retard d'abord
   fresh: Portion[];    // texte neuf
-  orphans: Portion[];  // nœuds dont l'ancrage est perdu (texte modifié)
+  orphans: string[];   // nodeId dont l'ancrage est perdu (texte modifié)
   minutes: number;     // charge estimée de la séance
 }
 
@@ -149,13 +157,15 @@ des dues × REVIEW_FACTOR) / COST_PER_MINUTE`.
 
 ### Espacement
 
-Échelle : `[1, 3, 7, 14, 30]` jours, indexée par `level`.
+Échelle : `INTERVALS = [1, 3, 7, 14, 30, 60]` jours, indexée par `level`, et
+`MAX_LEVEL = INTERVALS.length - 1`. Les deux sont liés délibérément : une échelle de
+cinq valeurs pour un plafond à 5 laissait `INTERVALS[5]` indéfini.
 
 | Note | `level` | `due` |
 |---|---|---|
 | `again` (pas su) | `max(0, level - 1)` | demain |
 | `hard` (hésitant) | inchangé | +2 jours |
-| `good` (su) | `min(5, level + 1)` | +échelle[nouveau level] |
+| `good` (su) | `min(MAX_LEVEL, level + 1)` | +échelle[nouveau level] |
 
 Un nœud jamais vu n'a pas d'entrée dans `progress` : c'est ce qui distingue le neuf du
 révisable, sans champ supplémentaire.
@@ -177,10 +187,20 @@ jamais vu.
 `daysLeft = floor(jours calendaires jusqu'à target × daysPerWeek / 7 × 0.8)`, la
 réserve de 20 % couvrant les filages de fin. `portionsLeft` compte les portions dont
 **aucun** nœud n'a d'entrée dans `progress` — jamais abordées, par opposition à
-partiellement travaillées. `neededPerDay = portionsLeft / daysLeft`. Le statut compare ce besoin à la capacité
-d'une séance : `ok` si le besoin passe, `tight` au-delà de 80 % de la capacité, `late`
-s'il la dépasse. L'UI affiche le levier correspondant (allonger les séances, ajouter
-des jours, reculer la date) ; le moteur ne renvoie que les nombres.
+partiellement travaillées. `neededPerDay = portionsLeft / max(1, daysLeft)`.
+
+`capacityPerDay = sessionMinutes × COST_PER_MINUTE / coût moyen des portions restantes`
+— la séance **entière**, pas `budgetForSession`. Le ratio de 0,6 borne la taille d'une
+portion dans la séance du jour ; l'appliquer aussi ici cumulerait trois marges sur la
+même incertitude (ce ratio, la réserve de 20 % des jours, le seuil à 0,8) et annonçait
+« hors délai » un rôle qui tient : mesuré sur BENJI, 474 min de travail pour 550 min
+disponibles sortaient en retard. Diviser par le coût moyen plutôt que de compter une
+portion par jour est tout aussi nécessaire : les frontières de scène produisent des
+portions plus petites que le budget (48,5 mesuré pour 67,5).
+
+Statut : `ok` jusqu'à 80 % de la capacité, `tight` jusqu'à 100 %, `late` au-delà ou si
+`daysLeft ≤ 0`. L'UI affiche le levier correspondant (allonger les séances, ajouter des
+jours, reculer la date) ; le moteur ne renvoie que les nombres.
 
 ## Serveur
 
@@ -188,8 +208,9 @@ des jours, reculer la date) ; le moteur ne renvoie que les nombres.
 `PUT /api/plays/:slug/study` → corps `{ study: StudyState }`, `400` si invalide.
 
 `loadStudy` / `saveStudy` dans `storage.ts`, calqués sur `loadNotes` / `saveNotes`,
-mêmes garanties : fichier absent = `null`, JSON corrompu = `null` plutôt qu'une
-exception.
+mêmes garanties : fichier absent = `null`, **JSON corrompu = exception relancée**
+et non `null`. Absorber la corruption ferait qu'un `saveStudy` ultérieur écrase
+des semaines de progression ; c'est l'UI qui affiche l'erreur sans rien effacer.
 
 ## UI web — le mode `study`
 
@@ -207,23 +228,26 @@ d'impact, tous mineurs :
 
 L'écran, servi par un nouveau `components/StudyMode.tsx` :
 
-- **Non configuré** : rôle pré-rempli depuis `myRoles`, date d'atterrissage, durée de
-  séance, jours par semaine. Aperçu recalculé à chaque frappe (nombre de portions,
-  charge, statut d'atterrissage) — c'est l'aperçu qui rend le réglage compréhensible,
-  pas une explication.
+- **Non configuré** : rôle pré-rempli — `StudyMode` appelle lui-même
+  `loadReadingPrefs(slug, …)` comme le fait `Reader`, avec repli sur
+  `audio.myCharacterId` (`myRoles` n'est pas visible depuis `App`) — puis date
+  d'atterrissage, durée de séance, jours par semaine. Aperçu recalculé à chaque frappe
+  (nombre de portions, charge, statut d'atterrissage) — c'est l'aperçu qui rend le
+  réglage compréhensible, pas une explication.
 - **Configuré** : la séance du jour, portion par portion. Chaque portion s'ouvre dans
-  le lecteur à son `sceneId` (la navigation existe déjà) et se clôt par les trois
-  boutons d'évaluation. Sous la séance, l'avancement par portion et le compte à
-  rebours.
+  le lecteur sur le `data-nid` de sa première réplique — et non sur son `sceneId`, que
+  le filtre « mes scènes seulement » décale — puis se clôt par les trois boutons
+  d'évaluation. Sous la séance, l'avancement par portion et le compte à rebours.
 
 ## Cas limites
 
 | Cas | Comportement |
 |---|---|
-| Aucun rôle dans `myRoles` | Renvoi vers la Distribution, pas d'écran vide |
+| Aucun rôle pré-remplissable | Renvoi vers la Distribution, pas d'écran vide |
 | `target` dépassée | Mode entretien : révisions seules, plus de neuf |
-| Texte modifié depuis la config | Nœuds sans ancrage listés en `orphans`, marqués à revoir |
-| `study.json` absent ou corrompu | Retour à l'écran de configuration, jamais de crash |
+| Texte modifié depuis la config | `nodeId` décrochés listés en `orphans`, effaçables via `pruneOrphans` |
+| `study.json` absent | Écran de configuration |
+| `study.json` corrompu | Bandeau d'erreur explicite ; reconfigurer écrase, mais le dit |
 | Rôle sans réplique | Message explicite |
 | `daysLeft <= 0` mais `target` future | `forecast` renvoie `late`, pas de division par zéro |
 
