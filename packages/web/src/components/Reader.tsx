@@ -23,7 +23,7 @@ import {
   type Template,
 } from '@theatre/core';
 import { annotationCss, type AnchorDraft } from '@theatre/annotations';
-import { createSearch, MIN_QUERY_LENGTH, type SearchController } from '@theatre/reader-ui';
+import { createPeek, createSearch, MIN_QUERY_LENGTH, type SearchController } from '@theatre/reader-ui';
 import {
   createPlayer,
   type AudioTirade,
@@ -351,7 +351,13 @@ export function Reader({
       player.playFrom(nid);
     };
     container.addEventListener('click', onClick);
-    return () => container.removeEventListener('click', onClick);
+    // Maintenir l'appui sur une réplique floutée la dévoile sans déplacer la
+    // lecture — et sans laisser passer le clic du relâchement (cf. createPeek).
+    const peek = createPeek({ container });
+    return () => {
+      container.removeEventListener('click', onClick);
+      peek.destroy();
+    };
   }, [status]);
 
   // Navigation pilotée de l'extérieur (command palette, plan d'apprentissage).

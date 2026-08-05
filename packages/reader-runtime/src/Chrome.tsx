@@ -37,7 +37,7 @@ import {
   type Tolerance,
 } from '@theatre/audio-player';
 import { sceneVisibility } from '@theatre/core';
-import { ContextBanner, TransportDock, type SearchController } from '@theatre/reader-ui';
+import { ContextBanner, createPeek, TransportDock, type SearchController } from '@theatre/reader-ui';
 import { Button, Icon, IconButton, Sheet, Toolbar, ToolbarGroup } from '@theatre/ui';
 import {
   colorFor,
@@ -180,6 +180,12 @@ export function Chrome({
     };
     play.addEventListener('click', onClick);
 
+    // Rester appuyé sur une réplique floutée la dévoile le temps du maintien —
+    // sans toucher à la position, donc sans rien révéler d'autre. Branché après
+    // `onClick` mais indépendant de lui : c'est le peek qui avale le clic quand
+    // le coup d'œil a eu lieu (cf. createPeek).
+    const peek = createPeek({ container: play });
+
     // Notes (figées dans l'export) : surlignage + bulle en lecture seule.
     // Après le moteur, comme avant le portage : il indexe les répliques au montage.
     if (data.notes && data.notes.length) {
@@ -194,6 +200,7 @@ export function Chrome({
 
     return () => {
       play.removeEventListener('click', onClick);
+      peek.destroy();
       player.destroy();
       playerRef.current = null;
     };

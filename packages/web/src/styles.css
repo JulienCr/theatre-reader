@@ -718,7 +718,12 @@ mark.reader-hit--current {
   cursor: pointer;
   transition: filter 0.12s;
 }
-.line--masked.line--revealed .speech {
+/* Dite (le moteur) ou regardée le temps d'un appui maintenu (createPeek) : en clair.
+   Pas de `user-select: none` ici, contrairement au lecteur mobile : sélectionner le
+   texte est ce qui crée une note. Commencer une sélection déplace le pointeur, ce
+   qui annule le maintien avant qu'il n'aboutisse — les deux gestes coexistent. */
+.line--masked.line--revealed .speech,
+.line--masked.line--peek .speech {
   filter: none;
 }
 
