@@ -651,6 +651,34 @@ describe('@theatre/audio-player', () => {
     });
 
     /**
+     * Tout l'intérêt de boucler sur une scène est de la retravailler : si mes répliques
+     * restaient en clair après le premier tour, la boucle ne ferait plus travailler que
+     * l'oreille.
+     */
+    it('re-floute mes répliques de la plage au rembobinage', async () => {
+      const c = twoScenes();
+      const { p, endClip } = buildLooping(c, {
+        roles: ['benji'],
+        settings: { rehearsal: true, mask: true, playMine: true },
+      });
+      p.setLoop(true);
+      p.playFrom('a#0');
+      await flush();
+      endClip(); // → b#0, ma réplique : pause
+      await flush();
+      const b = c.querySelector('[data-nid="b#0"]') as HTMLElement;
+      expect(b.classList.contains('line--masked')).toBe(true);
+      p.resume(); // playMine : le TTS la lit, elle est « dite »
+      await flush();
+      expect(b.classList.contains('line--revealed')).toBe(true);
+      endClip(); // bout de la plage → retour à a#0 : le tour suivant repart masqué
+      await flush();
+      expect(last?.currentNodeId).toBe('a#0');
+      expect(b.classList.contains('line--revealed')).toBe(false);
+      p.destroy();
+    });
+
+    /**
      * Sans garde-fou, une plage dont aucune réplique n'a de clip (export partiel,
      * personnages sans voix) enchaînerait les sauts pour l'éternité — et sans un son
      * pour s'en rendre compte. Ce test boucle vraiment si la protection saute.
@@ -666,6 +694,92 @@ describe('@theatre/audio-player', () => {
       p.playFrom('a#0');
       await flush();
       expect(last?.playing).toBe(false);
+      p.destroy();
+    });
+  });
+
+  /**
+   * Revenir sur un passage déjà lu, c'est le reprendre : ce qui a été « dit » avant le
+   * retour en arrière ne l'est plus à partir du point d'arrivée.
+   */
+  describe('re-masquage au retour en arrière', () => {
+    const THREE = (): HTMLElement =>
+      mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'));
+    const REHEARSING: Partial<PlayerOptions> = {
+      roles: ['benji'],
+      settings: { rehearsal: true, mask: true, playMine: false },
+    };
+
+    it('un clic sur une réplique antérieure re-floute ce qui suit', async () => {
+      const c = THREE();
+      const p = buildPlayer(c, REHEARSING);
+      p.playFrom('b#0'); // ma réplique : pause
+      await flush();
+      p.resume(); // dite → révélée, on enchaîne sur a#1
+      await flush();
+      const b = c.querySelector('[data-nid="b#0"]') as HTMLElement;
+      expect(b.classList.contains('line--revealed')).toBe(true);
+      p.playFrom('a#0'); // retour en arrière
+      await flush();
+      expect(b.classList.contains('line--revealed')).toBe(false);
+      p.destroy();
+    });
+
+    it('⏮ re-floute la réplique sur laquelle il revient', async () => {
+      const c = THREE();
+      const p = buildPlayer(c, REHEARSING);
+      p.playFrom('b#0');
+      await flush();
+      p.resume();
+      await flush();
+      const b = c.querySelector('[data-nid="b#0"]') as HTMLElement;
+      expect(b.classList.contains('line--revealed')).toBe(true);
+      p.prev(); // a#1 → b#0
+      await flush();
+      expect(last?.currentNodeId).toBe('b#0');
+      expect(b.classList.contains('line--revealed')).toBe(false);
+      p.destroy();
+    });
+
+    it('laisse en clair ce qui précède le point d\'arrivée', async () => {
+      const c = mount(
+        line('michel', 'a#0', 'Un') +
+          line('benji', 'b#0', 'Deux') +
+          line('michel', 'a#1', 'Trois') +
+          line('benji', 'b#1', 'Quatre') +
+          line('michel', 'a#2', 'Cinq'),
+      );
+      const p = buildPlayer(c, REHEARSING);
+      p.playFrom('b#0');
+      await flush();
+      p.resume(); // b#0 dite → a#1
+      await flush();
+      p.next(); // → b#1 : pause
+      await flush();
+      p.resume(); // b#1 dite → a#2
+      await flush();
+      const b0 = c.querySelector('[data-nid="b#0"]') as HTMLElement;
+      const b1 = c.querySelector('[data-nid="b#1"]') as HTMLElement;
+      expect(b0.classList.contains('line--revealed')).toBe(true);
+      expect(b1.classList.contains('line--revealed')).toBe(true);
+      p.playFrom('a#1'); // on reprend au milieu : b#0 est derrière, b#1 devant
+      await flush();
+      expect(b0.classList.contains('line--revealed')).toBe(true);
+      expect(b1.classList.contains('line--revealed')).toBe(false);
+      p.destroy();
+    });
+
+    /* Le premier ⏮ démarre sur la tirade courante (cf. `started`) : ce n'est pas un
+       recul, et re-flouter là révélerait le bug en l'annulant à peine posé. */
+    it('ne touche à rien quand ⏮ sert de démarrage', async () => {
+      const c = THREE();
+      const p = buildPlayer(c, REHEARSING);
+      p.reveal('b#0'); // peek avant toute lecture
+      const b = c.querySelector('[data-nid="b#0"]') as HTMLElement;
+      expect(b.classList.contains('line--revealed')).toBe(true);
+      p.prev();
+      await flush();
+      expect(b.classList.contains('line--revealed')).toBe(true);
       p.destroy();
     });
   });

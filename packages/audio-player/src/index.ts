@@ -122,7 +122,14 @@ export interface Player {
   setRate(rate: number): void;
   /** Rejoue la plage courante au lieu d'enchaîner sur la suivante. Exige `rangeOf`. */
   setLoop(on: boolean): void;
-  /** Bascule l'état révélé (peek) d'une réplique masquée — pour le tap-to-peek. */
+  /**
+   * Bascule l'état révélé (peek) d'une réplique masquée — pour le tap-to-peek.
+   *
+   * Un peek ne survit pas à un retour en arrière qui repasse avant lui : il partage le
+   * registre des répliques « dites », que `playFrom`/`prev`/la boucle purgent à partir de
+   * leur point d'arrivée. Assumé — un coup d'œil donné plus loin dans la scène qu'on
+   * reprend n'a pas de raison de rester en clair au tour suivant.
+   */
   reveal(nodeId: string): void;
   /** Reconstruit la liste des tirades (après re-pagination), en gardant la position. */
   refresh(): void;
@@ -209,7 +216,9 @@ export function createPlayer(opts: PlayerOptions): Player {
   let timerId: ReturnType<typeof setTimeout> | null = null;
   let timed = false;
   let timedMs: number | null = null;
-  const revealed = new Set<string>(); // nodeIds déjà « dits »/peekés — survit à refresh()
+  // nodeIds déjà « dits »/peekés — survit à refresh(), mais purgé à partir du point
+  // d'arrivée d'un retour en arrière (cf. `remaskFrom`).
+  const revealed = new Set<string>();
   let audioCtx: AudioContext | null = null;
 
   function rolesPredicate(cids: string[]): (cid: string) => boolean {
@@ -292,6 +301,26 @@ export function createPlayer(opts: PlayerOptions): Player {
       fragmentsOf(nodeId).forEach((el) => el.classList.remove(revealedClass));
     } else {
       saidReveal(nodeId);
+    }
+  }
+  /**
+   * Re-masque tout ce qui a été « dit » à partir de l'index `i`.
+   *
+   * `revealed` n'est pas une archive de ce qui a été lu une fois : il veut dire « déjà
+   * dit DEPUIS la position courante ». Revenir en arrière invalide donc tout ce qui suit
+   * le point d'arrivée — sans ça, boucler sur une scène ne fait travailler la mémoire
+   * qu'au premier tour, ce qui est précisément l'inverse de ce qu'on demande à la boucle.
+   *
+   * Purge inconditionnelle (même masque éteint) : rallumer le masque ensuite doit trouver
+   * l'ardoise propre, pas ressusciter des révélations d'avant le retour en arrière.
+   * Retirer `revealedClass` suffit à re-flouter — `maskedClass` reste posée en permanence
+   * par `applyMask`, c'est `revealedClass` qui fait commutateur.
+   */
+  function remaskFrom(i: number): void {
+    for (let k = Math.max(0, i); k < tirades.length; k++) {
+      const nid = tirades[k]!.nodeId;
+      if (!revealed.delete(nid)) continue;
+      fragmentsOf(nid).forEach((el) => el.classList.remove(revealedClass));
     }
   }
 
@@ -447,6 +476,18 @@ export function createPlayer(opts: PlayerOptions): Player {
     return start;
   }
 
+  /**
+   * Enchaîne sur la suite de `from`, en re-masquant si la boucle vient de rembobiner.
+   *
+   * Tous les enchaînements AUTOMATIQUES passent par ici ; `prefetch` reste sur `nextIndex`
+   * seul, qui doit rester pur — préparer l'audio de la tirade d'après n'est pas y aller.
+   */
+  function advance(from: number): void {
+    const i = nextIndex(from);
+    if (i <= from) remaskFrom(i); // `<=` : une plage d'une seule tirade rembobine sur elle-même
+    void playIndex(i);
+  }
+
   /** Termine la pause courante : révèle ma réplique puis la joue (playMine) ou la saute. */
   function resolveCue(): void {
     const t = tirades[index];
@@ -455,7 +496,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     saidReveal(t.nodeId);
     playing = true;
     if (settings.playMine) void playIndex(index, true); // lit ma réplique, puis enchaîne
-    else void playIndex(nextIndex(index)); // saute ma réplique
+    else advance(index); // saute ma réplique
   }
 
   function stopAudio(): void {
@@ -517,7 +558,7 @@ export function createPlayer(opts: PlayerOptions): Player {
         emit();
         return;
       }
-      void playIndex(nextIndex(i));
+      advance(i);
       return;
     }
 
@@ -547,7 +588,7 @@ export function createPlayer(opts: PlayerOptions): Player {
 
   function onEnded(): void {
     if (destroyed || !playing) return;
-    void playIndex(nextIndex(index));
+    advance(index);
   }
   audio.addEventListener('ended', onEnded);
 
@@ -617,11 +658,16 @@ export function createPlayer(opts: PlayerOptions): Player {
       cancelTimer();
       // Symétrique de `next` : sans ça, un premier ⏮ à l'index 0 sortirait des
       // bornes et s'arrêterait en silence.
-      void playIndex(started ? index - 1 : index);
+      const i = started ? index - 1 : index;
+      if (i < index) remaskFrom(i); // vrai recul (pas le premier ⏮, qui démarre sur place)
+      void playIndex(i);
     },
     playFrom: (nodeId: string) => {
       const i = tirades.findIndex((t) => t.nodeId === nodeId);
       if (i < 0) return;
+      // Cliquer plus haut dans la pièce, c'est y retourner : ce qui suit n'a pas encore
+      // été dit. (Un clic sur une réplique MASQUÉE passe par `reveal`, jamais par ici.)
+      if (i < index) remaskFrom(i);
       playing = true;
       silentSkips = 0;
       void playIndex(i);
