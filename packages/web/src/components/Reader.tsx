@@ -335,11 +335,8 @@ export function Reader({
       const line = target.closest('p.line') as HTMLElement | null;
       const nid = line?.getAttribute('data-nid');
       if (!nid) return;
-      // Réplique masquée : un clic la révèle (peek), sans la jouer.
-      if (line?.classList.contains('line--masked')) {
-        player.reveal(nid);
-        return;
-      }
+      // Y compris sur une réplique masquée : cliquer, c'est s'y placer, et le masquage
+      // se déduit de la position (cf. @theatre/audio-player).
       player.playFrom(nid);
     };
     container.addEventListener('click', onClick);
