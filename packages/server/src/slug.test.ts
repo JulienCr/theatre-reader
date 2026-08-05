@@ -4,10 +4,9 @@
  * écriture comme en lecture. Ces tests couvrent les deux lignes de défense : le
  * hook `onRequest` (400) et `playDir` dans storage.ts.
  */
-import { mkdtempSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // DATA_DIR est lu à l'import de storage : on fixe l'env AVANT l'import dynamique.
@@ -18,8 +17,18 @@ const { buildServer } = await import('./server');
 const { savePlay, saveNotes, loadPlay } = await import('./storage');
 type App = Awaited<ReturnType<typeof buildServer>>;
 
-/** Chemin d'évasion sous sa forme encodée, telle qu'elle arriverait sur le réseau. */
-const ESCAPE = '..%2F..%2Fevade';
+/**
+ * Cible d'évasion, sous la forme encodée qui arriverait sur le réseau.
+ *
+ * Le nom porte le pid : un dossier temporaire est partagé par tout ce qui
+ * tourne sur la machine, et vérifier l'absence d'un nom courant y confondrait
+ * un voisin avec une évasion (ou l'inverse). `CIBLE_PATH` est le chemin que le
+ * `join` de storage.ts produirait exactement — c'est lui qu'on surveille, pas
+ * le contenu d'un dossier deviné.
+ */
+const CIBLE = `evade-${process.pid}`;
+const ESCAPE = `..%2F..%2F${CIBLE}`;
+const CIBLE_PATH = resolve(DATA, '..', '..', CIBLE);
 
 describe('garde du paramètre slug', () => {
   let app: App;
@@ -53,9 +62,19 @@ describe('garde du paramètre slug', () => {
     });
   }
 
-  it("n'écrit rien à côté du dossier de données", async () => {
-    const parent = await readdir(dirname(DATA));
-    expect(parent).not.toContain('evade');
+  it("n'écrit rien à l'emplacement que l'évasion visait", async () => {
+    // Les PUT ci-dessus sont passés par toutes les routes qui écrivent. Si l'une
+    // d'elles avait laissé filer le slug, le dossier existerait maintenant.
+    expect(existsSync(CIBLE_PATH)).toBe(false);
+    // Et le cas à un seul niveau, qui vise le dossier parent immédiat.
+    const voisin = resolve(DATA, '..', `${CIBLE}-voisin`);
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/plays/..%2F${CIBLE}-voisin/notes`,
+      payload: { notes: [] },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(existsSync(voisin)).toBe(false);
   });
 
   it('laisse passer un slug normal', async () => {

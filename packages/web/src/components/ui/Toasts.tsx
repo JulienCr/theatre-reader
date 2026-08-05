@@ -27,13 +27,25 @@ export interface FlashMessage {
  * quitter entre-temps, et son contenu n'est alors plus nulle part — ni à
  * l'écran, ni sur le disque. `retry` le tient dans sa fermeture, ce qui est le
  * seul moyen de le rejouer.
+ *
+ * `slug` + `kind` désignent la **cible** de l'écriture. C'est la clé qui permet
+ * à App.tsx de n'en garder qu'une par cible et de périmer celles qu'une
+ * écriture plus récente a rendues caduques : rejouer un instantané dépassé
+ * écraserait le travail qui a suivi.
  */
 export interface SaveFailure {
   id: number;
+  slug: string;
+  kind: 'play' | 'notes';
   playName: string;
-  what: string;
   retry: () => void;
 }
+
+/** Ce que l'échec portait, tel qu'on le nomme à l'écran. */
+const WHAT: Record<SaveFailure['kind'], string> = {
+  play: 'Le texte',
+  notes: 'Les notes',
+};
 
 const MESSAGE_MS = 4000;
 /** Radix attend un nombre fini ; `Infinity` serait ramené à 0 par setTimeout. */
@@ -81,7 +93,7 @@ export function Toasts({
       {failures.map((f) => (
         <T.Root key={f.id} className="toast toast--error" open duration={NEVER}>
           <T.Description className="toast-text">
-            {f.what} de « {f.playName} » : échec de l'enregistrement.
+            {WHAT[f.kind]} de « {f.playName} » : échec de l'enregistrement.
           </T.Description>
           <T.Action asChild altText="Réessayer l'enregistrement">
             <button type="button" className="toast-action" onClick={f.retry}>

@@ -84,8 +84,11 @@ export function slugify(name: string): string {
  * Réciproque de `slugify` : vrai pour ce que celui-ci produit.
  *
  * Sert de garde aux chemins de fichiers, un slug de pièce nommant son dossier
- * (`data/<slug>/`). D'où la sévérité : ni séparateur de chemin, ni point, ni
- * caractère encodé — un `..%2F..%2F…` décodé par Fastify sortirait de `data/`.
+ * (`data/<slug>/`). Le contrôle porte sur la valeur **déjà décodée** — c'est
+ * celle que Fastify remet au handler, et donc celle que `join` recevra : un
+ * `..%2F..%2F…` s'y présente comme `../../…` et tombe sur l'absence de `/` et
+ * de `.` dans l'alphabet autorisé. Un `%` survivant d'un double encodage est
+ * rejeté par le même alphabet.
  */
 export function isValidSlug(s: string): boolean {
   return /^[a-z0-9-]+$/.test(s);

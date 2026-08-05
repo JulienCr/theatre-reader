@@ -134,6 +134,18 @@ export function App() {
   // ils doivent pouvoir vider le débounce en attente avant de changer de pièce.
 
   /**
+   * Périme la reprise en attente sur une cible (pièce + nature d'écriture).
+   *
+   * Appelée après CHAQUE écriture réussie, y compris nominale. Les écritures
+   * étant sérialisées par `saveChain`, une réussite postérieure à un échec porte
+   * forcément un contenu plus récent : la reprise qui restait n'a plus rien à
+   * sauver, et la proposer reviendrait à offrir d'écraser le travail qui a suivi.
+   */
+  const clearFailure = useCallback((slug: string, kind: SaveFailure['kind']) => {
+    setFailures((list) => list.filter((f) => f.slug !== slug || f.kind !== kind));
+  }, []);
+
+  /**
    * Met une écriture perdue en attente de reprise, avec son contenu.
    *
    * Le témoin de la barre ne parle que de la pièce courante : une écriture qui
@@ -141,9 +153,13 @@ export function App() {
    * contenu — absent de l'écran comme du disque — ne serait plus récupérable
    * nulle part. `write` le retient dans sa fermeture, ce qui rend la reprise
    * possible même une fois la pièce quittée.
+   *
+   * Une seule entrée par cible, la nouvelle chassant l'ancienne : deux échecs
+   * successifs sur les mêmes notes portent deux instantanés dont seul le dernier
+   * vaut quelque chose. Empiler les deux offrirait de rejouer le plus ancien.
    */
   const reportFailure = useCallback(
-    (playName: string, what: string, write: () => Promise<void>) => {
+    (target: { slug: string; name: string }, kind: SaveFailure['kind'], write: () => Promise<void>) => {
       const id = (failureId.current += 1);
       const retry = () => {
         // Par la même chaîne que le reste : une reprise doit s'ordonner avec les
@@ -151,8 +167,8 @@ export function App() {
         const run = saveChain.current.then(async () => {
           try {
             await write();
-            setFailures((list) => list.filter((f) => f.id !== id));
-            flash(`${what} de « ${playName} » : enregistré.`);
+            clearFailure(target.slug, kind);
+            flash(`« ${target.name} » : enregistré.`);
           } catch (e) {
             // L'entrée reste : tant que l'écriture ne passe pas, il y a
             // quelque chose à perdre.
@@ -161,9 +177,12 @@ export function App() {
         });
         saveChain.current = run.catch(() => undefined);
       };
-      setFailures((list) => [...list, { id, playName, what, retry }]);
+      setFailures((list) => [
+        ...list.filter((f) => f.slug !== target.slug || f.kind !== kind),
+        { id, slug: target.slug, kind, playName: target.name, retry },
+      ]);
     },
-    [flash],
+    [flash, clearFailure],
   );
 
   /** Écrit la pièce sur disque. Toujours passer par ici : c'est le point de sérialisation. */
@@ -187,6 +206,9 @@ export function App() {
         if (current()) setSaveState('saving');
         try {
           await write();
+          // Cette écriture-ci est plus récente que tout échec en attente sur la
+          // même pièce : celui-ci n'a donc plus rien à rejouer.
+          clearFailure(p.slug, 'play');
           // Pas de toast à chaque sauvegarde automatique : ce serait un clignotant
           // permanent. Le témoin suffit ; seule la sauvegarde manuelle est bavarde.
           if (opts?.manual) flash('Sauvegardé.');
@@ -201,7 +223,7 @@ export function App() {
           // Sur la pièce courante, le témoin `error` et ⌘S offrent déjà la reprise.
           // Une fois la pièce quittée, il ne reste que cette file.
           if (current()) setSaveState('error');
-          else reportFailure(p.name, 'Le texte', write);
+          else reportFailure(p, 'play', write);
         }
       });
       // La chaîne ne doit jamais rester rejetée, sinon toute écriture ultérieure
@@ -209,7 +231,7 @@ export function App() {
       saveChain.current = run.catch(() => undefined);
       return run;
     },
-    [flash, reportFailure],
+    [flash, reportFailure, clearFailure],
   );
 
   /**
@@ -374,19 +396,23 @@ export function App() {
       const p = playRef.current;
       if (!p) return;
       setNotesInFlight((n) => n + 1);
+      const write = () => api.saveNotes(p.slug, next);
       const run = saveChain.current.then(async () => {
         try {
-          await api.saveNotes(p.slug, next);
+          await write();
+          // Ces notes-ci sont plus récentes que tout échec en attente : rejouer
+          // l'instantané d'alors reviendrait à revenir en arrière.
+          clearFailure(p.slug, 'notes');
         } catch (e) {
           flash(String(e));
-          reportFailure(p.name, 'Les notes', () => api.saveNotes(p.slug, next));
+          reportFailure(p, 'notes', write);
         } finally {
           setNotesInFlight((n) => n - 1);
         }
       });
       saveChain.current = run.catch(() => undefined);
     },
-    [flash, reportFailure],
+    [flash, reportFailure, clearFailure],
   );
 
   const onActivateNote = useCallback(
