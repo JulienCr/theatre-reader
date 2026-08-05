@@ -193,17 +193,24 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
      Sans conséquence ici, puisque la lecture des clips ne tourne jamais pendant
      l'écoute, et que `restorePlaybackSession` rend la route pleine qualité.
 
-     Le compilateur signale `.allowBluetooth` comme renommé en `.allowBluetoothHFP`.
-     L'ancien nom est gardé volontairement : le nouveau n'existe que dans les SDK
-     récents, et le projet ne compilerait plus avec un Xcode antérieur pour un
-     symbole strictement équivalent à l'exécution.
+     Le SDK iOS 26 a renommé l'option en `.allowBluetoothHFP` et déprécié l'ancien
+     nom. Les deux valent 0x4 : le choix ci-dessous ne change rien à l'exécution, il
+     évite seulement un avertissement à chaque compilation — et garde le projet
+     compilable avec un Xcode antérieur, où le nouveau symbole n'existe pas.
+     La version du compilateur sert de repère à celle du SDK : Xcode les livre
+     ensemble, et Swift n'expose pas la seconde.
      */
     private func configureListeningSession() throws {
         let session = AVAudioSession.sharedInstance()
+        #if compiler(>=6.2)
+        let bluetoothInput: AVAudioSession.CategoryOptions = .allowBluetoothHFP
+        #else
+        let bluetoothInput: AVAudioSession.CategoryOptions = .allowBluetooth
+        #endif
         try session.setCategory(
             .playAndRecord,
             mode: .default,
-            options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            options: [.defaultToSpeaker, bluetoothInput, .allowBluetoothA2DP]
         )
         try session.setActive(true)
     }
