@@ -37,6 +37,7 @@ pnpm monorepo, TypeScript everywhere, **"internal packages" pattern**: each pack
 | `@theatre/import` | PDF → Fountain pipeline (pdfjs extract → heuristics → character resolution). |
 | `@theatre/server` | Fastify API (`/import`, `/plays`, `/export`) + Playwright PDF export + file storage. |
 | `@theatre/web` | React/Vite UI: edit workspace + reader mode + command palette. |
+| `@theatre/voice-match` | Spoken line vs script text: normalization, number equivalence, alignment, verdict. **Pure.** |
 
 ### The rendering contract (most important invariant)
 
@@ -68,6 +69,50 @@ A third full-screen mode (`AppMode = 'edit' | 'read' | 'study'`, source of truth
 - **`projectSchedule` replays the engine day by day** to produce the forecast calendar, assuming one passage in three needs a second go (`PROJECTION_HARD_EVERY`). Nothing is stored — it is recomputed on open, like everything else. It is also the only honest measure of real load: `forecast` reasons about new text alone and ignores what reviews will cost, so the calendar screen compares the projected average against the requested session length.
 - **The `.ics` export is a snapshot of a forecast** (`ics.ts`, pure). A file rather than the Google API: no OAuth, no secret, no callback server. Times are written "floating" (no `Z`, no `TZID`) so 19:30 means 19:30 in whatever calendar imports it. Stable per-day UIDs make a re-export replace rather than duplicate.
 - **"Portion" is an engine word and must never reach the screen.** Everything user-facing counts in tirades, and every boundary carries both its number and its text — a number alone means nothing to an actor, a quote alone doesn't say where you are.
+
+### Voice rehearsal (`@theatre/voice-match` + `audio-player/src/voice.ts`)
+
+Optional loop layered on the existing rehearsal pause: on MY lines the mic opens, the
+attempt is transcribed and compared to the tirade, and the reader refuses to move on
+until it is right. Three layers, in dependency order — `@theatre/voice-match` (pure
+comparison, no DOM) → `createVoiceCoach` (state machine) → the host, which injects a
+`SpeechRecognizer`. What matters when touching it:
+
+- **The recognizer is injected, never imported.** No `voice` option in `createPlayer`
+  means the player behaves exactly as before — that is what keeps the exported `.html`
+  and the web reader working, since neither has a speech engine. `boot({ recognizer })`
+  is how the app passes it; the settings row is hidden when it is absent.
+- **`cancelPending()` is the single cancellation point.** Every gesture that leaves a
+  rehearsal pause (`pause`/`next`/`prev`/`seek`/`refresh`/`setSettings`/`setRoles`/
+  `destroy`) goes through it, and it cancels the timer, the listening AND the reference
+  clip. A new gesture that only calls `cancelTimer()` leaves the mic open — and an open
+  mic is invisible.
+- **The reference clip has its own path** (`playReference` + the `referenceDone` branch
+  of `onEnded`). `resolveCue` and `playIndex` both advance; replaying the model must
+  not. Same reason `advance` skips `resolveCue`: with `playMine` on it would replay the
+  line you just said.
+- **Verdict model**: what's MISSING decides validation (`fidelity ≥ profile.ok`), what's
+  EXTRA only decides the nuance (`borderline`, capped by `maxNoise`). Numbers and
+  negations block outright; `ne` is deliberately *not* in that list — it is swallowed in
+  speech and half the time in the transcription. Proper nouns only block in `strict`.
+- **Free start, bounded** (`align.ts`): the head of the utterance can be dropped at no
+  cost, which is exactly an immediate self-correction. The bound (`minSkip` floor +
+  ratio) is what stops "recite anything, then the line" from passing.
+- **Nothing is kept**: the transcript is cleared the moment a verdict is reached, and a
+  clean `ok` keeps no result at all — otherwise the validated line stays pinned under
+  the bar for the rest of the scene.
+- The mode forces `playMine`/`autoAdvance` off (they'd fight the listening), and the cue
+  beep plays even when the `tick` setting is off — it announces the mic opening.
+- **iOS plugin is local to the App target** (`ios/App/App/SpeechPlugin.swift`, registered
+  by `MainViewController.capacitorDidLoad()`, which `Main.storyboard` must point at).
+  `cap sync` regenerates `Package.swift` and `public/` but never `project.pbxproj`, so
+  target files survive. `.allowBluetooth` is what grants the AirPods mic; the session
+  goes back to `.playback` after every listen, or clips play on the recording route.
+  `NSMicrophoneUsageDescription` **and** `NSSpeechRecognitionUsageDescription` are both
+  required — one missing and iOS kills the app at the first listen, silently.
+- Develop it without a phone: outside a device (and in dev only) the app wires a
+  **simulated recognizer** exposed as `window.__THEATRE_FAKE_SPEECH__` (`say`,
+  `finalize`, `fail`), which drives the whole loop from a browser console.
 
 ### Import pipeline (`@theatre/import`)
 

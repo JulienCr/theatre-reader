@@ -17,6 +17,7 @@ import { discover } from './discovery';
 import { buildOfflineClips } from './offline/prepare';
 import * as store from './offline/store';
 import { Picker, pickerCss } from './ui/Picker';
+import { pickRecognizer } from './voice';
 
 declare global {
   interface Window {
@@ -70,7 +71,12 @@ function mountReader(doc: ReaderDocument): void {
   // La sortie recharge la page sans `slug` plutôt que de démonter le lecteur :
   // `boot()` n'est appelable qu'une fois par page et le runtime n'a pas d'API de
   // démontage — même raison que l'ouverture d'une pièce dans Picker.
-  boot({ onExit: () => location.assign(location.pathname) });
+  boot({
+    onExit: () => location.assign(location.pathname),
+    // `null` hors appareil (et hors développement) : le lecteur n'affiche alors
+    // simplement aucun réglage de validation vocale.
+    recognizer: pickRecognizer() ?? undefined,
+  });
 
   // Le navigateur a déjà traité le fragment quand la page s'est chargée : à ce
   // moment-là le corps de la pièce n'existait pas encore (il vient d'être injecté

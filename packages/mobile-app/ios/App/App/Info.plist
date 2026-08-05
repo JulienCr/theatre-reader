@@ -54,6 +54,16 @@
 	<array>
 		<string>_theatre._tcp</string>
 	</array>
+	<!--
+		Répétition vocale (SpeechPlugin.swift). Les deux clés sont exigées ensemble :
+		la reconnaissance d'Apple lit le micro, donc iOS demande les deux permissions,
+		et il en manque une pour que l'app soit terminée à la première tentative
+		d'écoute — sans message, sans journal, avant même la demande.
+	-->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Theatre Reader écoute tes répliques pour vérifier que tu les dis juste. Le micro ne s'ouvre que sur tes répliques, en mode répétition.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Theatre Reader transcrit tes répliques pour les comparer au texte de la pièce. Rien n'est enregistré ni conservé après la vérification.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

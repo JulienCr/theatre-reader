@@ -11,11 +11,37 @@
  * suivante, ou sonde de durée pour l'avancement automatique).
  */
 
+import { createVoiceCoach, type SpeechRecognizer, type VoiceCoach, type VoiceStatus } from './voice';
+import type { Tolerance } from '@theatre/voice-match';
+
+export {
+  createVoiceCoach,
+  type SpeechRecognizer,
+  type VoiceCoach,
+  type VoicePhase,
+  type VoiceStatus,
+} from './voice';
+// Ré-exporté ici pour que les hôtes (chrome du lecteur, app mobile) n'aient pas à
+// dépendre de @theatre/voice-match juste pour nommer le niveau de tolérance.
+export type { Evaluation, EvaluatedWord, Tolerance } from '@theatre/voice-match';
+
 export interface AudioTirade {
   nodeId: string;
   characterId: string;
   element: HTMLElement;
   text: string;
+}
+
+/**
+ * Répétition vocale (issue #40) : l'écoute remplace le geste de reprise sur mes
+ * répliques. Optionnelle et injectée — le .html exporté et le lecteur web n'ont
+ * pas de reconnaissance vocale et doivent continuer à se comporter comme avant.
+ */
+export interface VoiceOptions {
+  recognizer: SpeechRecognizer;
+  enabled?: boolean;
+  tolerance?: Tolerance;
+  locale?: string;
 }
 
 /**
@@ -71,6 +97,8 @@ export interface PlayerState {
   settings: ReadingSettings;
   /** Boucle sur la plage courante (cf. `setLoop`). */
   loop: boolean;
+  /** Répétition vocale — `null` quand le mode est éteint ou indisponible. */
+  voice: VoiceStatus | null;
 }
 
 export interface PlayerOptions {
@@ -101,6 +129,8 @@ export interface PlayerOptions {
    * du découpage de @theatre/core, qui reste seul propriétaire de la règle.
    */
   rangeOf?: (t: AudioTirade) => string | null;
+  /** Répétition vocale. Absente = le lecteur se comporte exactement comme avant. */
+  voice?: VoiceOptions;
 }
 
 export interface Player {
@@ -123,6 +153,12 @@ export interface Player {
   setSettings(patch: Partial<ReadingSettings>): void;
   /** Change mes rôles à la lecture ; re-masque et ré-évalue la position. */
   setRoles(characterIds: string[]): void;
+  /**
+   * Allume/éteint la répétition vocale, ou change sa tolérance. Éteindre pendant
+   * une écoute la coupe net et laisse la pause ordinaire reprendre la main.
+   * Sans `voice` dans les options, l'appel est sans effet.
+   */
+  setVoice(patch: { enabled?: boolean; tolerance?: Tolerance }): void;
   setRate(rate: number): void;
   /** Rejoue la plage courante au lieu d'enchaîner sur la suivante. Exige `rangeOf`. */
   setLoop(on: boolean): void;
@@ -217,6 +253,14 @@ export function createPlayer(opts: PlayerOptions): Player {
   // ré-interroger le DOM pour chaque réplique à ce rythme se sentirait sur mobile.
   let maskedLines: { at: number; els: HTMLElement[] }[] = [];
   let audioCtx: AudioContext | null = null;
+  // Répétition vocale. `coach` n'existe que si l'hôte a fourni une reconnaissance ;
+  // `voiceEnabled` est le réglage, qui bascule à chaud.
+  let voiceEnabled = Boolean(opts.voice?.enabled);
+  let voiceStatus: VoiceStatus | null = null;
+  let coach: VoiceCoach | null = null;
+  // Résout la promesse du clip de référence. Non nul = un clip joue POUR le coach,
+  // et sa fin ne doit surtout pas faire avancer la lecture (cf. `onEnded`).
+  let referenceDone: (() => void) | null = null;
 
   function rolesPredicate(cids: string[]): (cid: string) => boolean {
     const set = new Set(cids);
@@ -224,6 +268,11 @@ export function createPlayer(opts: PlayerOptions): Player {
   }
   const isMine = (cid: string): boolean => mineFn(cid);
   const shouldMask = (): boolean => settings.rehearsal && settings.mask;
+  /**
+   * La répétition vocale ne vaut que dans le mode répétition : hors de lui, aucune
+   * pause n'attend quoi que ce soit de moi, donc rien à écouter.
+   */
+  const voiceActive = (): boolean => Boolean(coach && voiceEnabled && settings.rehearsal);
 
   /**
    * Vitesse à appliquer à une tirade — `rate`, sauf sur MES répliques en répétition.
@@ -251,6 +300,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       timedMs,
       settings: { ...settings }, // copie : l'état émis ne doit pas être mutable de l'extérieur
       loop,
+      voice: voiceActive() ? voiceStatus : null,
     };
   }
   function emit(): void {
@@ -321,9 +371,34 @@ export function createPlayer(opts: PlayerOptions): Player {
     }
   }
 
-  // --- Tic sonore (WebAudio, auto-contenu, marche hors-ligne). ---
-  function playTick(): void {
-    if (!settings.tick) return;
+  // --- Signaux sonores (WebAudio, auto-contenus, marchent hors-ligne). ---
+  //
+  // Trois signaux, tous synthétisés : aucun fichier à embarquer, donc rien à
+  // télécharger ni à manquer dans un export partiel. Le mode vocal doit pouvoir
+  // s'utiliser sans regarder l'écran, c'est le son qui porte le verdict.
+  interface Tone {
+    hz: number;
+    /** Décalage du début, en secondes, pour enchaîner deux notes. */
+    at?: number;
+    ms: number;
+  }
+  const TONES: Record<'cue' | 'reject' | 'borderline', Tone[]> = {
+    // Le bip historique « c'est à toi », inchangé.
+    cue: [{ hz: 880, ms: 150 }],
+    // Deux notes descendantes, graves et brèves : identifiable sans être agressif,
+    // et impossible à confondre avec le bip d'appel qui monte.
+    reject: [
+      { hz: 330, ms: 90 },
+      { hz: 220, at: 0.1, ms: 110 },
+    ],
+    // Deux notes égales : « c'est passé, mais pas net ».
+    borderline: [
+      { hz: 660, ms: 80 },
+      { hz: 660, at: 0.13, ms: 80 },
+    ],
+  };
+
+  function playTones(kind: 'cue' | 'reject' | 'borderline'): void {
     try {
       const Ctor =
         window.AudioContext ??
@@ -331,19 +406,33 @@ export function createPlayer(opts: PlayerOptions): Player {
       if (!Ctor) return;
       audioCtx ??= new Ctor();
       if (audioCtx.state === 'suspended') void audioCtx.resume();
-      const t0 = audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, t0);
-      gain.gain.exponentialRampToValueAtTime(0.2, t0 + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.15);
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start(t0);
-      osc.stop(t0 + 0.16);
+      const base = audioCtx.currentTime;
+      for (const tone of TONES[kind]) {
+        const t0 = base + (tone.at ?? 0);
+        const secs = tone.ms / 1000;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.value = tone.hz;
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.2, t0 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + secs);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + secs + 0.01);
+      }
     } catch {
       /* AudioContext indisponible : on ignore */
     }
+  }
+
+  /**
+   * Le bip d'appel, sous condition du réglage — SAUF en répétition vocale, où il
+   * annonce l'ouverture du micro. Le taire là reviendrait à écouter quelqu'un sans
+   * le lui dire, et à attendre une réplique que personne ne sait devoir donner.
+   */
+  function playTick(): void {
+    if (!settings.tick && !voiceActive()) return;
+    playTones('cue');
   }
 
   // --- Pause automatique (avancement auto) : durée = celle du mp3, sans le jouer. ---
@@ -378,6 +467,25 @@ export function createPlayer(opts: PlayerOptions): Player {
     timed = false;
     timedMs = null;
     clearTimerBar();
+  }
+
+  /**
+   * Annule TOUT ce qui attendait sur la pause en cours : minuteur, écoute du micro,
+   * clip de référence.
+   *
+   * Remplace `cancelTimer()` partout où un geste quitte la pause. Un seul point
+   * d'annulation, parce que le jour où un nouveau geste oubliera d'y passer, il
+   * laissera le micro ouvert — et un micro oublié ne se voit pas.
+   */
+  function cancelPending(): void {
+    cancelTimer();
+    coach?.cancel();
+    if (referenceDone) {
+      const done = referenceDone;
+      referenceDone = null;
+      stopAudio();
+      done(); // le coach est déjà annulé : sa continuation verra sa génération périmée
+    }
   }
   function probeDuration(url: string): Promise<number> {
     return new Promise((resolve) => {
@@ -440,7 +548,16 @@ export function createPlayer(opts: PlayerOptions): Player {
   /** Entre en pause sur ma réplique (index i) : bip éventuel + minuteur si avancement auto. */
   function enterCuePause(i: number, my: number, beep: boolean): void {
     waitingForUser = true;
-    cancelTimer();
+    cancelPending();
+    // Répétition vocale : c'est le coach qui mène la pause de bout en bout — la
+    // respiration, le bip, l'ouverture du micro, et sa fin. Le minuteur de
+    // l'avancement automatique n'a plus de sens ici : il déciderait à la place de
+    // l'écoute, et couperait quelqu'un au milieu de sa tirade.
+    if (voiceActive()) {
+      emit();
+      coach!.begin(tirades[i]!.text);
+      return;
+    }
     if (beep) playTick();
     if (settings.autoAdvance) {
       emit();
@@ -448,6 +565,54 @@ export function createPlayer(opts: PlayerOptions): Player {
     } else {
       emit();
     }
+  }
+
+  /**
+   * Rejoue le clip de MA réplique sans bouger la position — le « modèle » que le
+   * coach fait entendre après deux échecs.
+   *
+   * Ni `resolveCue` ni `playIndex` ne conviennent : tous deux avancent. C'est le
+   * seul chemin qui joue puis rend la main exactement là où on était.
+   */
+  function playReference(): Promise<void> {
+    const t = tirades[index];
+    if (!t) return Promise.resolve();
+    const my = token;
+    return (async () => {
+      let url: string | null = null;
+      try {
+        url = await opts.resolveAudio(t);
+      } catch {
+        /* pas de modèle disponible : le coach repart écouter */
+      }
+      if (destroyed || my !== token || !url) return;
+      await new Promise<void>((resolve) => {
+        referenceDone = resolve;
+        audio.src = url;
+        // Jamais accéléré : c'est le débit de référence qu'on vient réentendre,
+        // pour la même raison que `rateFor` épargne mes répliques.
+        audio.playbackRate = 1;
+        const p = audio.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {
+            if (referenceDone !== resolve) return;
+            referenceDone = null;
+            resolve();
+          });
+        }
+        // Filet : sans `ended` ni erreur (clip corrompu, WebView qui refuse), le
+        // coach resterait suspendu et le micro ne se rouvrirait jamais.
+        setTimeout(
+          () => {
+            if (referenceDone !== resolve) return;
+            referenceDone = null;
+            stopAudio();
+            resolve();
+          },
+          Math.max(15000, estimateMs(t.text) * 2),
+        );
+      });
+    })();
   }
 
   /**
@@ -483,7 +648,7 @@ export function createPlayer(opts: PlayerOptions): Player {
   function resolveCue(): void {
     const t = tirades[index];
     if (!t) return;
-    cancelTimer();
+    cancelPending();
     playing = true;
     if (settings.playMine) void playIndex(index, true); // lit ma réplique, puis enchaîne
     else void playIndex(nextIndex(index)); // saute ma réplique
@@ -501,7 +666,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     token++;
     const my = token;
     stopAudio();
-    cancelTimer();
+    cancelPending();
     if (i < 0 || i >= tirades.length) {
       playing = false;
       waitingForUser = false;
@@ -577,10 +742,42 @@ export function createPlayer(opts: PlayerOptions): Player {
   }
 
   function onEnded(): void {
-    if (destroyed || !playing) return;
+    if (destroyed) return;
+    // Fin du clip de référence : il rend la main au coach et ne fait avancer RIEN.
+    // Sans cette branche, réentendre le modèle sauterait la réplique qu'on est
+    // justement en train d'apprendre.
+    if (referenceDone) {
+      const done = referenceDone;
+      referenceDone = null;
+      done();
+      return;
+    }
+    if (!playing) return;
     void playIndex(nextIndex(index));
   }
   audio.addEventListener('ended', onEnded);
+
+  if (opts.voice) {
+    coach = createVoiceCoach({
+      recognizer: opts.voice.recognizer,
+      tolerance: opts.voice.tolerance ?? 'soft',
+      locale: opts.voice.locale,
+      playReference,
+      // Volontairement PAS `resolveCue` : celui-ci rejouerait ma réplique quand
+      // « Me faire répéter » est coché, alors que je viens de la dire — l'issue veut
+      // qu'une tirade validée enchaîne, sans rien ajouter.
+      advance: () => {
+        cancelTimer();
+        playing = true;
+        void playIndex(nextIndex(index));
+      },
+      sound: (kind) => (kind === 'cue' ? playTick() : playTones(kind)),
+      onState: (s) => {
+        voiceStatus = s;
+        emit();
+      },
+    });
+  }
 
   function play(): void {
     if (playing) return;
@@ -601,7 +798,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     token++; // invalide une éventuelle sonde de durée/résolution audio en vol
     playing = false;
     stopAudio();
-    cancelTimer();
+    cancelPending();
     emit();
   }
 
@@ -615,7 +812,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     const stillMine = Boolean(t && settings.rehearsal && isMine(t.characterId));
     if (waitingForUser && !stillMine) {
       // La pause n'a plus lieu d'être (continu, ou ce n'est plus mon rôle) → on reprend.
-      cancelTimer();
+      cancelPending();
       waitingForUser = false;
       void playIndex(index);
     } else if (waitingForUser && stillMine) {
@@ -623,7 +820,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       token++;
       enterCuePause(index, token, false);
     } else {
-      cancelTimer();
+      cancelPending();
       emit();
     }
   }
@@ -639,7 +836,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     next: () => {
       playing = true;
       silentSkips = 0;
-      cancelTimer();
+      cancelPending();
       // ⏭ pendant ma pause vaut « je l'ai dite, on passe » : la position franchit ma
       // réplique, qui se démasque du même coup.
       void playIndex(started ? index + 1 : index);
@@ -647,7 +844,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     prev: () => {
       playing = true;
       silentSkips = 0;
-      cancelTimer();
+      cancelPending();
       // Borné à 0, et pas seulement pour éviter un arrêt en silence : sortir des bornes
       // laisse `index` sur place en levant `waitingForUser`, ce qui démasque la réplique
       // qu'on attendait — un ⏮ dirait « je l'ai dite » alors qu'il dit l'inverse.
@@ -667,7 +864,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       if (i < 0) return;
       token++; // invalide résolution audio et sonde de durée en vol
       stopAudio();
-      cancelTimer();
+      cancelPending();
       playing = false;
       waitingForUser = false;
       silentSkips = 0; // geste de l'utilisateur, comme play/next/prev/playFrom
@@ -686,6 +883,29 @@ export function createPlayer(opts: PlayerOptions): Player {
     setRoles: (cids: string[]) => {
       mineFn = rolesPredicate(cids);
       reevaluate();
+    },
+    setVoice: (patch: { enabled?: boolean; tolerance?: Tolerance }) => {
+      if (!coach) return;
+      if (patch.tolerance) coach.setTolerance(patch.tolerance);
+      if (patch.enabled === undefined || patch.enabled === voiceEnabled) return;
+      voiceEnabled = patch.enabled;
+      if (!voiceEnabled) {
+        // Éteindre coupe l'écoute SUR-LE-CHAMP, sans attendre la fin de la tirade.
+        // La pause de répétition, elle, reste : on retombe simplement sur le geste
+        // manuel, qui est l'état d'avant le mode vocal.
+        coach.cancel();
+        voiceStatus = null;
+        emit();
+        return;
+      }
+      // Allumé pendant une pause déjà en cours : la boucle démarre tout de suite,
+      // sinon il faudrait passer une réplique pour que le réglage prenne effet.
+      if (waitingForUser && voiceActive()) {
+        token++;
+        enterCuePause(index, token, false);
+      } else {
+        emit();
+      }
     },
     setRate: (r: number) => {
       // Zéro fige la lecture sans rien pour l'expliquer, et une valeur négative fait
@@ -725,7 +945,7 @@ export function createPlayer(opts: PlayerOptions): Player {
         // invalide aussi les résolutions audio et sondes de durée encore en vol.
         token++;
         stopAudio();
-        cancelTimer();
+        cancelPending();
         if (playing || waitingForUser) void playIndex(index);
         // À l'arrêt : le prochain ⏭ doit démarrer ICI, pas un cran plus loin.
         else started = false;
@@ -740,7 +960,9 @@ export function createPlayer(opts: PlayerOptions): Player {
     destroy: () => {
       destroyed = true;
       playing = false;
-      cancelTimer();
+      cancelPending();
+      coach?.destroy();
+      coach = null;
       audio.removeEventListener('ended', onEnded);
       stopAudio();
       audio.src = '';

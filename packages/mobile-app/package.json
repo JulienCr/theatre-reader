@@ -13,6 +13,7 @@
   "dependencies": {
     "@capacitor/core": "^8.4.2",
     "@capacitor/filesystem": "^8.1.2",
+    "@theatre/audio-player": "workspace:*",
     "@theatre/core": "workspace:*",
     "@theatre/reader-runtime": "workspace:*",
     "@theatre/reader-ui": "workspace:*",

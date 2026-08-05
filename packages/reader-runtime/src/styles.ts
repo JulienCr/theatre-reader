@@ -92,6 +92,44 @@ export const STYLE =
    primitive (aria-pressed) — rien à redéfinir ici. */
 .mode-seg { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-4); }
 .mode-seg .btn { flex: 1; }
+/* Sous-segment (Souple/Strict) : décalé sous sa case pour se lire comme un détail
+   de l'option cochée juste au-dessus, et non comme un troisième mode de lecture. */
+.mode-seg--sub { margin: var(--sp-2) 0 var(--sp-4) 30px; }
+
+/* ── Répétition vocale : retour au-dessus de la barre ──────────────────────── */
+.voice-panel {
+  padding: var(--sp-2) var(--sp-3) 0;
+  /* La tirade attendue peut faire plusieurs lignes : on borne, sinon le panneau
+     mange l'écran au moment précis où on veut relire le texte au-dessus. */
+  max-height: 28vh; overflow-y: auto;
+}
+.voice-head { display: flex; align-items: baseline; gap: var(--sp-2); }
+.voice-state {
+  font-size: var(--fs-md); font-variant: small-caps; letter-spacing: .04em;
+  color: var(--ink-muted); white-space: nowrap;
+}
+/* L'écoute et la réécoute du modèle sont les deux moments où l'on attend quelque
+   chose de la personne : ce sont les seuls à porter la couleur d'accent. */
+.voice-panel[data-phase="listening"] .voice-state,
+.voice-panel[data-phase="reference"] .voice-state { color: var(--accent); }
+.voice-panel[data-phase="failed"] .voice-state { color: var(--danger); }
+.voice-panel[data-phase="validated"] .voice-state { color: var(--ok); }
+/* Transcription en cours : présente mais discrète — la lire n'est pas le but,
+   elle ne sert qu'à comprendre pourquoi le verdict tombe comme il tombe. */
+.voice-heard {
+  flex: 1; min-width: 0; font-size: var(--fs-md); color: var(--ink-muted);
+  font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.voice-message { margin: 4px 0 0; font-size: var(--fs-md); color: var(--ink-muted); }
+.voice-diff { margin: var(--sp-2) 0 0; font-size: var(--fs-md); line-height: 1.6; }
+.voice-word--ok { color: var(--ink-muted); }
+/* Barré et non effacé : voir le mot manquant à sa place est ce qui apprend le texte. */
+.voice-word--missing { color: var(--danger); text-decoration: line-through; }
+.voice-word--replaced { color: var(--danger); }
+.voice-word--added {
+  color: var(--warn-ink); background: var(--warn-wash);
+  border-radius: var(--r-sm); padding: 0 .25em;
+}
 
 /* ── Classes posées sur .play par le moteur audio et la recherche ───────── */
 /* Option « mes scènes » : les plages exclues sont retirées du flux ; !important
