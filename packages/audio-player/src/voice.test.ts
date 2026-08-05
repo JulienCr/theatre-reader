@@ -199,6 +199,34 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
+  // La bascule de route audio coupe net ce que la WebView joue. Elle doit donc
+  // arriver quand rien ne joue — et une seule fois, pas à chaque tirade.
+  it('prend la route audio avant le premier clip, et la rend en sortant du mode', async () => {
+    const calls: string[] = [];
+    const traced = {
+      ...rec.api,
+      prepare: () => (calls.push('prepare'), Promise.resolve()),
+      release: () => (calls.push('release'), Promise.resolve()),
+    };
+    const p = build({ voice: { recognizer: traced, enabled: true } });
+    p.play();
+    await flush();
+    expect(calls).toEqual(['prepare']);
+
+    Object.defineProperty(audios[0]!, 'duration', { value: 5, configurable: true });
+    audios[0]!.dispatchEvent(new Event('loadedmetadata'));
+    await flush();
+    await tick(4100); // le micro s'ouvre : aucune bascule supplémentaire
+    audios[0]!.dispatchEvent(new Event('ended'));
+    await flush();
+    await tick(TO_MIC);
+    expect(calls).toEqual(['prepare']);
+
+    p.setVoice({ enabled: false });
+    expect(calls).toEqual(['prepare', 'release']);
+    p.destroy();
+  });
+
   it("retire de la transcription ce qui a été capté de l'autre réplique", async () => {
     const p = build();
     p.play();
@@ -420,6 +448,24 @@ describe('@theatre/audio-player — répétition vocale', () => {
 
     p.setVoice({ enabled: false });
     expect(paused.some((src) => src.includes('m#0'))).toBe(true);
+    p.destroy();
+  });
+
+  // Une erreur pendant la respiration laisse derrière elle le minuteur qui joue le
+  // signal et arme l'écoute : s'il tire, la boucle repart en contredisant l'erreur.
+  it('ne relance rien après une erreur survenue avant le signal', async () => {
+    const p = build();
+    p.play();
+    await flush();
+    audios[0]!.dispatchEvent(new Event('ended'));
+    await flush();
+    expect(last?.voice?.phase).toBe('waiting');
+    rec.fail('micro occupé');
+    await flush();
+    expect(last?.voice?.phase).toBe('error');
+    await tick(10000); // bien après le signal, puis après le délai « aucune parole »
+    expect(last?.voice?.phase).toBe('error');
+    expect(rec.live).toBe(false);
     p.destroy();
   });
 

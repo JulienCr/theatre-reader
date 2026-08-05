@@ -857,6 +857,9 @@ export function createPlayer(opts: PlayerOptions): Player {
   function play(): void {
     if (playing) return;
     playing = true;
+    // Prendre la route d'enregistrement AVANT le premier clip : cette bascule coupe
+    // le son en cours, et c'est le seul instant où il n'y en a pas.
+    if (voiceActive()) coach?.prepare();
     silentSkips = 0; // geste de l'utilisateur : la chaîne de sauts repart de zéro
     // Reprise en cours de réplique si l'audio est en pause au milieu.
     if (audio.src && !audio.ended && audio.currentTime > 0 && !waitingForUser) {
@@ -964,6 +967,9 @@ export function createPlayer(opts: PlayerOptions): Player {
       if (patch.tolerance) coach.setTolerance(patch.tolerance);
       if (patch.enabled === undefined || patch.enabled === voiceEnabled) return;
       voiceEnabled = patch.enabled;
+      // Cocher le réglage est un geste : rien ne joue, c'est le bon moment pour
+      // prendre la route audio sans que la bascule s'entende.
+      if (voiceEnabled && settings.rehearsal) coach.prepare();
       if (!voiceEnabled) {
         // Éteindre coupe l'écoute SUR-LE-CHAMP, sans attendre la fin de la tirade.
         // La pause de répétition, elle, reste : on retombe simplement sur le geste
@@ -973,6 +979,9 @@ export function createPlayer(opts: PlayerOptions): Player {
         // modèle laissait le clip aller jusqu'au bout, alors que l'écran venait
         // d'annoncer que le mode était coupé.
         cancelPending();
+        // Et on rend la route audio : la garder en qualité d'enregistrement après
+        // avoir éteint le mode dégraderait toute la lecture qui suit.
+        coach.releaseRoute();
         voiceStatus = null;
         emit();
         return;

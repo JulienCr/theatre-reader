@@ -27,7 +27,9 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "authorize", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "abort", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "abort", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepare", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "release", returnType: CAPPluginReturnPromise)
     ]
 
     private let engine = AVAudioEngine()
@@ -40,6 +42,9 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
     /// coûterait une attente pile là où l'utilisateur va parler.
     private let monitor = NWPathMonitor()
     private var online = true
+
+    /// La session est-elle déjà passée en `.playAndRecord` ? Cf. `configureListeningSession`.
+    private var sessionOwned = false
 
     override public func load() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -106,6 +111,33 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func abort(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.teardown(cancel: true)
+            call.resolve()
+        }
+    }
+
+    /**
+     Prend la route audio d'enregistrement, sans ouvrir le micro.
+
+     À appeler quand RIEN ne joue — au démarrage de la lecture, ou en cochant le
+     réglage. Cette bascule coupe le son en cours ; la provoquer d'avance, à un
+     moment où il n'y en a pas, est le seul moyen de ne jamais l'entendre.
+     */
+    @objc func prepare(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            do {
+                try self.configureListeningSession()
+                call.resolve()
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Rend la route audio à la lecture pleine qualité. Appelée quand le mode s'arrête.
+    @objc func release(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.teardown(cancel: true)
+            self.restorePlaybackSession()
             call.resolve()
         }
     }
@@ -179,7 +211,9 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
             request?.endAudio()
         }
         request = nil
-        restorePlaybackSession()
+        // La session N'EST PAS rendue ici : entre deux tirades elle doit rester en
+        // `.playAndRecord`, sans quoi la reprendre à l'ouverture suivante couperait
+        // le clip en cours. Seul `release` la rend.
     }
 
     // MARK: - Route audio
@@ -190,8 +224,13 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
      le micro du téléphone même quand tout le son sort du casque.
 
      La contrepartie est connue : le Bluetooth passe alors en HFP, mono et sourd.
-     Sans conséquence ici, puisque la lecture des clips ne tourne jamais pendant
-     l'écoute, et que `restorePlaybackSession` rend la route pleine qualité.
+
+     **Basculée UNE SEULE FOIS, et gardée.** Changer de catégorie coupe net ce que la
+     WebView est en train de jouer : mesuré en répétition, la réplique du camarade
+     s'arrêtait en plein milieu dès qu'on ouvrait le micro à l'avance. Tant que la
+     bascule tombait entre deux clips, elle ne s'entendait pas ; anticiper l'ouverture
+     l'a mise en plein dans le son. La session est donc prise au premier besoin et
+     rendue seulement quand le mode s'arrête (`release`), jamais entre deux tirades.
 
      Le SDK iOS 26 a renommé l'option en `.allowBluetoothHFP` et déprécié l'ancien
      nom. Les deux valent 0x4 : le choix ci-dessous ne change rien à l'exécution, il
@@ -201,6 +240,7 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
      ensemble, et Swift n'expose pas la seconde.
      */
     private func configureListeningSession() throws {
+        if sessionOwned { return }
         let session = AVAudioSession.sharedInstance()
         #if compiler(>=6.2)
         let bluetoothInput: AVAudioSession.CategoryOptions = .allowBluetoothHFP
@@ -213,11 +253,20 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
             options: [.defaultToSpeaker, bluetoothInput, .allowBluetoothA2DP]
         )
         try session.setActive(true)
+        sessionOwned = true
     }
 
-    /// Rend la session à la lecture. Sans ce retour, les clips joués par la WebView
-    /// resteraient sur la route d'enregistrement : volume écrasé, et Bluetooth mono.
+    /**
+     Rend la session à la lecture. Sans ce retour, les clips resteraient sur la route
+     d'enregistrement : volume écrasé, et Bluetooth mono.
+
+     Appelée quand le mode vocal s'arrête, JAMAIS entre deux tirades — c'est le
+     pendant de `configureListeningSession`, et la re-bascule est précisément ce qui
+     coupait la lecture.
+     */
     private func restorePlaybackSession() {
+        guard sessionOwned else { return }
+        sessionOwned = false
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default)
         try? session.setActive(true)

@@ -19,6 +19,10 @@ interface SpeechPlugin {
   start(options: { locale: string }): Promise<void>;
   stop(): Promise<void>;
   abort(): Promise<void>;
+  /** Prend la route audio d'enregistrement sans ouvrir le micro. */
+  prepare(): Promise<void>;
+  /** Rend la route à la lecture pleine qualité. */
+  release(): Promise<void>;
   addListener(
     event: 'partial' | 'final',
     cb: (data: { text: string }) => void,
@@ -85,6 +89,8 @@ export function nativeRecognizer(): SpeechRecognizer | null {
     start: (o) => Speech.start(o),
     stop: () => Speech.stop(),
     abort: () => Speech.abort(),
+    prepare: () => Speech.prepare(),
+    release: () => Speech.release(),
     onPartial: (cb) => listen<{ text: string }>('partial', (d) => cb(d.text)),
     onFinal: (cb) => listen<{ text: string }>('final', (d) => cb(d.text)),
     onError: (cb) => listen<{ message: string }>('error', (d) => cb(d.message)),

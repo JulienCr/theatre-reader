@@ -27,6 +27,18 @@ export interface SpeechRecognizer {
   stop(): Promise<void>;
   /** Coupure immédiate : plus rien ne doit remonter. */
   abort(): Promise<void>;
+  /**
+   * Prend la route audio d'enregistrement sans ouvrir le micro, si le moteur en a
+   * besoin. À appeler quand RIEN ne joue.
+   *
+   * Sur iOS, basculer la session en `.playAndRecord` coupe net ce que la WebView
+   * joue. Tant que cette bascule tombait entre deux clips, elle ne s'entendait pas ;
+   * ouvrir le micro à l'avance l'a mise en plein milieu d'une réplique. La faire
+   * d'avance, au calme, est ce qui rend l'anticipation silencieuse.
+   */
+  prepare?(): Promise<void>;
+  /** Rend la route audio à la lecture. Appelé quand le mode vocal s'arrête. */
+  release?(): Promise<void>;
   onPartial(cb: (text: string) => void): () => void;
   onFinal(cb: (text: string) => void): () => void;
   onError(cb: (message: string) => void): () => void;
@@ -80,6 +92,14 @@ export interface VoiceCoach {
    * être retiré au moment où la parole me revient.
    */
   warmUp(): void;
+  /**
+   * Prépare la route audio, à un moment où rien ne joue (démarrage de la lecture,
+   * activation du réglage). Sans elle, la première ouverture du micro couperait le
+   * clip en cours.
+   */
+  prepare(): void;
+  /** Rend la route audio à la lecture pleine qualité (le mode vocal s'arrête). */
+  releaseRoute(): void;
   /** Prend la main sur la pause : respiration, signal, écoute. */
   begin(expectedText: string): void;
   /** Rend la main immédiatement (geste de l'utilisateur, réglage, sortie). */
@@ -452,6 +472,12 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     o.recognizer.onFinal(onFinal),
     o.recognizer.onError((msg) => {
       if (!listening) return;
+      // `gen++` et le nettoyage AVANT de poser l'état : une erreur pendant la
+      // respiration laisse derrière elle le minuteur qui joue le signal et arme
+      // l'écoute. Sans cette invalidation, il tire quand même, relance la boucle
+      // et contredit l'erreur qu'on vient d'afficher.
+      gen++;
+      clearTimers();
       stopListening(true);
       phase = 'error';
       message = msg;
@@ -460,6 +486,15 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   ];
 
   return {
+    prepare() {
+      if (destroyed) return;
+      void o.recognizer.prepare?.().catch(() => {
+        /* route indisponible : l'ouverture du micro s'en chargera */
+      });
+    },
+    releaseRoute() {
+      void o.recognizer.release?.().catch(() => {});
+    },
     warmUp() {
       if (destroyed || listening) return;
       warm = true;
@@ -509,6 +544,9 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       gen++;
       clearTimers();
       stopListening(true);
+      // Rend la route audio : sans ça, la lecture resterait en qualité
+      // d'enregistrement après la sortie du mode.
+      void o.recognizer.release?.().catch(() => {});
       off.forEach((fn) => fn());
     },
   };
