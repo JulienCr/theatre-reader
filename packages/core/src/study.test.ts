@@ -376,10 +376,16 @@ describe('projectSchedule', () => {
     expect(seen.size).toBe(portions.length);
   });
 
-  it('respecte le rythme hebdomadaire', () => {
+  it('place les jours de travail en début de semaine civile', () => {
+    // 3 jours/semaine → lundi, mardi, mercredi. TODAY est un mercredi, donc la
+    // première semaine n'en offre qu'un, puis on reprend le lundi suivant.
     const days = projectSchedule(portions, state({ daysPerWeek: 3 }), TODAY).map((d) => d.day);
-    // Convention : les 3 premiers jours de chaque période de sept.
-    expect(days.slice(0, 4)).toEqual([TODAY, '2026-08-06', '2026-08-07', '2026-08-12']);
+    expect(days.slice(0, 4)).toEqual([TODAY, '2026-08-10', '2026-08-11', '2026-08-12']);
+  });
+
+  it('travaille tous les jours à 7 jours sur 7', () => {
+    const days = projectSchedule(portions, state({ daysPerWeek: 7 }), TODAY).map((d) => d.day);
+    expect(days.slice(0, 3)).toEqual([TODAY, '2026-08-06', '2026-08-07']);
   });
 
   it('prévoit plus de révisions qu\'un sans-faute, puisqu\'une portion sur trois hésite', () => {

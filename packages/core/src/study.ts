@@ -481,14 +481,23 @@ export interface PlannedDay {
  *
  * `daysPerWeek` ne dit pas QUELS jours — le moteur s'en sert pour la capacité, et
  * personne n'a saisi de calendrier hebdomadaire. La projection doit pourtant poser
- * des dates : convention, on travaille les `daysPerWeek` premiers jours de chaque
- * période de sept. Arbitraire mais explicable, et exact à 7 jours sur 7.
+ * des dates : convention, ce sont les `daysPerWeek` premiers jours de la semaine
+ * CIVILE, lundi d'abord. Cinq jours donnent donc lundi-vendredi.
+ *
+ * L'ancienne convention comptait par blocs de sept jours depuis aujourd'hui, ce qui
+ * paraissait équivalent et ne l'est pas : un plan démarré un mercredi tombait sur
+ * mercredi-dimanche, semaine après semaine, sans jamais un lundi. Invisible dans une
+ * liste, flagrant dès qu'on aligne les jours sur une grille — personne ne choisit de
+ * travailler son texte du mercredi au dimanche.
  */
 function workingDays(from: string, daysPerWeek: number, until: string, cap: number): string[] {
   const out: string[] = [];
   const span = Math.max(0, daysBetween(from, until));
+  const start = new Date(dayMs(from));
   for (let i = 0; i <= span && out.length < cap; i++) {
-    if (i % 7 < daysPerWeek) out.push(addDays(from, i));
+    const d = new Date(start.getTime() + i * DAY_MS);
+    // getUTCDay : 0 = dimanche ; on veut lundi en tête.
+    if ((d.getUTCDay() + 6) % 7 < daysPerWeek) out.push(addDays(from, i));
   }
   return out;
 }

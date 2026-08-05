@@ -1750,53 +1750,123 @@ kbd {
   font-size: var(--fs-md);
 }
 
-.study-week {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-}
-.study-week__title {
-  font-size: var(--fs-sm);
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--muted);
-  margin: var(--sp-3) 0 var(--sp-1);
-  font-weight: 600;
-}
-
-.study-days {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* Grille de mois. Les jours occupent leur vraie colonne de semaine : c'est ce
+   qui fait voir « tous mes samedis sont chargés », qu'une liste ne montre pas. */
+.study-grid {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.study-day {
+.study-grid__weekdays,
+.study-grid__week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.study-grid__weekdays {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+  padding: 0 var(--sp-2) var(--sp-1);
+}
+
+.study-cell {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
-  padding: var(--sp-3);
+  gap: 3px;
+  align-items: stretch;
+  text-align: left;
+  padding: var(--sp-2);
+  min-height: 5.2em;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  font-size: var(--fs-md);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
 }
-.study-day__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--sp-3);
+.study-cell:hover {
+  background: var(--paper-sunken);
 }
-.study-day__date {
+.study-cell--empty {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+  min-height: 0;
+}
+/* Sélection : l'accent marque « en scène », ce qui est exactement le sens ici —
+   le jour dont on lit le détail. Un seul à la fois. */
+.study-cell--on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.study-cell:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.study-cell__num {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.study-day__time {
+.study-cell__month {
+  font-weight: 400;
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+}
+.study-cell__gauge {
+  display: block;
+  height: 5px;
+  background: var(--table);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+.study-cell__bar {
+  display: block;
+  height: 100%;
+  background: var(--ink-muted);
+  border-radius: var(--r-full);
+}
+.study-cell--over .study-cell__bar {
+  background: var(--warn-ink);
+}
+.study-cell__time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.study-cell--over .study-cell__time {
+  color: var(--warn-ink);
+  font-weight: 600;
+}
+.study-cell__range {
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Détail du jour sélectionné, sous la grille : un panneau plutôt qu'une modale —
+   on compare avec la grille restée visible. */
+.study-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+}
+.study-detail__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+.study-detail__time {
   color: var(--muted);
   font-size: var(--fs-sm);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  margin-right: auto;
 }
 
 /* La liste d'avancement accueille les trois notes : elle passe en grille pour
@@ -1808,11 +1878,25 @@ kbd {
 }
 
 @media (max-width: 620px) {
-  .study-day {
-    grid-template-columns: 1fr auto;
+  /* Trop étroit pour sept colonnes : la grille redevient une colonne unique,
+     et les cases vides disparaissent au lieu de laisser des trous. */
+  .study-grid__weekdays {
+    display: none;
   }
-  .study-day__date {
-    grid-column: 1 / -1;
+  .study-grid__week {
+    grid-template-columns: 1fr;
+  }
+  .study-cell--empty {
+    display: none;
+  }
+  .study-cell {
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--sp-3);
+    min-height: 0;
+  }
+  .study-cell__gauge {
+    flex: 1;
   }
   .study-progress li {
     grid-template-columns: 1fr;
