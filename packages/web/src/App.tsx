@@ -362,14 +362,18 @@ export function App() {
     setPopover(null);
   };
 
-  const onJumpNote = (note: Note) => {
+  // Les rappels passés aux mémos (`commands`, `dockPanels`) sont tous stabilisés :
+  // sans ça, leur identité changerait à chaque rendu et le mémo se recalculerait
+  // à chaque frappe — les déclarer en dépendances n'aurait servi qu'à annuler la
+  // mémoïsation. C'est ce qui justifiait les `eslint-disable` d'origine.
+  const onJumpNote = useCallback((note: Note) => {
     const el =
       document.querySelector<HTMLElement>(`[data-note-id="${note.id}"]`) ??
       document.querySelector<HTMLElement>(`[data-nid="${note.nodeId}"]`);
     if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  };
+  }, []);
 
-  const onExport = async () => {
+  const onExport = useCallback(async () => {
     if (!play) return;
     setBusy('Export PDF…');
     try {
@@ -382,9 +386,9 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  };
+  }, [play, flash]);
 
-  const onExportReader = async () => {
+  const onExportReader = useCallback(async () => {
     if (!play) return;
     setBusy(exportWithAudio ? 'Export lecteur mobile (audio)…' : 'Export lecteur mobile…');
     try {
@@ -414,12 +418,19 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  };
+  }, [play, notes, exportWithAudio, flash]);
 
-  const setTemplate = (template: Template) => setPlay((p) => (p ? { ...p, template } : p));
-  const setCharacters = (characters: Character[]) =>
-    setPlay((p) => (p ? { ...p, characters } : p));
-  const setAudio = (audio: AudioConfig) => setPlay((p) => (p ? { ...p, audio } : p));
+  // Forme fonctionnelle de `setPlay` : ces trois-là ne lisent jamais l'état, donc
+  // ils n'ont aucune dépendance et gardent la même identité toute la session.
+  const setTemplate = useCallback(
+    (template: Template) => setPlay((p) => (p ? { ...p, template } : p)),
+    [],
+  );
+  const setCharacters = useCallback(
+    (characters: Character[]) => setPlay((p) => (p ? { ...p, characters } : p)),
+    [],
+  );
+  const setAudio = useCallback((audio: AudioConfig) => setPlay((p) => (p ? { ...p, audio } : p)), []);
 
   // ---- Plein écran (toute l'app) ----
   useEffect(() => {
@@ -427,16 +438,16 @@ export function App() {
     document.addEventListener('fullscreenchange', sync);
     return () => document.removeEventListener('fullscreenchange', sync);
   }, []);
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.documentElement.requestFullscreen?.();
-  };
+  }, []);
 
   // Navigation pilotée par la palette (ouvre le lecteur puis cible l'ancre/page).
-  const navTo = (kind: NavTarget['kind'], value: string | number) => {
+  const navTo = useCallback((kind: NavTarget['kind'], value: string | number) => {
     setMode('read');
     setNavTarget((p) => ({ kind, value, nonce: (p?.nonce ?? 0) + 1 }));
-  };
+  }, []);
 
   // ---- Registre de commandes (palette ⌘K / Ctrl+K) ----
   // AST partagé : parseFountain est coûteux (split + re-parse complet). On le mémoïse une seule
@@ -580,8 +591,18 @@ export function App() {
       }
     }
     return cmds;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [play, mode, showEditor, isFullscreen, toc, notes, exportWithAudio]);
+  }, [
+    play,
+    mode,
+    showEditor,
+    isFullscreen,
+    toc,
+    onSave,
+    onExport,
+    onExportReader,
+    toggleFullscreen,
+    navTo,
+  ]);
 
   // Raccourci global d'ouverture de la palette.
   useEffect(() => {
@@ -631,8 +652,7 @@ export function App() {
         content: <NotesPanel notes={notes} orphans={orphans} onJump={onJumpNote} />,
       },
     ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [play, voices, notes, orphans]);
+  }, [play, voices, notes, orphans, setTemplate, setCharacters, setAudio, onJumpNote]);
 
   return (
     <div className={`app${isFullscreen ? ' fullscreen' : ''}`}>
