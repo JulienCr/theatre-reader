@@ -10,6 +10,7 @@
     "dev": "bash scripts/with-elevenlabs.sh concurrently -n server,web -c blue,green \"pnpm --filter @theatre/server dev\" \"pnpm --filter @theatre/web dev\"",
     "build": "pnpm --filter @theatre/web build && pnpm run build:ios",
     "build:ios": "pnpm --filter @theatre/mobile-app build && pnpm --filter @theatre/mobile-app cap:sync",
+    "ios": "pnpm run ipa:ios && pnpm run install:ios",
     "ipa:ios": "bash packages/mobile-app/ios/build-ipa.sh",
     "install:ios": "bash packages/mobile-app/ios/install-ios.sh",
     "start": "bash scripts/with-elevenlabs.sh pnpm --filter @theatre/server start",

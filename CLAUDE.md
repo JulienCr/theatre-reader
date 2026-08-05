@@ -11,6 +11,7 @@ pnpm install
 pnpm setup:browser            # install Chromium for Playwright (export + ad-hoc e2e) — once
 pnpm dev                      # server (:3001) + Vite web (:5173) via concurrently
 pnpm build                    # web front → packages/web/dist, THEN build:ios (keeps the iOS bundle current)
+pnpm ios                      # THE one to use: build + IPA + install on the connected iPhone
 pnpm build:ios                # mobile-app Vite build + `cap sync ios` (regenerates ios/App/App/{public,capacitor.config.json,config.xml})
 pnpm ipa:ios                  # build:ios + xcodebuild archive/export → IPA signed for 1 year (add `-- --no-web` to skip the front rebuild)
 pnpm install:ios              # install that IPA on connected devices via `xcrun devicectl`
