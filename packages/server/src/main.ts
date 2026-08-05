@@ -50,11 +50,27 @@ try {
   process.exit(1);
 }
 
-// Sans retrait explicite, le nom reste dans le cache mDNS des clients : le téléphone
-// croirait encore joindre un Mac éteint.
+/**
+ * Arrêt propre : retirer l'annonce mDNS, puis fermer Fastify, puis sortir.
+ *
+ * Sans le retrait, le nom reste dans le cache mDNS des clients et le téléphone croit
+ * encore joindre un Mac éteint.
+ *
+ * `process.exit(0)` est inconditionnel, jamais accroché à la réussite de `close()` :
+ * un `close()` qui rejette (socket bloqué, hook en erreur) laisserait sinon le process
+ * vivant, et un Ctrl-C sans effet visible est bien pire qu'une fermeture imparfaite.
+ * L'échec est logué, pas avalé.
+ */
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
-    stopDiscovery();
-    void app.close().then(() => process.exit(0));
+    void (async () => {
+      await stopDiscovery();
+      try {
+        await app.close();
+      } catch (err) {
+        app.log.error(err, 'fermeture du serveur incomplète');
+      }
+      process.exit(0);
+    })();
   });
 }
