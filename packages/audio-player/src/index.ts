@@ -219,6 +219,19 @@ export function createPlayer(opts: PlayerOptions): Player {
   const isMine = (cid: string): boolean => mineFn(cid);
   const shouldMask = (): boolean => settings.rehearsal && settings.mask;
 
+  /**
+   * Vitesse à appliquer à une tirade — `rate`, sauf sur MES répliques en répétition.
+   *
+   * L'accélération sert à traverser plus vite le texte des autres ; mes répliques,
+   * elles, sont l'objet même de la répétition : c'est mon débit à moi qu'il s'agit de
+   * caler, et l'accélérer me ferait travailler sur un rythme que je ne tiendrai pas
+   * en scène. Vrai que la réplique soit muette (sautée, je la dis) ou jouée par le TTS
+   * (`playMine`) : dans les deux cas la référence est le débit humain. Même raison
+   * pour laquelle la pause de l'avancement automatique n'est pas raccourcie non plus.
+   */
+  const rateFor = (t: AudioTirade): number =>
+    settings.rehearsal && isMine(t.characterId) ? 1 : rate;
+
   function snapshot(): PlayerState {
     const t = tirades[index];
     return {
@@ -385,10 +398,9 @@ export function createPlayer(opts: PlayerOptions): Player {
       }
     }
     if (secs != null && Number.isFinite(secs) && secs > 0) ms = secs * 1000;
-    // La pause vaut le temps qu'il faut pour DIRE la réplique, mesuré sur le clip.
-    // À 1,5×, tout le reste de la répétition va d'autant plus vite : garder la durée
-    // nominale ferait attendre 50 % de trop à chaque tour de parole.
-    ms /= rate;
+    // Volontairement PAS divisé par `rate` : cette pause vaut le temps qu'il faut à
+    // un humain pour dire la réplique, et personne ne parle 1,5× plus vite parce que
+    // les autres voix ont été accélérées. Cf. `rateFor`.
     timed = true;
     timedMs = ms;
     emit();
@@ -511,7 +523,7 @@ export function createPlayer(opts: PlayerOptions): Player {
 
     silentSkips = 0;
     audio.src = url;
-    audio.playbackRate = rate;
+    audio.playbackRate = rateFor(t);
     const p = audio.play();
     if (p && typeof p.catch === 'function') {
       p.catch((e: unknown) => {
@@ -566,6 +578,9 @@ export function createPlayer(opts: PlayerOptions): Player {
   function reevaluate(): void {
     applyMask();
     const t = tirades[index];
+    // Basculer en répétition (ou s'attribuer un rôle) pendant une réplique qui joue
+    // change sa vitesse de référence : sans ça, elle finirait accélérée.
+    if (t) audio.playbackRate = rateFor(t);
     const stillMine = Boolean(t && settings.rehearsal && isMine(t.characterId));
     if (waitingForUser && !stillMine) {
       // La pause n'a plus lieu d'être (continu, ou ce n'est plus mon rôle) → on reprend.
@@ -622,11 +637,14 @@ export function createPlayer(opts: PlayerOptions): Player {
       reevaluate();
     },
     setRate: (r: number) => {
-      // `rate` divise la pause de l'avancement automatique : une valeur nulle ou
-      // absurde y produirait une attente infinie, et `playbackRate` lève sur zéro.
+      // Zéro fige la lecture sans rien pour l'expliquer, et une valeur négative fait
+      // lever `playbackRate` : on refuse plutôt que d'entrer dans cet état.
       if (!Number.isFinite(r) || r <= 0) return;
       rate = r;
-      audio.playbackRate = r;
+      // Par `rateFor` et non `r` : changer la vitesse pendant MA réplique ne doit pas
+      // l'accélérer d'un coup au milieu.
+      const t = tirades[index];
+      audio.playbackRate = t ? rateFor(t) : r;
     },
     setLoop: (on: boolean) => {
       loop = on;

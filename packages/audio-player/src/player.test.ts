@@ -46,6 +46,27 @@ describe('@theatre/audio-player', () => {
   };
   const line = (cid: string, nid: string, speech: string): string =>
     `<p class="line" data-cid="${cid}" data-nid="${nid}"><span class="cue">${cid}</span><span class="speech">${speech}</span></p>`;
+  /**
+   * L'élément `<audio>` du moteur n'est jamais inséré dans le document : le test
+   * l'intercepte à la création, seul moyen de lui envoyer `ended` (qui déclenche
+   * l'enchaînement, donc la boucle) et de lire le `playbackRate` réellement appliqué.
+   */
+  const buildWithAudio = (
+    cont: HTMLElement,
+    extra: Partial<PlayerOptions> = {},
+  ): { p: ReturnType<typeof buildPlayer>; audio: HTMLAudioElement } => {
+    const real = document.createElement.bind(document);
+    const made: HTMLAudioElement[] = [];
+    document.createElement = ((tag: string) => {
+      const el = real(tag);
+      if (tag === 'audio') made.push(el as HTMLAudioElement);
+      return el;
+    }) as typeof document.createElement;
+    const p = buildPlayer(cont, extra);
+    document.createElement = real;
+    return { p, audio: made[0]! };
+  };
+
   const buildPlayer = (cont: HTMLElement, extra: Partial<PlayerOptions> = {}) =>
     createPlayer({
       container: cont,
@@ -552,25 +573,12 @@ describe('@theatre/audio-player', () => {
           line('benji', 'd#0', 'Quatre'),
       );
 
-    /**
-     * L'élément `<audio>` du moteur n'est jamais inséré dans le document : le test
-     * l'intercepte à la création pour pouvoir lui envoyer `ended`, le seul événement
-     * qui déclenche l'enchaînement — et donc la boucle.
-     */
     const buildLooping = (
       cont: HTMLElement,
       extra: Partial<PlayerOptions> = {},
     ): { p: ReturnType<typeof buildPlayer>; endClip: () => void } => {
-      const real = document.createElement.bind(document);
-      const made: HTMLAudioElement[] = [];
-      document.createElement = ((tag: string) => {
-        const el = real(tag);
-        if (tag === 'audio') made.push(el as HTMLAudioElement);
-        return el;
-      }) as typeof document.createElement;
-      const p = buildPlayer(cont, { rangeOf: (t) => RANGES[t.nodeId] ?? null, ...extra });
-      document.createElement = real;
-      return { p, endClip: () => void made[0]!.dispatchEvent(new Event('ended')) };
+      const { p, audio } = buildWithAudio(cont, { rangeOf: (t) => RANGES[t.nodeId] ?? null, ...extra });
+      return { p, endClip: () => void audio.dispatchEvent(new Event('ended')) };
     };
 
     it('repart de la première tirade de la plage au lieu d\'enchaîner sur la suivante', async () => {
@@ -647,13 +655,82 @@ describe('@theatre/audio-player', () => {
     });
   });
 
+  /**
+   * L'accélération sert à traverser le texte des AUTRES. Mes répliques sont l'objet
+   * même de la répétition : les accélérer me ferait caler mon débit sur un rythme que
+   * je ne tiendrai pas en scène.
+   */
   describe('vitesse de lecture', () => {
-    it('raccourcit la pause de l\'avancement automatique d\'autant', async () => {
+    const THREE = (): HTMLElement =>
+      mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'));
+
+    it('accélère les répliques des autres', async () => {
+      const { p, audio } = buildWithAudio(THREE(), { roles: ['benji'], settings: { rehearsal: true } });
+      p.setRate(1.5);
+      p.playFrom('a#0'); // michel : pas un de mes rôles
+      await flush();
+      expect(audio.playbackRate).toBe(1.5);
+      p.destroy();
+    });
+
+    it('joue MA réplique à vitesse normale en répétition (playMine)', async () => {
+      const { p, audio } = buildWithAudio(THREE(), {
+        roles: ['benji'],
+        settings: { rehearsal: true, playMine: true },
+      });
+      p.setRate(2);
+      p.playFrom('b#0'); // ma réplique → pause
+      await flush();
+      p.resume(); // le TTS la lit : c'est mon débit de référence, pas le double
+      await flush();
+      expect(last?.currentNodeId).toBe('b#0');
+      expect(audio.playbackRate).toBe(1);
+      p.destroy();
+    });
+
+    it('accélère de nouveau dès la réplique suivante', async () => {
+      const { p, audio } = buildWithAudio(THREE(), {
+        roles: ['benji'],
+        settings: { rehearsal: true, playMine: true },
+      });
+      p.setRate(2);
+      p.playFrom('b#0');
+      await flush();
+      p.resume();
+      await flush();
+      p.next();
+      await flush();
+      expect(last?.currentNodeId).toBe('a#1');
+      expect(audio.playbackRate).toBe(2);
+      p.destroy();
+    });
+
+    it('hors répétition, mes répliques sont accélérées comme les autres', async () => {
+      const { p, audio } = buildWithAudio(THREE(), { roles: ['benji'] });
+      p.setRate(1.5);
+      p.playFrom('b#0');
+      await flush();
+      expect(audio.playbackRate).toBe(1.5);
+      p.destroy();
+    });
+
+    it('changer de vitesse pendant MA réplique ne l\'accélère pas au milieu', async () => {
+      const { p, audio } = buildWithAudio(THREE(), {
+        roles: ['benji'],
+        settings: { rehearsal: true, playMine: true },
+      });
+      p.playFrom('b#0');
+      await flush();
+      p.resume();
+      await flush();
+      p.setRate(2);
+      expect(audio.playbackRate).toBe(1);
+      p.destroy();
+    });
+
+    it('ne raccourcit pas la pause de l\'avancement automatique', async () => {
       vi.useFakeTimers();
-      const c = mount(
-        line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'),
-      );
-      const p = buildPlayer(c, {
+      const p = buildPlayer(THREE(), {
         roles: ['benji'],
         settings: { rehearsal: true, autoAdvance: true, playMine: false, mask: true },
         resolveDuration: () => Promise.resolve(2),
@@ -661,27 +738,20 @@ describe('@theatre/audio-player', () => {
       p.setRate(2);
       p.playFrom('b#0');
       await vi.advanceTimersByTimeAsync(0);
-      // À 2×, tout le reste va deux fois plus vite : attendre 2 s la durée nominale
-      // ferait traîner chaque tour de parole.
-      expect(last?.timedMs).toBe(1000);
+      // C'est MOI qui dis la réplique : la vitesse des autres voix n'y change rien.
+      expect(last?.timedMs).toBe(2000);
       p.destroy();
       vi.useRealTimers();
     });
 
-    it('refuse une vitesse nulle, qui rendrait la pause infinie', async () => {
-      vi.useFakeTimers();
-      const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux'));
-      const p = buildPlayer(c, {
-        roles: ['benji'],
-        settings: { rehearsal: true, autoAdvance: true },
-        resolveDuration: () => Promise.resolve(2),
-      });
+    it('refuse une vitesse nulle, qui figerait la lecture sans l\'expliquer', async () => {
+      const { p, audio } = buildWithAudio(THREE());
+      p.setRate(1.5);
       p.setRate(0);
-      p.playFrom('b#0');
-      await vi.advanceTimersByTimeAsync(0);
-      expect(last?.timedMs).toBe(2000);
+      p.playFrom('a#0');
+      await flush();
+      expect(audio.playbackRate).toBe(1.5);
       p.destroy();
-      vi.useRealTimers();
     });
   });
 });
