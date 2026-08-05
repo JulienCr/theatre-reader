@@ -76,8 +76,24 @@ function mountReader(doc: ReaderDocument): void {
   // moment-là le corps de la pièce n'existait pas encore (il vient d'être injecté
   // juste au-dessus), donc l'ancre ne menait nulle part. C'est ici, et seulement
   // ici, qu'elle est atteignable.
-  const anchor = decodeURIComponent(location.hash.slice(1));
+  const anchor = decodeAnchor(location.hash.slice(1));
   if (anchor) document.getElementById(anchor)?.scrollIntoView({ block: 'start' });
+}
+
+/**
+ * `decodeURIComponent` JETTE sur un pourcentage mal formé (`#%zz`) — ce que
+ * l'app n'écrit jamais, mais qu'un lien reçu de l'extérieur peut très bien
+ * porter. L'exception remonterait au `catch` de `main()`, qui remplacerait par
+ * un message d'erreur le lecteur pourtant monté juste au-dessus : la pièce
+ * deviendrait illisible à cause de son seul fragment. Une ancre incompréhensible
+ * ne vaut pas ça — on ouvre au début.
+ */
+function decodeAnchor(hash: string): string {
+  try {
+    return decodeURIComponent(hash);
+  } catch {
+    return '';
+  }
 }
 
 function mountPicker(): void {

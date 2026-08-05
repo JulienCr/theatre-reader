@@ -184,11 +184,13 @@ export function Picker() {
                       </span>
                     )}
                   </button>
-                  {/* Une seule action secondaire visible : télécharger tant que la
-                      pièce n'est pas sur le téléphone — c'est alors la seule chose
-                      à en faire — puis le menu, qui contient la resynchronisation.
+                  {/* Une seule action secondaire visible. Le bouton direct de
+                      téléchargement ne se justifie que tant que c'est la seule chose
+                      à faire de la pièce : dès qu'elle est sur le téléphone OU qu'une
+                      reprise est mémorisée, il y a un choix à offrir (resynchroniser,
+                      effacer, rouvrir depuis le début) et c'est le menu qui le porte.
                       Sans serveur il ne reste que le menu : rien à rapatrier. */}
-                  {row.local ? (
+                  {row.local || row.resume ? (
                     <IconButton
                       icon="more-horizontal"
                       label={`Actions pour ${row.name}`}
@@ -244,11 +246,13 @@ export function Picker() {
                 void prepare(actionRow.slug);
               }}
             >
-              <Icon name="refresh" size={20} />
-              <span className="sheet-nav-label">Resynchroniser</span>
+              <Icon name={actionRow.local ? 'refresh' : 'download'} size={20} />
+              <span className="sheet-nav-label">
+                {actionRow.local ? 'Resynchroniser' : 'Télécharger pour le hors-ligne'}
+              </span>
             </button>
           )}
-          {actionRow && (
+          {actionRow?.local && (
             <button
               type="button"
               className="sheet-nav-item picker-danger"
@@ -259,10 +263,14 @@ export function Picker() {
             </button>
           )}
         </div>
-        <p className="picker-help">
-          Supprimer n'efface que la copie de ce téléphone : la pièce reste sur le Mac, et se
-          retélécharge quand tu veux.
-        </p>
+        {/* N'a de sens qu'en face du bouton rouge : une pièce jamais rapatriée n'a
+            rien sur ce téléphone à effacer. */}
+        {actionRow?.local && (
+          <p className="picker-help">
+            Supprimer n'efface que la copie de ce téléphone : la pièce reste sur le Mac, et se
+            retélécharge quand tu veux.
+          </p>
+        )}
       </Sheet>
 
       <Sheet open={sheetOpen} title="Connexion" onClose={() => setSheetOpen(false)}>

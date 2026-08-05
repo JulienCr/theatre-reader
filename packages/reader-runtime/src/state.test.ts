@@ -5,7 +5,7 @@
  * incohérente rendue au chrome.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_READING, loadState, saveState, type PersistedState } from './state';
+import { DEFAULT_READING, loadResume, loadState, saveState, type PersistedState } from './state';
 
 const KEY = 'theatre-reader:une-piece';
 
@@ -66,5 +66,49 @@ describe('loadState', () => {
   it('ne jette pas sur un JSON illisible', () => {
     store.set(KEY, '{ ceci n’est pas du JSON');
     expect(loadState(KEY, FALLBACK)).toEqual(FALLBACK);
+  });
+});
+
+/**
+ * L'accueil de l'app appelle `loadResume` pour CHAQUE pièce du téléphone, à
+ * chaque affichage de la liste. Une exception y coûterait l'écran entier, pas
+ * seulement la ligne fautive : le contrat est donc « jamais d'exception,
+ * `undefined` en cas de doute », et il se vérifie séparément de `loadState`
+ * puisque c'est ce chemin-là, plus court, que l'accueil emprunte.
+ */
+describe('loadResume', () => {
+  let store: Map<string, string>;
+  beforeEach(() => {
+    store = installStorage();
+  });
+
+  it('rend undefined quand la pièce n’a jamais été ouverte', () => {
+    expect(loadResume(KEY)).toBeUndefined();
+  });
+
+  it('rend le point de reprise écrit par le lecteur', () => {
+    saveState(KEY, { ...FALLBACK, resume: { sceneId: 'h-42', label: 'ACTE II, scène 3', at: 17 } });
+    expect(loadResume(KEY)).toEqual({ sceneId: 'h-42', label: 'ACTE II, scène 3', at: 17 });
+  });
+
+  it('rend undefined pour un état sans reprise', () => {
+    saveState(KEY, FALLBACK);
+    expect(loadResume(KEY)).toBeUndefined();
+  });
+
+  it('ne jette pas sur un JSON illisible', () => {
+    store.set(KEY, '{ ceci n’est pas du JSON');
+    expect(loadResume(KEY)).toBeUndefined();
+  });
+
+  it('ignore une reprise sans identifiant de scène', () => {
+    store.set(KEY, JSON.stringify({ resume: { label: 'ACTE II', at: 17 } }));
+    expect(loadResume(KEY)).toBeUndefined();
+  });
+
+  /** Le pire que produise une date perdue est un « il y a longtemps », pas une ligne vide. */
+  it('remplace une date illisible par 0 plutôt que de jeter la reprise', () => {
+    store.set(KEY, JSON.stringify({ resume: { sceneId: 'h-1', label: 'ACTE I', at: 'hier' } }));
+    expect(loadResume(KEY)).toEqual({ sceneId: 'h-1', label: 'ACTE I', at: 0 });
   });
 });
