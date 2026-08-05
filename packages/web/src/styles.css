@@ -135,19 +135,20 @@ input[type='number'] {
   border-radius: 7px;
   background: var(--paper-raised);
 }
-/* Contrôle segmenté de mode (Édition / Lecture) — Radix ToggleGroup.
-   Largeur fixe : les deux libellés n'ont pas la même longueur, sans elle le
-   groupe changerait de largeur au changement de mode et la zone centrale
-   respirerait à chaque bascule. */
+/* Contrôle segmenté de mode (Édition / Lecture / Apprentissage) — Radix ToggleGroup.
+   Colonnes de largeur égale, calées sur le libellé le plus long : le groupe garde
+   des segments réguliers sans que sa largeur dépende du mode actif (l'état « on »
+   ne change que les couleurs, jamais la graisse). Une largeur fixe en pixels
+   rognait le troisième segment dès son ajout. */
 .seg {
-  display: inline-flex;
-  width: 208px;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
 .seg-btn {
-  flex: 1;
   border: 0;
   border-radius: 0;
   background: var(--paper-raised);
@@ -1498,4 +1499,224 @@ kbd {
   .save-state[data-state='saving'] .save-state-dot {
     animation: none;
   }
+}
+
+/* ---- Mode Apprentissage ------------------------------------------------- */
+/* Couleurs : l'accent rouge n'apparaît qu'une fois par vue (le bouton primaire
+   du formulaire). Les statuts utilisent les jetons sémantiques, distincts de
+   l'accent, et les trois notes se différencient par un liseré, pas un aplat. */
+
+.study {
+  flex: 1;
+  overflow: auto;
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.linklike {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.linklike:hover {
+  color: var(--accent);
+}
+
+.study-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+.study-head__figures {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+.study-countdown {
+  font-size: var(--fs-xl);
+  font-variant-numeric: tabular-nums;
+}
+.study-head__detail,
+.study-head__load {
+  color: var(--muted);
+  font-size: var(--fs-md);
+  margin: 0;
+}
+
+.study-status {
+  font-size: var(--fs-sm);
+  padding: 2px var(--sp-3);
+  border-radius: var(--r-full);
+  border: 1px solid currentColor;
+}
+.study-status--ok {
+  color: var(--ok);
+}
+.study-status--tight {
+  color: var(--warn-ink);
+  background: var(--warn-wash);
+}
+.study-status--late {
+  color: var(--danger);
+}
+.study-advice {
+  margin: 0;
+  font-size: var(--fs-md);
+}
+
+.study-alert {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--warn-wash);
+  color: var(--warn-ink);
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
+}
+.study-done,
+.study-empty,
+.study-hint {
+  color: var(--muted);
+  font-size: var(--fs-md);
+  margin: 0;
+}
+
+.study-section h2 {
+  font-size: var(--fs-lg);
+  margin: 0 0 var(--sp-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.study-section__count {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-portions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.study-portion {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.study-portion__text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.study-portion__where {
+  font-size: var(--fs-md);
+}
+.study-portion__what {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.study-grades {
+  display: flex;
+  gap: var(--sp-1);
+}
+.grade {
+  border-bottom-width: 2px;
+}
+.grade--again {
+  border-bottom-color: var(--danger);
+}
+.grade--hard {
+  border-bottom-color: var(--hit-current);
+}
+.grade--good {
+  border-bottom-color: var(--ok);
+}
+
+.study-progress {
+  list-style: none;
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+.study-progress li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--border);
+}
+.study-progress__level {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-width: 520px;
+}
+.study-form h2 {
+  margin: 0;
+  font-size: var(--fs-xl);
+}
+.study-roles {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.study-roles legend {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  padding: 0 var(--sp-2);
+}
+.study-preview {
+  padding: var(--sp-4);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.study-preview p {
+  margin: 0;
+}
+.study-preview .study-status {
+  align-self: flex-start;
+}
+.study-form__actions {
+  display: flex;
+  gap: var(--sp-3);
 }

@@ -7,7 +7,10 @@
  * parce que c'est justement *quelle* pièce était ouverte que l'on mémorise.
  */
 
-export type AppMode = 'edit' | 'read';
+/** Source unique des modes : ajouter un mode ne se fait qu'ici. */
+export const APP_MODES = ['edit', 'read', 'study'] as const;
+
+export type AppMode = (typeof APP_MODES)[number];
 
 export interface SessionPrefs {
   /** Slug de la dernière pièce ouverte, ou null si aucune. */
@@ -35,7 +38,9 @@ export function loadSessionPrefs(): SessionPrefs {
     const p = JSON.parse(raw) as { slug?: unknown; mode?: unknown };
     return {
       slug: typeof p.slug === 'string' && p.slug ? p.slug : DEFAULTS.slug,
-      mode: p.mode === 'read' || p.mode === 'edit' ? p.mode : DEFAULTS.mode,
+      mode: (APP_MODES as readonly string[]).includes(p.mode as string)
+        ? (p.mode as AppMode)
+        : DEFAULTS.mode,
     };
   } catch {
     return DEFAULTS;

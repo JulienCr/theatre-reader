@@ -367,11 +367,19 @@ export function planSession(portions: Portion[], state: StudyState, today: strin
 /**
  * La date d'atterrissage tient-elle ?
  *
- * `capacityPerDay` divise le budget de neuf d'une séance par le coût MOYEN des
- * portions restantes, plutôt que de valoir 1 : les frontières de scène produisent
- * des portions plus petites que le budget (mesuré : 48,5 pour un budget de 67,5),
- * si bien qu'un compte à 1 portion/jour sous-estimerait la capacité de près de
- * 40 % et annoncerait un retard qui n'existe pas.
+ * `capacityPerDay` divise la séance ENTIÈRE par le coût MOYEN des portions
+ * restantes. Deux choix, tous deux nécessaires :
+ *
+ * - diviser par le coût moyen plutôt que de compter 1 portion/jour : les
+ *   frontières de scène produisent des portions plus petites que le budget
+ *   (mesuré 48,5 pour un budget de 67,5), un compte à l'unité sous-estimerait la
+ *   capacité de près de 40 % ;
+ * - prendre la séance entière et non `budgetForSession` : le ratio de 0,6 borne
+ *   la taille d'une portion DANS la séance du jour, pour qu'il reste de la place
+ *   aux révisions. L'appliquer aussi ici compterait deux fois la même marge — la
+ *   réserve de 20 % des jours et le seuil à 0,8 en tiennent déjà lieu — et
+ *   annonçait « hors délai » un rôle qui tient : le rôle de BENJI (474 min de
+ *   travail pour 550 min disponibles) sortait en retard alors qu'il passe.
  */
 export function forecast(portions: Portion[], state: StudyState, today: string): Forecast {
   const fresh = portions.filter((p) => portionState(p, state).seen === 0);
@@ -382,7 +390,7 @@ export function forecast(portions: Portion[], state: StudyState, today: string):
   const avgCost = portionsLeft
     ? fresh.reduce((s, p) => s + p.cost, 0) / portionsLeft
     : 1;
-  const capacityPerDay = budgetForSession(state.config.sessionMinutes) / Math.max(1, avgCost);
+  const capacityPerDay = (state.config.sessionMinutes * COST_PER_MINUTE) / Math.max(1, avgCost);
   const ratio = capacityPerDay > 0 ? neededPerDay / capacityPerDay : Infinity;
   const status: Forecast['status'] =
     portionsLeft === 0 ? 'ok'

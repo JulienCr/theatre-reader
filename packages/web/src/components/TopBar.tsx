@@ -21,6 +21,7 @@
  */
 import { Button, Icon, IconButton, Toolbar, ToolbarGroup, ToolbarSeparator } from '@theatre/ui';
 import type { PlaySummary } from '../api';
+import type { AppMode } from '../sessionPrefs';
 import type { ThemePref } from '../theme';
 import {
   Menu,
@@ -62,8 +63,8 @@ export interface TopBarProps {
   summaries: PlaySummary[];
   playSlug: string | null;
   playName: string | null;
-  mode: 'edit' | 'read';
-  onMode: (m: 'edit' | 'read') => void;
+  mode: AppMode;
+  onMode: (m: AppMode) => void;
   onSelectPlay: (slug: string) => void;
   onImport: () => void;
   onSave: () => void;
@@ -86,9 +87,10 @@ export interface TopBarProps {
   onTheme: (t: ThemePref) => void;
 }
 
-const MODES: { value: 'edit' | 'read'; label: string }[] = [
+const MODES: { value: AppMode; label: string }[] = [
   { value: 'edit', label: 'Édition' },
   { value: 'read', label: 'Lecture' },
+  { value: 'study', label: 'Apprentissage' },
 ];
 
 export function TopBar(p: TopBarProps) {

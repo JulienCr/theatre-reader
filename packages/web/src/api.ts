@@ -1,6 +1,13 @@
 /** Client HTTP du serveur local (proxifié via Vite en dev). */
 
-import type { AudioConfig, Character, Note, Template, VoiceSettings } from '@theatre/core';
+import type {
+  AudioConfig,
+  Character,
+  Note,
+  StudyState,
+  Template,
+  VoiceSettings,
+} from '@theatre/core';
 
 export interface PlaySummary {
   slug: string;
@@ -175,4 +182,21 @@ export async function saveNotes(slug: string, notes: Note[]): Promise<void> {
     body: JSON.stringify({ notes }),
   });
   if (!res.ok) throw new Error(`Échec de la sauvegarde des notes (${res.status})`);
+}
+
+/** Plan d'apprentissage de la pièce ; `null` s'il n'a jamais été configuré. */
+export async function loadStudy(slug: string): Promise<StudyState | null> {
+  const { study } = await json<{ study: StudyState | null }>(
+    await fetch(`/api/plays/${encodeURIComponent(slug)}/study`),
+  );
+  return study;
+}
+
+export async function saveStudy(slug: string, study: StudyState): Promise<void> {
+  const res = await fetch(`/api/plays/${encodeURIComponent(slug)}/study`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ study }),
+  });
+  if (!res.ok) throw new Error(`Échec de la sauvegarde du plan (${res.status})`);
 }

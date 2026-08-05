@@ -286,15 +286,25 @@ describe('forecast', () => {
     expect(forecast(portions, state(), TODAY).status).toBe('ok');
   });
 
+  // 5 portions pour un coût moyen de 9,6 : à 3 min de séance la capacité vaut
+  // 3 × 4,5 / 9,6 ≈ 1,41 portion/jour. Sur 4 jours travaillables il en faut 1,25,
+  // soit 89 % de la capacité → tendu ; sur 2 jours il en faut 2,5 → hors délai.
   it('annonce « tendu » quand le besoin frôle la capacité', () => {
-    const f = forecast(portions, state({ target: addDays(TODAY, 5), sessionMinutes: 5 }), TODAY);
-    expect(f.status).toBe('tight');
+    const f = forecast(portions, state({ target: addDays(TODAY, 5), sessionMinutes: 3 }), TODAY);
     expect(f.daysLeft).toBe(4);
+    expect(f.status).toBe('tight');
   });
 
   it('annonce « hors délai » quand le besoin dépasse la capacité', () => {
-    expect(forecast(portions, state({ target: addDays(TODAY, 3), sessionMinutes: 5 }), TODAY).status)
+    expect(forecast(portions, state({ target: addDays(TODAY, 3), sessionMinutes: 3 }), TODAY).status)
       .toBe('late');
+  });
+
+  it('ne cumule pas les marges : un rôle qui tient n\'est pas annoncé en retard', () => {
+    // 48 unités de coût, séance de 25 min sur 22 jours travaillables : très large.
+    const f = forecast(portions, state(), TODAY);
+    expect(f.capacityPerDay).toBeGreaterThan(f.neededPerDay);
+    expect(f.status).toBe('ok');
   });
 
   it('sans jour restant mais avec du texte neuf → hors délai, sans NaN ni Infinity', () => {
