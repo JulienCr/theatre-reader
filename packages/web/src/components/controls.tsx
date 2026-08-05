@@ -52,6 +52,53 @@ export function NumberField({
   );
 }
 
+/**
+ * Champ de date. `<input type="date">` produit et consomme nativement le format
+ * « YYYY-MM-DD », qui est déjà celui des dates du modèle : aucune conversion.
+ */
+export function DateField({
+  value,
+  onChange,
+  min,
+  'aria-label': ariaLabel,
+}: {
+  /** « YYYY-MM-DD », ou '' si aucune date. */
+  value: string;
+  onChange: (v: string) => void;
+  min?: string;
+  'aria-label'?: string;
+}) {
+  return (
+    <input
+      type="date"
+      value={value}
+      min={min}
+      aria-label={ariaLabel}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+/** Heure « HH:MM ». Même remarque que `DateField` : le format natif est déjà le nôtre. */
+export function TimeField({
+  value,
+  onChange,
+  'aria-label': ariaLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  'aria-label'?: string;
+}) {
+  return (
+    <input
+      type="time"
+      value={value}
+      aria-label={ariaLabel}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
 export function TextField({
   value,
   onChange,

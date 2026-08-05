@@ -40,7 +40,12 @@ import * as api from '../api';
 type Status = 'paginating' | 'ready';
 
 export interface NavTarget {
-  kind: 'entry' | 'page';
+  /**
+   * `nid` vise un `data-nid` plutôt qu'un en-tête : c'est le seul ancrage fiable
+   * quand « mes scènes seulement » est actif, puisque le filtrage décale les
+   * `h-<index>` mais conserve délibérément les identifiants de contenu.
+   */
+  kind: 'entry' | 'page' | 'nid';
   value: string | number;
   nonce: number;
 }
@@ -268,6 +273,12 @@ export function Reader({
     containerRef.current?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'start' });
   }, []);
 
+  const goToNid = useCallback((nid: string) => {
+    containerRef.current
+      ?.querySelector(`[data-nid="${CSS.escape(nid)}"]`)
+      ?.scrollIntoView({ block: 'center' });
+  }, []);
+
   const goToPage = useCallback((n: number) => {
     if (!n || n < 1) return;
     containerRef.current
@@ -343,12 +354,13 @@ export function Reader({
     return () => container.removeEventListener('click', onClick);
   }, [status]);
 
-  // Navigation pilotée de l'extérieur (command palette).
+  // Navigation pilotée de l'extérieur (command palette, plan d'apprentissage).
   useEffect(() => {
     if (status !== 'ready' || !navTarget) return;
     if (navTarget.kind === 'entry') goToEntry(String(navTarget.value));
+    else if (navTarget.kind === 'nid') goToNid(String(navTarget.value));
     else goToPage(Number(navTarget.value));
-  }, [navTarget, status, goToEntry, goToPage]);
+  }, [navTarget, status, goToEntry, goToNid, goToPage]);
 
   // Le conteneur paginé garde la même identité d'un bout à l'autre (seul son
   // contenu est remplacé) : un contrôleur pour toute la durée du lecteur suffit.

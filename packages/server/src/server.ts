@@ -14,6 +14,7 @@ import fastifyStatic from '@fastify/static';
 import {
   actorReadingTemplate,
   cloneTemplate,
+  parseStudyState,
   type AudioConfig,
   type Note,
   type VoiceSettings,
@@ -23,11 +24,14 @@ import { exportPdf } from './export';
 import { createLogger, formatRequestLine } from './logger';
 import { exportReaderHtml } from './reader-export';
 import {
+  deleteStudy,
   listPlays,
   loadNotes,
   loadPlay,
+  loadStudy,
   savePlay,
   saveNotes,
+  saveStudy,
   uniqueSlug,
   audioCacheKey,
   readAudioCache,
@@ -174,6 +178,27 @@ export async function buildServer(): Promise<FastifyInstance> {
       return { ok: true };
     },
   );
+
+  app.get<{ Params: { slug: string } }>('/api/plays/:slug/study', async (req) => ({
+    study: await loadStudy(req.params.slug),
+  }));
+
+  app.put<{ Params: { slug: string }; Body: { study?: unknown } }>(
+    '/api/plays/:slug/study',
+    async (req, reply) => {
+      // Validation de structure, là où les notes se contentent d'un Array.isArray :
+      // un corps malformé écraserait des semaines de progression.
+      const study = parseStudyState(req.body?.study);
+      if (!study) return reply.code(400).send({ error: 'study (StudyState valide) requis' });
+      await saveStudy(req.params.slug, study);
+      return { ok: true };
+    },
+  );
+
+  app.delete<{ Params: { slug: string } }>('/api/plays/:slug/study', async (req) => {
+    await deleteStudy(req.params.slug);
+    return { ok: true };
+  });
 
   app.post('/api/import', async (req, reply) => {
     const file = await req.file();

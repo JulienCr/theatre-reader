@@ -6,11 +6,19 @@
  *                     personnages et template courant, que Fountain ne porte pas.
  */
 
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { AudioConfig, Character, Note, Template, slugify } from '@theatre/core';
+import {
+  AudioConfig,
+  Character,
+  Note,
+  StudyState,
+  Template,
+  parseStudyState,
+  slugify,
+} from '@theatre/core';
 
 export interface PlayMeta {
   name: string;
@@ -83,6 +91,47 @@ export async function saveNotes(slug: string, notes: Note[]): Promise<void> {
   const dir = join(DATA_DIR, slug);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'notes.json'), JSON.stringify(notes, null, 2), 'utf8');
+}
+
+/** Charge le plan d'apprentissage d'une pièce (null s'il n'a jamais été configuré). */
+export async function loadStudy(slug: string): Promise<StudyState | null> {
+  let raw: string;
+  try {
+    raw = await readFile(join(DATA_DIR, slug, 'study.json'), 'utf8');
+  } catch (e) {
+    // Fichier absent → pas encore de plan. Toute autre erreur (JSON corrompu,
+    // I/O) doit remonter, pour la même raison que loadNotes : sinon un
+    // saveStudy() ultérieur écraserait une progression bien réelle — ici des
+    // semaines de travail, pas une préférence d'affichage.
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw e;
+  }
+  // Un JSON syntaxiquement valide mais structurellement faux (version inconnue,
+  // champs manquants) doit être refusé ICI, sinon le GET sert un état incohérent
+  // que le client ne sait pas interpréter. Même verdict que la corruption : on
+  // lève plutôt que de renvoyer null, qui inviterait à écraser le fichier.
+  const study = parseStudyState(JSON.parse(raw));
+  if (!study) throw new Error(`study.json inexploitable pour « ${slug} »`);
+  return study;
+}
+
+/** Écrit le plan d'apprentissage dans data/<slug>/study.json. */
+export async function saveStudy(slug: string, study: StudyState): Promise<void> {
+  const dir = join(DATA_DIR, slug);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'study.json'), JSON.stringify(study, null, 2), 'utf8');
+}
+
+/**
+ * Supprime le plan d'apprentissage. Un fichier déjà absent n'est pas une erreur :
+ * l'appelant voulait qu'il n'y en ait plus, c'est le cas.
+ */
+export async function deleteStudy(slug: string): Promise<void> {
+  try {
+    await rm(join(DATA_DIR, slug, 'study.json'));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
 }
 
 /**

@@ -4,6 +4,7 @@ import { parseFountain } from './fountain';
 import {
   LEAD_RANGE_ID,
   sceneMembers,
+  sceneSpans,
   sceneVisibility,
   filterScenesByRoles,
   type EmbeddedSceneMember,
@@ -62,6 +63,34 @@ const GERALD = slugify('GERALD');
 const BENJI = slugify('BENJI');
 const MICHEL = slugify('MICHEL');
 const NARRATEUR = slugify('NARRATEUR');
+
+describe('sceneSpans', () => {
+  it('nomme chaque plage par son acte et sa scène', () => {
+    const play = parseFountain(SRC);
+    expect(sceneSpans(play).map((s) => [s.kind, s.actLabel, s.sceneLabel])).toEqual([
+      ['act', 'ACTE I.', ''], // « Noir total. »
+      ['scene', 'ACTE I.', 'SCENE I.'],
+      ['scene', 'ACTE I.', 'SCENE II.'],
+      ['act', 'ACTE II.', ''], // acte suivi immédiatement d'une scène : plage vide
+      ['scene', 'ACTE II.', 'SCENE I.'],
+    ]);
+  });
+
+  it('porte les mêmes ids et bornes que sceneMembers', () => {
+    const play = parseFountain(PROLOGUE_SRC);
+    expect(sceneSpans(play).map((s) => s.id)).toEqual(sceneMembers(play).map((m) => m.id));
+    // Les bornes couvrent le prologue de l'acte, pas seulement les scènes.
+    const prologue = sceneSpans(play).find((s) => s.kind === 'act')!;
+    expect(play.nodes.slice(prologue.from, prologue.to).filter((n) => n.type === 'line')).toHaveLength(2);
+  });
+
+  it('laisse les libellés vides avant le premier en-tête', () => {
+    const play = parseFountain('GERALD\nSeul en scène.\n');
+    expect(sceneSpans(play)).toEqual([
+      { id: LEAD_RANGE_ID, kind: 'lead', actLabel: '', sceneLabel: '', from: 0, to: play.nodes.length },
+    ]);
+  });
+});
 
 describe('sceneMembers', () => {
   const play = parseFountain(SRC);

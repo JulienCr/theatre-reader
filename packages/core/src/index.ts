@@ -4,4 +4,6 @@ export * from './template';
 export * from './render';
 export * from './scenes';
 export * from './notes';
+export * from './study';
+export * from './ics';
 export * from './audio';

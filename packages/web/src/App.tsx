@@ -19,11 +19,12 @@ import { CommandPalette, type Command } from './components/CommandPalette';
 import { AudioProgressModal, type AudioGenState } from './components/AudioProgressModal';
 import { TopBar, type SaveState } from './components/TopBar';
 import { ShortcutList } from './components/ShortcutList';
+import { StudyMode } from './components/StudyMode';
 import { Workspace, type DockPanel } from './components/Workspace';
 import { Modal } from './components/ui/Modal';
 import { Toasts, type FlashMessage } from './components/ui/Toasts';
 import { applyTheme, loadTheme, type ThemePref } from './theme';
-import { loadSessionPrefs, saveSessionPrefs } from './sessionPrefs';
+import { loadSessionPrefs, saveSessionPrefs, type AppMode } from './sessionPrefs';
 import type { NavTarget } from './components/Reader';
 
 // Paged.js (~500 Ko) chargé à la demande, uniquement à l'ouverture du lecteur.
@@ -55,7 +56,7 @@ export function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<FlashMessage | null>(null);
   const [showEditor, setShowEditor] = useState(true);
-  const [mode, setMode] = useState<'edit' | 'read'>('edit');
+  const [mode, setMode] = useState<AppMode>('edit');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [theme, setTheme] = useState<ThemePref>(loadTheme);
@@ -555,6 +556,11 @@ export function App() {
         run: () => setMode(mode === 'read' ? 'edit' : 'read'),
       });
       cmds.push({
+        id: 'study',
+        label: mode === 'study' ? "Quitter l'apprentissage" : 'Séance du jour',
+        run: () => setMode(mode === 'study' ? 'edit' : 'study'),
+      });
+      cmds.push({
         id: 'editor',
         label: showEditor ? 'Masquer la source (Fountain)' : 'Afficher la source (Fountain)',
         run: () => setShowEditor((v) => !v),
@@ -696,7 +702,22 @@ export function App() {
             onOrphans={setOrphans}
           />
         </Suspense>
+      ) : mode === 'study' && parsed ? (
+        <StudyMode
+          /* La `key` fait de chaque pièce un montage neuf. `StudyMode` fige la
+             date du jour et charge son plan au montage : sans elle, changer de
+             pièce recyclait l'instance, donc la date d'hier et, si le chargement
+             échouait, le plan de la pièce précédente. */
+          key={play.slug}
+          slug={play.slug}
+          play={parsed}
+          audio={play.audio}
+          onOpenPortion={(nid) => navTo('nid', nid)}
+          onOpenCast={() => setMode('edit')}
+          onError={flash}
+        />
       ) : (
+        /* mode === 'edit' : l'atelier, par défaut */
         <Workspace
           panels={dockPanels}
           template={play.template}

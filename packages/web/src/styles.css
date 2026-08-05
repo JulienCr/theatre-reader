@@ -128,26 +128,29 @@ button.primary:hover {
 }
 select,
 input[type='text'],
-input[type='number'] {
+input[type='number'],
+input[type='date'],
+input[type='time'] {
   font: inherit;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--paper-raised);
 }
-/* Contrôle segmenté de mode (Édition / Lecture) — Radix ToggleGroup.
-   Largeur fixe : les deux libellés n'ont pas la même longueur, sans elle le
-   groupe changerait de largeur au changement de mode et la zone centrale
-   respirerait à chaque bascule. */
+/* Contrôle segmenté de mode (Édition / Lecture / Apprentissage) — Radix ToggleGroup.
+   Colonnes de largeur égale, calées sur le libellé le plus long : le groupe garde
+   des segments réguliers sans que sa largeur dépende du mode actif (l'état « on »
+   ne change que les couleurs, jamais la graisse). Une largeur fixe en pixels
+   rognait le troisième segment dès son ajout. */
 .seg {
-  display: inline-flex;
-  width: 208px;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
 .seg-btn {
-  flex: 1;
   border: 0;
   border-radius: 0;
   background: var(--paper-raised);
@@ -1499,3 +1502,479 @@ kbd {
     animation: none;
   }
 }
+
+/* ---- Mode Apprentissage ------------------------------------------------- */
+/* Couleurs : l'accent rouge n'apparaît qu'une fois par vue (le bouton primaire
+   du formulaire). Les statuts utilisent les jetons sémantiques, distincts de
+   l'accent, et les trois notes se différencient par un liseré, pas un aplat. */
+
+.study {
+  flex: 1;
+  overflow: auto;
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.linklike {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.linklike:hover {
+  color: var(--accent);
+}
+
+.study-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+.study-head__figures {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+.study-countdown {
+  font-size: var(--fs-xl);
+  font-variant-numeric: tabular-nums;
+}
+.study-head__detail,
+.study-head__load {
+  color: var(--muted);
+  font-size: var(--fs-md);
+  margin: 0;
+}
+
+.study-status {
+  font-size: var(--fs-sm);
+  padding: 2px var(--sp-3);
+  border-radius: var(--r-full);
+  border: 1px solid currentColor;
+}
+.study-status--ok {
+  color: var(--ok);
+}
+.study-status--tight {
+  color: var(--warn-ink);
+  background: var(--warn-wash);
+}
+.study-status--late {
+  color: var(--danger);
+}
+.study-advice {
+  margin: 0;
+  font-size: var(--fs-md);
+}
+
+.study-alert {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--warn-wash);
+  color: var(--warn-ink);
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
+}
+.study-done,
+.study-empty,
+.study-hint {
+  color: var(--muted);
+  font-size: var(--fs-md);
+  margin: 0;
+}
+
+.study-section h2 {
+  font-size: var(--fs-lg);
+  margin: 0 0 var(--sp-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.study-section__count {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-portions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.study-portion {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.study-portion__text {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.study-portion__where {
+  font-size: var(--fs-md);
+}
+.study-portion__what {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.study-grades {
+  display: flex;
+  gap: var(--sp-1);
+}
+.grade {
+  border-bottom-width: 2px;
+}
+.grade--again {
+  border-bottom-color: var(--danger);
+}
+.grade--hard {
+  border-bottom-color: var(--hit-current);
+}
+.grade--good {
+  border-bottom-color: var(--ok);
+}
+
+.study-progress {
+  list-style: none;
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+/* Grille et non flex : la liste accueille les trois notes en fin de ligne, et
+   les libellés ne doivent pas se déplacer d'une ligne à l'autre. */
+.study-progress li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--border);
+}
+.study-progress__level {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.study-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-width: 520px;
+}
+.study-form h2 {
+  margin: 0;
+  font-size: var(--fs-xl);
+}
+.study-roles {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.study-roles legend {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  padding: 0 var(--sp-2);
+}
+.study-preview {
+  padding: var(--sp-4);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.study-preview p {
+  margin: 0;
+}
+.study-preview .study-status {
+  align-self: flex-start;
+}
+.study-form__actions {
+  display: flex;
+  gap: var(--sp-3);
+}
+
+/* ---- Apprentissage : annulation, calendrier ------------------------------ */
+
+.study-undo {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--paper-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-md);
+}
+
+.study-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.study-calendar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.study-calendar__figures {
+  margin: 0;
+  font-size: var(--fs-md);
+}
+
+/* Grille de mois. Les jours occupent leur vraie colonne de semaine : c'est ce
+   qui fait voir « tous mes samedis sont chargés », qu'une liste ne montre pas. */
+.study-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.study-grid__weekdays,
+.study-grid__week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.study-grid__weekdays {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+  padding: 0 var(--sp-2) var(--sp-1);
+}
+
+.study-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: stretch;
+  text-align: left;
+  padding: var(--sp-2);
+  min-height: 5.2em;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.study-cell:hover {
+  background: var(--paper-sunken);
+}
+.study-cell--empty {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+  min-height: 0;
+}
+/* Sélection : l'accent marque « en scène », ce qui est exactement le sens ici —
+   le jour dont on lit le détail. Un seul à la fois. */
+.study-cell--on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.study-cell:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.study-cell__num {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.study-cell__month {
+  font-weight: 400;
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+}
+.study-cell__gauge {
+  display: block;
+  height: 5px;
+  background: var(--table);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+.study-cell__bar {
+  display: block;
+  height: 100%;
+  background: var(--ink-muted);
+  border-radius: var(--r-full);
+}
+.study-cell--over .study-cell__bar {
+  background: var(--warn-ink);
+}
+.study-cell__time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.study-cell--over .study-cell__time {
+  color: var(--warn-ink);
+  font-weight: 600;
+}
+.study-cell__range {
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Détail du jour sélectionné, sous la grille : un panneau plutôt qu'une modale —
+   on compare avec la grille restée visible. */
+.study-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+}
+.study-detail__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+.study-detail__time {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  margin-right: auto;
+}
+
+@media (max-width: 620px) {
+  /* Trop étroit pour sept colonnes : la grille redevient une colonne unique,
+     et les cases vides disparaissent au lieu de laisser des trous. */
+  .study-grid__weekdays {
+    display: none;
+  }
+  .study-grid__week {
+    grid-template-columns: 1fr;
+  }
+  .study-cell--empty {
+    display: none;
+  }
+  .study-cell {
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--sp-3);
+    min-height: 0;
+  }
+  .study-cell__gauge {
+    flex: 1;
+  }
+  .study-progress li {
+    grid-template-columns: 1fr;
+    gap: var(--sp-1);
+  }
+}
+
+/* Bloc de travail : une ligne qui dit quoi et où, une ligne qui cite les deux
+   bornes. Deux alignements verticaux, pas six — les citations portent le sens,
+   tout le reste doit s'effacer. */
+.study-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.study-block + .study-block {
+  margin-top: var(--sp-2);
+}
+.study-block__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.study-block__label {
+  color: var(--text);
+  font-weight: 600;
+}
+.study-block__range {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.study-block__gaps {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* Les deux citations se partagent la ligne et se rognent à parts égales : la
+   seconde ne doit pas disparaître parce que la première est longue. */
+.study-block__quotes {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.study-block__text {
+  flex: 1 1 0;
+  color: var(--ink-muted);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.study-block__arrow {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+}
+
+/* Actions destructives : en texte sur --danger, jamais en aplat (cf. jetons). */
+.study-reset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.study-reset .study-hint {
+  flex-basis: 100%;
+}
+/* Le survol doit être redéclaré : `.linklike:hover` est plus spécifique que la
+   seule classe, donc une action destructive virait à l'accent au passage de la
+   souris — exactement la confusion que les jetons interdisent. */
+.linklike--danger,
+.linklike--danger:hover {
+  color: var(--danger);
+}
+.study-danger {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+}
+

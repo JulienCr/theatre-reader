@@ -130,6 +130,48 @@ export function sceneMembers(play: Play): SceneMember[] {
   }));
 }
 
+/** Une plage avec de quoi la NOMMER, en plus de la situer. */
+export interface SceneSpan {
+  /** `h-<index de l'en-tête>`, ou `LEAD_RANGE_ID` pour la tête de pièce. */
+  id: string;
+  kind: SceneRangeKind;
+  /** Libellé de l'acte courant, '' avant le premier acte. */
+  actLabel: string;
+  /** Libellé de la scène, '' pour une plage d'acte ou de tête. */
+  sceneLabel: string;
+  /** Bornes du contenu, en-tête exclu : [from, to). */
+  from: number;
+  to: number;
+}
+
+/**
+ * Les mêmes plages que `sceneMembers`, mais portant leurs libellés plutôt que leur
+ * distribution — ce dont a besoin qui doit ÉCRIRE « ACTE II · SCÈNE 3 » (le plan
+ * d'apprentissage) et non décider d'un masquage.
+ *
+ * Dérivé de `sceneRanges` comme tout le reste du module : refaire un parcours des
+ * en-têtes ailleurs est précisément la duplication qui avait laissé le contenu
+ * hors-scène échapper au filtre.
+ *
+ * Les libellés sont bruts : la décoration par le `Template` (préfixe d'acte du mode
+ * `showAct`) appartient au rendu, pas au découpage.
+ */
+export function sceneSpans(play: Play): SceneSpan[] {
+  let actLabel = '';
+  return sceneRanges(play).map((r) => {
+    const head = r.head >= 0 ? play.nodes[r.head] : undefined;
+    if (head?.type === 'act') actLabel = head.label;
+    return {
+      id: rangeId(r),
+      kind: r.kind,
+      actLabel,
+      sceneLabel: head?.type === 'scene' ? head.label : '',
+      from: r.from,
+      to: r.to,
+    };
+  });
+}
+
 /**
  * Décide ce que le mode « mes scènes » masque. Les deux lecteurs appellent CECI et
  * appliquent le résultat à leur substrat (AST côté web, DOM côté mobile) : c'est
