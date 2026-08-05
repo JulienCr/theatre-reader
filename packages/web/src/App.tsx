@@ -704,6 +704,11 @@ export function App() {
         </Suspense>
       ) : mode === 'study' && parsed ? (
         <StudyMode
+          /* La `key` fait de chaque pièce un montage neuf. `StudyMode` fige la
+             date du jour et charge son plan au montage : sans elle, changer de
+             pièce recyclait l'instance, donc la date d'hier et, si le chargement
+             échouait, le plan de la pièce précédente. */
+          key={play.slug}
           slug={play.slug}
           play={parsed}
           audio={play.audio}

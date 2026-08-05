@@ -142,17 +142,13 @@ export function StudyMode({
 
   const [draft, setDraft] = useState<StudyConfig>(() => defaultDraft(slug, audio));
 
+  // Un seul chargement, au montage : `App` monte une instance par pièce (`key`),
+  // si bien qu'aucun état de la pièce précédente ne peut survivre ici — pas même
+  // quand le chargement échoue.
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
     setLoadError(null);
-    // Tout ce qui décrit la pièce PRÉCÉDENTE est jeté avant de charger la
-    // suivante. Sans cela, un GET en échec (500, hors ligne) laissait le plan de
-    // l'ancienne pièce à l'écran — et une note l'aurait écrit dans la nouvelle.
-    setState(null);
-    setUndo(null);
-    setEditing(false);
-    setDraft(defaultDraft(slug, audio));
     api
       .loadStudy(slug)
       .then((s) => {
@@ -170,7 +166,7 @@ export function StudyMode({
     return () => {
       cancelled = true;
     };
-  }, [slug, audio]);
+  }, [slug]);
 
   const persist = (next: StudyState): void => {
     setState(next);
@@ -290,13 +286,28 @@ export function StudyMode({
     );
   }
 
-  const showForm = editing || !state;
+  /**
+   * Un plan dont les rôles ne découpent plus rien — personnage renommé, supprimé,
+   * ou texte réimporté — doit ramener au formulaire. Laissé en séance, il affiche
+   * « rien à travailler aujourd'hui », qu'on lit comme un rôle terminé alors que
+   * le plan ne pointe plus sur rien.
+   */
+  const planIsStale = Boolean(state) && portions.length === 0;
+  const showForm = editing || !state || planIsStale;
 
   return (
     <div className="study">
       {loadError && (
         <p className="study-alert">
           Le plan n'a pas pu être chargé ({loadError}). Reconfigurer écrasera le fichier existant.
+        </p>
+      )}
+
+      {planIsStale && (
+        <p className="study-alert">
+          Le rôle de ce plan n'existe plus dans le texte — renommé, supprimé, ou pièce
+          réimportée. Choisis-en un ci-dessous : ta progression est conservée pour les
+          répliques inchangées.
         </p>
       )}
 
