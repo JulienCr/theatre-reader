@@ -648,9 +648,12 @@ export function createPlayer(opts: PlayerOptions): Player {
       playing = true;
       silentSkips = 0;
       cancelTimer();
-      // Symétrique de `next` : sans ça, un premier ⏮ à l'index 0 sortirait des
-      // bornes et s'arrêterait en silence.
-      void playIndex(started ? index - 1 : index);
+      // Borné à 0, et pas seulement pour éviter un arrêt en silence : sortir des bornes
+      // laisse `index` sur place en levant `waitingForUser`, ce qui démasque la réplique
+      // qu'on attendait — un ⏮ dirait « je l'ai dite » alors qu'il dit l'inverse.
+      // Asymétrique avec ⏭ à la dernière tirade, et à raison : là, le geste veut bien
+      // dire qu'on l'a dite.
+      void playIndex(started ? Math.max(0, index - 1) : index);
     },
     playFrom: (nodeId: string) => {
       const i = tirades.findIndex((t) => t.nodeId === nodeId);

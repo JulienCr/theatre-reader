@@ -836,6 +836,23 @@ describe('@theatre/audio-player', () => {
       p.destroy();
     });
 
+    /* ⏮ sur la toute première réplique n'a nulle part où reculer. Sortir des bornes
+       laissait `index` sur place en levant `waitingForUser` : ma réplique se démasquait
+       alors que le geste dit exactement l'inverse. */
+    it('⏮ à la première tirade ne démasque pas la réplique attendue', async () => {
+      const c = mount(line('benji', 'b#0', 'Un') + line('michel', 'a#0', 'Deux'));
+      const p = buildPlayer(c, REHEARSING);
+      p.playFrom('b#0'); // ma réplique : pause
+      await flush();
+      expect(last?.waitingForUser).toBe(true);
+      p.prev();
+      await flush();
+      expect(last?.currentNodeId).toBe('b#0');
+      expect(last?.waitingForUser).toBe(true); // toujours à moi de la dire
+      expect(el(c, 'b#0').classList.contains('line--revealed')).toBe(false);
+      p.destroy();
+    });
+
     /* À l'ouverture, la position 0 est encore DEVANT nous : rien n'a été dit, et le
        premier ⏮ démarre sur place au lieu de reculer. */
     it('ne démasque rien tant que rien n\'a été joué', async () => {
