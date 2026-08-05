@@ -90,8 +90,13 @@ export function slugify(name: string): string {
  * de `.` dans l'alphabet autorisé. Un `%` survivant d'un double encodage est
  * rejeté par le même alphabet.
  */
-export function isValidSlug(s: string): boolean {
-  return /^[a-z0-9-]+$/.test(s);
+export function isValidSlug(s: unknown): s is string {
+  // Le `typeof` n'est pas décoratif : `RegExp.test` convertit son argument en
+  // chaîne, si bien que `test(null)` interroge `"null"` — qui appartient à
+  // l'alphabet et rendait donc **vrai**. Une garde de chemin qui valide `null`
+  // est pire que pas de garde du tout, et rien ne garantit le type quand la
+  // valeur vient d'un corps JSON (cf. le slug de `/api/export/reader`).
+  return typeof s === 'string' && /^[a-z0-9-]+$/.test(s);
 }
 
 /** Texte parlé concaténé d'une réplique (sans les didascalies). */

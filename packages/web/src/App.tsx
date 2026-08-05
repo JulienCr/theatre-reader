@@ -81,6 +81,9 @@ export function App() {
   const fileInput = useRef<HTMLInputElement>(null);
   const flashId = useRef(0);
   const failureId = useRef(0);
+  // Miroir synchrone de `failures` : ce que lit une reprise déjà en file pour
+  // savoir si elle a encore lieu d'être (cf. `publishFailures`).
+  const failuresRef = useRef<SaveFailure[]>([]);
   // Empreinte du dernier état réellement écrit sur disque, avec sa pièce. C'est
   // LA garde contre l'autosauvegarde parasite : au premier rendu d'une pièce on
   // adopte son contenu fraîchement lu comme référence, si bien que le `setPlay`
@@ -134,6 +137,22 @@ export function App() {
   // ils doivent pouvoir vider le débounce en attente avant de changer de pièce.
 
   /**
+   * Publie la file de reprises. `failuresRef` est la **source de vérité**, le
+   * state n'en est que le reflet à l'écran.
+   *
+   * Ce n'est pas une commodité : un `retry` en attente dans `saveChain` doit
+   * savoir, au moment où il s'exécute, si son entrée est encore d'actualité —
+   * et il ne peut pas le lire dans le state, dont sa fermeture porte une version
+   * figée au moment du clic. Même patron que `playRef`, à la différence près que
+   * la ref est écrite ici, sans passer par un effet : la décision se prend dans
+   * une microtâche, elle ne peut pas attendre le rendu suivant.
+   */
+  const publishFailures = useCallback((next: SaveFailure[]) => {
+    failuresRef.current = next;
+    setFailures(next);
+  }, []);
+
+  /**
    * Périme la reprise en attente sur une cible (pièce + nature d'écriture).
    *
    * Appelée après CHAQUE écriture réussie, y compris nominale. Les écritures
@@ -141,9 +160,14 @@ export function App() {
    * forcément un contenu plus récent : la reprise qui restait n'a plus rien à
    * sauver, et la proposer reviendrait à offrir d'écraser le travail qui a suivi.
    */
-  const clearFailure = useCallback((slug: string, kind: SaveFailure['kind']) => {
-    setFailures((list) => list.filter((f) => f.slug !== slug || f.kind !== kind));
-  }, []);
+  const clearFailure = useCallback(
+    (slug: string, kind: SaveFailure['kind']) => {
+      publishFailures(
+        failuresRef.current.filter((f) => f.slug !== slug || f.kind !== kind),
+      );
+    },
+    [publishFailures],
+  );
 
   /**
    * Met une écriture perdue en attente de reprise, avec son contenu.
@@ -165,6 +189,13 @@ export function App() {
         // Par la même chaîne que le reste : une reprise doit s'ordonner avec les
         // écritures en cours, pas se glisser à côté.
         const run = saveChain.current.then(async () => {
+          // Le clic met la reprise en FILE ; ce qui la précédait dans la chaîne
+          // s'exécute d'abord. Si l'une de ces écritures a réussi entre-temps,
+          // l'entrée a été périmée — et rejouer ici écrirait par-dessus, alors
+          // même que le toast a déjà disparu de l'écran. Le contrôle porte donc
+          // sur la ref, à l'instant de l'exécution, jamais sur le state capturé
+          // au clic.
+          if (!failuresRef.current.some((f) => f.id === id)) return;
           try {
             await write();
             clearFailure(target.slug, kind);
@@ -177,12 +208,12 @@ export function App() {
         });
         saveChain.current = run.catch(() => undefined);
       };
-      setFailures((list) => [
-        ...list.filter((f) => f.slug !== target.slug || f.kind !== kind),
+      publishFailures([
+        ...failuresRef.current.filter((f) => f.slug !== target.slug || f.kind !== kind),
         { id, slug: target.slug, kind, playName: target.name, retry },
       ]);
     },
-    [flash, clearFailure],
+    [flash, clearFailure, publishFailures],
   );
 
   /** Écrit la pièce sur disque. Toujours passer par ici : c'est le point de sérialisation. */
@@ -900,7 +931,11 @@ export function App() {
         message={message}
         failures={failures}
         onDismissMessage={() => setMessage(null)}
-        onDismissFailure={(id) => setFailures((list) => list.filter((f) => f.id !== id))}
+        /* Par `publishFailures` comme le reste : ignorer un échec doit aussi
+           désamorcer la reprise qui serait déjà partie en file. */
+        onDismissFailure={(id) =>
+          publishFailures(failuresRef.current.filter((f) => f.id !== id))
+        }
       />
     </div>
   );
