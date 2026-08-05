@@ -140,6 +140,18 @@ describe('homophones', () => {
     expect(verdict("C'est à toi.", 'ces a toi', 'strict')).toBe('ok');
   });
 
+  // Ceux-là ne sont PAS homophones : la dictée tranche entre eux d'après le nom
+  // qui suit. C'est une exception lexicale assumée, pas une règle de son.
+  it('accepte les démonstratifs interchangés', () => {
+    expect(verdict('Ouvre cette porte.', 'ouvre ces porte')).toBe('ok');
+    expect(verdict('Range ces papiers.', 'range cette papiers')).toBe('ok');
+    expect(verdict('Ouvre cette porte.', 'ouvre ces porte', 'strict')).toBe('ok');
+  });
+
+  it("n'étend pas l'exception aux mots qui portent le sens", () => {
+    expect(verdict('Ouvre cette porte.', 'ouvre cette fenêtre')).not.toBe('ok');
+  });
+
   it('ne rapproche pas deux mots qui sonnent différemment', () => {
     expect(verdict('Le ciel est bon.', 'le ciel est beau')).not.toBe('ok');
     expect(verdict('Il descend la rue.', 'il descend la roue')).not.toBe('ok');

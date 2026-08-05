@@ -16,6 +16,7 @@
  */
 import type { Token } from './normalize';
 import { phoneticKey } from './phonetic';
+import { sameVariant } from './variants';
 
 export type Op =
   /** Mot attendu retrouvé (à la tolérance de similarité près). */
@@ -88,6 +89,9 @@ export function similarity(a: Token, b: Token): number {
   if (a.key === b.key) return 1;
   if (a.key.startsWith('#') || b.key.startsWith('#')) return 0;
   if (a.phon && a.phon === b.phon) return HOMOPHONE_SIM;
+  // Même valeur que l'homophonie : dans les deux cas la personne a dit la réplique,
+  // c'est la machine qui a choisi la forme écrite.
+  if (sameVariant(a.key, b.key)) return HOMOPHONE_SIM;
   const max = Math.max(a.key.length, b.key.length);
   if (max === 0) return 1;
   return 1 - levenshtein(a.key, b.key) / max;

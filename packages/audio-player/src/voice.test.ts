@@ -180,6 +180,60 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
+  // Le micro s'ouvre AVANT la fin de la réplique précédente : on enchaîne sans
+  // attendre, et la parole part avant que le moteur ait fini de s'installer.
+  it('ouvre le micro avant la fin de la réplique précédente', async () => {
+    const p = build();
+    p.play();
+    await flush();
+    // happy-dom ne simule pas la lecture : on pose la durée et la position à la main.
+    Object.defineProperty(audios[0]!, 'duration', { value: 5, configurable: true });
+    audios[0]!.dispatchEvent(new Event('loadedmetadata'));
+    await flush();
+    expect(rec.live).toBe(false);
+    await tick(4100); // 4,1 s sur 5 : il reste moins que le pré-armement
+    expect(rec.live).toBe(true);
+    // Rien n'est annoncé — ce n'est pas encore à moi, et l'écran ne montre donc rien
+    // (`VoiceFeedback` ne rend rien sur `idle` sans écart à afficher).
+    expect(last?.voice?.phase).toBe('idle');
+    p.destroy();
+  });
+
+  it("retire de la transcription ce qui a été capté de l'autre réplique", async () => {
+    const p = build();
+    p.play();
+    await flush();
+    Object.defineProperty(audios[0]!, 'duration', { value: 5, configurable: true });
+    audios[0]!.dispatchEvent(new Event('loadedmetadata'));
+    await flush();
+    await tick(4100);
+    rec.say('tu pars'); // la fin de la réplique de l'autre, captée pendant la chauffe
+    await flush();
+    audios[0]!.dispatchEvent(new Event('ended'));
+    await flush();
+    await tick(TO_MIC);
+    // Le moteur rend l'énoncé complet depuis l'ouverture : ma réplique arrive
+    // derrière la sienne, et c'est bien la mienne seule qui doit être jugée.
+    rec.say(`tu pars ${TEXT.toLowerCase()}`);
+    await flush();
+    expect(last?.currentNodeId).toBe('b#1'); // validée
+    p.destroy();
+  });
+
+  it('ferme le micro chaud si l’utilisateur intervient', async () => {
+    const p = build();
+    p.play();
+    await flush();
+    Object.defineProperty(audios[0]!, 'duration', { value: 5, configurable: true });
+    audios[0]!.dispatchEvent(new Event('loadedmetadata'));
+    await flush();
+    await tick(4100);
+    expect(rec.live).toBe(true);
+    p.pause();
+    expect(rec.live).toBe(false);
+    p.destroy();
+  });
+
   it('valide sur un résultat partiel, sans attendre le silence', async () => {
     const p = build();
     await upToMic(p);

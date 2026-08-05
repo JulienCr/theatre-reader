@@ -261,6 +261,7 @@ export function createPlayer(opts: PlayerOptions): Player {
   // Résout la promesse du clip de référence. Non nul = un clip joue POUR le coach,
   // et sa fin ne doit surtout pas faire avancer la lecture (cf. `onEnded`).
   let referenceDone: (() => void) | null = null;
+  let warmId: ReturnType<typeof setTimeout> | null = null;
 
   function rolesPredicate(cids: string[]): (cid: string) => boolean {
     const set = new Set(cids);
@@ -435,6 +436,15 @@ export function createPlayer(opts: PlayerOptions): Player {
     playTones('cue');
   }
 
+  /**
+   * De combien le micro s'ouvre avant la fin de la réplique qui précède la mienne.
+   *
+   * Assez large pour couvrir l'installation du moteur ET un enchaînement rapide,
+   * assez court pour que la voix captée de l'autre reste une queue de phrase, que
+   * le coach retire par son préfixe.
+   */
+  const PRE_ARM_MS = 1000;
+
   // --- Pause automatique (avancement auto) : durée = celle du mp3, sans le jouer. ---
   const FALLBACK_MIN_MS = 1500;
   const FALLBACK_MAX_MS = 20000;
@@ -479,6 +489,7 @@ export function createPlayer(opts: PlayerOptions): Player {
    */
   function cancelPending(): void {
     cancelTimer();
+    cancelWarmUp();
     coach?.cancel();
     if (referenceDone) {
       const done = referenceDone;
@@ -486,6 +497,69 @@ export function createPlayer(opts: PlayerOptions): Player {
       stopAudio();
       done(); // le coach est déjà annulé : sa continuation verra sa génération périmée
     }
+  }
+
+  /**
+   * Comme `cancelPending`, mais préserve un micro déjà ouvert en prévision de la
+   * tirade qui arrive.
+   *
+   * C'est ce que doit appeler l'enchaînement d'une réplique à la suivante, par
+   * opposition à un geste : couper là annulerait l'anticipation à chaque fois,
+   * c'est-à-dire toujours, puisque tout enchaînement passe par `playIndex`.
+   */
+  function cancelInFlight(): void {
+    cancelTimer();
+    coach?.endEpisode();
+    if (referenceDone) {
+      const done = referenceDone;
+      referenceDone = null;
+      stopAudio();
+      done();
+    }
+  }
+
+  function cancelWarmUp(): void {
+    if (warmId != null) {
+      clearTimeout(warmId);
+      warmId = null;
+    }
+  }
+
+  /**
+   * Programme l'ouverture du micro AVANT la fin de la réplique en cours, quand la
+   * suivante est à moi.
+   *
+   * Mesuré en répétition : ouvrir le micro à la fin du clip laissait encore passer
+   * des débuts de tirade, parce qu'on enchaîne sans attendre — la parole part avant
+   * que le moteur ait fini de s'installer. Le micro capte donc la dernière seconde
+   * de l'autre voix ; le coach la retire (cf. son `prefix`), et ce qui échapperait
+   * à ce retrait tomberait de toute façon dans le départ libre de l'alignement.
+   */
+  function scheduleWarmUp(i: number, my: number): void {
+    cancelWarmUp();
+    if (!voiceActive()) return;
+    const next = tirades[nextIndex(i)];
+    if (!next || !isMine(next.characterId)) return;
+    const arm = (): void => {
+      if (destroyed || my !== token) return;
+      const rate = audio.playbackRate || 1;
+      const total =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? (audio.duration * 1000) / rate
+          : estimateMs(tirades[i]!.text);
+      const left = total - (audio.currentTime * 1000) / rate;
+      warmId = setTimeout(
+        () => {
+          if (destroyed || my !== token) return;
+          coach?.warmUp();
+        },
+        Math.max(0, left - PRE_ARM_MS),
+      );
+    };
+    // La durée n'est pas connue tant que les métadonnées ne sont pas là ; sur un
+    // clip embarqué en data URI, c'est souvent immédiat.
+    if (Number.isFinite(audio.duration) && audio.duration > 0) arm();
+    else audio.addEventListener('loadedmetadata', arm, { once: true });
   }
   function probeDuration(url: string): Promise<number> {
     return new Promise((resolve) => {
@@ -666,7 +740,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     token++;
     const my = token;
     stopAudio();
-    cancelPending();
+    cancelInFlight();
     if (i < 0 || i >= tirades.length) {
       playing = false;
       waitingForUser = false;
@@ -728,6 +802,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       });
     }
     prefetch(nextIndex(i));
+    scheduleWarmUp(i, my);
   }
 
   function prefetch(i: number): void {

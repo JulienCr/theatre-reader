@@ -71,10 +71,26 @@ export interface VoiceCoachOptions {
 }
 
 export interface VoiceCoach {
+  /**
+   * Ouvre le micro à l'avance, avant même que ce soit mon tour.
+   *
+   * Le lecteur l'appelle pendant la réplique précédente. Rien n'est annoncé et
+   * rien n'est évalué : c'est la chauffe du moteur (session audio, AVAudioEngine)
+   * qu'on veut payer d'avance. Ce qu'il capte de l'autre voix est mémorisé pour
+   * être retiré au moment où la parole me revient.
+   */
+  warmUp(): void;
   /** Prend la main sur la pause : respiration, signal, écoute. */
   begin(expectedText: string): void;
   /** Rend la main immédiatement (geste de l'utilisateur, réglage, sortie). */
   cancel(): void;
+  /**
+   * Clôt l'épisode en cours sans casser une chauffe en préparation.
+   *
+   * Ce qu'appelle l'enchaînement automatique d'une tirade à la suivante, là où
+   * `cancel()` répond à un geste — et doit, lui, fermer le micro.
+   */
+  endEpisode(): void;
   setTolerance(t: Tolerance): void;
   destroy(): void;
 }
@@ -124,6 +140,15 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   let message: string | null = null;
 
   let listening = false;
+  /** Le micro tourne, mais ce n'est pas encore à moi : on n'évalue rien. */
+  let warm = false;
+  /**
+   * Ce que le moteur avait déjà transcrit quand la parole m'est revenue — la fin
+   * de la réplique précédente, captée pendant la chauffe. Les résultats suivants
+   * arrivent complets depuis le début de la session : sans ce retrait, la voix de
+   * l'autre compterait comme mon amorce et mangerait le budget d'autocorrection.
+   */
+  let prefix = '';
   let timers: ReturnType<typeof setTimeout>[] = [];
   let idleId: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -181,6 +206,8 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   function stopListening(hard: boolean): void {
     if (!listening) return;
     listening = false;
+    warm = false;
+    prefix = '';
     if (idleId != null) {
       clearTimeout(idleId);
       idleId = null;
@@ -208,12 +235,9 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
    * `delay` court depuis l'APPEL, pas depuis le démarrage effectif : le signal doit
    * tomber à la même seconde quelle que soit la lenteur du moteur ce jour-là.
    */
-  async function listen(delay: number, cue: boolean): Promise<void> {
-    const my = gen;
-    const dueAt = Date.now() + delay;
-    heard = '';
-    message = null;
-    emit();
+  /** Ouvre le micro s'il ne l'est pas déjà. Rend faux si l'autorisation manque. */
+  async function openMic(my: number): Promise<boolean> {
+    if (listening) return true; // déjà chaud : c'est tout l'objet de `warmUp`
 
     if (authorized === null) {
       try {
@@ -221,30 +245,43 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       } catch {
         authorized = false;
       }
-      if (destroyed || my !== gen) return;
+      if (destroyed || my !== gen) return false;
     }
     if (!authorized) {
       phase = 'error';
       message = 'Micro non autorisé. Autorise-le dans Réglages, puis relance la lecture.';
       emit();
-      return;
+      return false;
     }
 
     try {
       await o.recognizer.start({ locale: o.locale ?? 'fr-FR' });
     } catch (e) {
-      if (destroyed || my !== gen) return;
+      if (destroyed || my !== gen) return false;
       phase = 'error';
       message = e instanceof Error ? e.message : String(e);
       emit();
-      return;
+      return false;
     }
     // Annulé pendant le démarrage : le micro vient de s'ouvrir pour personne.
     if (destroyed || my !== gen) {
       void o.recognizer.abort().catch(() => {});
-      return;
+      return false;
     }
     listening = true;
+    prefix = '';
+    return true;
+  }
+
+  async function listen(delay: number, cue: boolean): Promise<void> {
+    const my = gen;
+    const dueAt = Date.now() + delay;
+    heard = '';
+    message = null;
+    emit();
+
+    if (!(await openMic(my))) return;
+    if (destroyed || my !== gen) return;
 
     // Le micro est chaud. L'écoute ne « commence » — signal, affichage, minuteur —
     // qu'une fois la respiration écoulée. Ce qui serait dit avant est capté quand
@@ -261,7 +298,19 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     if (!listening) return;
     const t = text.trim();
     if (!t) return;
-    heard = t;
+    // Chauffe : c'est encore l'autre qui parle. On retient sa transcription pour la
+    // retirer ensuite, sans rien évaluer.
+    if (warm) {
+      prefix = t;
+      return;
+    }
+    // Le moteur rend toujours l'énoncé complet depuis l'ouverture du micro : ce qui
+    // vient de la réplique précédente se retire par la tête. Si le moteur a révisé
+    // son texte au point que le préfixe ne colle plus, on garde tout — l'amorce
+    // parasite tombera dans le départ libre de l'alignement.
+    const mine = prefix && t.startsWith(prefix) ? t.slice(prefix.length).trim() : t;
+    if (!mine) return;
+    heard = mine;
     armIdle();
     emit();
     // Validation anticipée : la tirade est complète, inutile d'attendre le silence.
@@ -274,7 +323,12 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   function onFinal(text: string): void {
     if (!listening) return;
     const t = text.trim();
-    if (t) heard = t;
+    if (warm) {
+      prefix = t;
+      return;
+    }
+    const mine = prefix && t.startsWith(prefix) ? t.slice(prefix.length).trim() : t;
+    if (mine) heard = mine;
     finish();
   }
 
@@ -380,6 +434,19 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     void listen(BREATH_MS, true);
   }
 
+  /** Coupe tout, micro compris. Ce qu'appelle un geste de l'utilisateur. */
+  function cancelAll(): void {
+    gen++;
+    clearTimers();
+    stopListening(true);
+    phase = 'idle';
+    heard = '';
+    message = null;
+    // `result` est délibérément conservé : après une validation limite, les écarts
+    // doivent rester lisibles pendant que la lecture continue.
+    emit();
+  }
+
   const off = [
     o.recognizer.onPartial(onPartial),
     o.recognizer.onFinal(onFinal),
@@ -393,10 +460,22 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   ];
 
   return {
+    warmUp() {
+      if (destroyed || listening) return;
+      warm = true;
+      prefix = '';
+      void openMic(gen).then((ok) => {
+        if (!ok) warm = false;
+      });
+    },
     begin(text: string) {
       gen++;
       clearTimers();
-      stopListening(true);
+      // Le micro déjà ouvert par la chauffe est CONSERVÉ : le rouvrir ici
+      // rendrait l'anticipation inutile, puisqu'on repaierait le démarrage
+      // exactement au moment où la parole revient.
+      if (!warm) stopListening(true);
+      warm = false; // à partir d'ici, ce qui est dit compte
       expected = text;
       failures = 0;
       silent = 0;
@@ -407,17 +486,21 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       emit();
       void listen(BREATH_MS, true);
     },
-    cancel() {
+    endEpisode() {
+      // Une chauffe en cours prépare la tirade qui arrive : la couper ici annulerait
+      // l'anticipation à chaque enchaînement, c'est-à-dire toujours.
+      if (!warm) {
+        cancelAll();
+        return;
+      }
       gen++;
       clearTimers();
-      stopListening(true);
       phase = 'idle';
       heard = '';
       message = null;
-      // `result` est délibérément conservé : après une validation limite, les écarts
-      // doivent rester lisibles pendant que la lecture continue.
       emit();
     },
+    cancel: cancelAll,
     setTolerance(t: Tolerance) {
       tolerance = t;
     },
