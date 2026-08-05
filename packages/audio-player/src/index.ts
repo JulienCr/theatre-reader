@@ -125,10 +125,10 @@ export interface Player {
   /**
    * Bascule l'état révélé (peek) d'une réplique masquée — pour le tap-to-peek.
    *
-   * Un peek ne survit pas à un retour en arrière qui repasse avant lui : il partage le
-   * registre des répliques « dites », que `playFrom`/`prev`/la boucle purgent à partir de
-   * leur point d'arrivée. Assumé — un coup d'œil donné plus loin dans la scène qu'on
-   * reprend n'a pas de raison de rester en clair au tour suivant.
+   * Refermer une réplique re-masque aussi TOUT ce qui la suit : c'est la même règle que
+   * `playFrom`/`prev`/la boucle — revenir sur une réplique, c'est annoncer que rien n'a
+   * encore été dit à partir d'elle. Un peek posé plus loin ne survit donc pas non plus à
+   * un retour en arrière : il vit dans le même registre que les répliques « dites ».
    */
   reveal(nodeId: string): void;
   /** Reconstruit la liste des tirades (après re-pagination), en gardant la position. */
@@ -297,8 +297,17 @@ export function createPlayer(opts: PlayerOptions): Player {
   }
   function toggleReveal(nodeId: string): void {
     if (revealed.has(nodeId)) {
-      revealed.delete(nodeId);
-      fragmentsOf(nodeId).forEach((el) => el.classList.remove(revealedClass));
+      // Re-masquer à la main, c'est dire « je reprends ici » : la suite n'a pas plus été
+      // dite que cette réplique-là. Même règle que les autres retours en arrière.
+      const i = tirades.findIndex((t) => t.nodeId === nodeId);
+      if (i >= 0) {
+        remaskFrom(i);
+      } else {
+        // Réplique hors liste (scène masquée par « mes scènes ») : elle n'a pas de rang,
+        // on ne peut re-masquer qu'elle.
+        revealed.delete(nodeId);
+        fragmentsOf(nodeId).forEach((el) => el.classList.remove(revealedClass));
+      }
     } else {
       saidReveal(nodeId);
     }

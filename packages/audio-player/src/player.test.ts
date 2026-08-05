@@ -769,6 +769,28 @@ describe('@theatre/audio-player', () => {
       p.destroy();
     });
 
+    /* a, b, c dites : refermer a re-floute aussi b et c. Sans ça, seule la réplique
+       tapée redevenait floue et les suivantes restaient en clair. */
+    it('refermer une réplique re-floute aussi celles qui la suivent', () => {
+      const c = mount(
+        line('benji', 'a#0', 'Un') +
+          line('michel', 'x#0', 'Entre-deux') +
+          line('benji', 'b#0', 'Deux') +
+          line('benji', 'c#0', 'Trois'),
+      );
+      const p = buildPlayer(c, REHEARSING);
+      ['a#0', 'b#0', 'c#0'].forEach((nid) => p.reveal(nid));
+      const el = (nid: string): HTMLElement => c.querySelector(`[data-nid="${nid}"]`) as HTMLElement;
+      ['a#0', 'b#0', 'c#0'].forEach((nid) =>
+        expect(el(nid).classList.contains('line--revealed')).toBe(true),
+      );
+      p.reveal('a#0'); // re-clic sur la première
+      ['a#0', 'b#0', 'c#0'].forEach((nid) =>
+        expect(el(nid).classList.contains('line--revealed')).toBe(false),
+      );
+      p.destroy();
+    });
+
     /* Le premier ⏮ démarre sur la tirade courante (cf. `started`) : ce n'est pas un
        recul, et re-flouter là révélerait le bug en l'annulant à peine posé. */
     it('ne touche à rien quand ⏮ sert de démarrage', async () => {
