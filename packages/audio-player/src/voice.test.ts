@@ -377,6 +377,38 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
+  // Le scénario réel : on valide une tirade, la réplique de l'autre se joue, et il
+  // faut que l'écoute reparte sur la suivante. C'est le deuxième tour qui casse
+  // quand une écoute close continue de parler par-dessus la nouvelle.
+  it('réécoute sur ma tirade suivante, après celle d’un autre', async () => {
+    document.body.innerHTML =
+      '<div id="c">' +
+      `<p class="line" data-cid="moi" data-nid="m#0"><span class="speech">${TEXT}</span></p>` +
+      '<p class="line" data-cid="benji" data-nid="b#0"><span class="speech">Bon.</span></p>' +
+      '<p class="line" data-cid="moi" data-nid="m#1"><span class="speech">Je pars demain.</span></p>' +
+      '</div>';
+    container = document.getElementById('c') as HTMLElement;
+
+    const p = build();
+    p.play();
+    await flush();
+    await tick(TO_MIC);
+    expect(rec.live).toBe(true);
+    rec.say(TEXT.toLowerCase());
+    await flush();
+    expect(last?.currentNodeId).toBe('b#0'); // validée, on enchaîne sur l'autre
+
+    audios[0]!.dispatchEvent(new Event('ended'));
+    await flush();
+    await tick(TO_MIC);
+    expect(rec.live).toBe(true); // le micro se rouvre pour ma seconde tirade
+    expect(last?.voice?.phase).toBe('listening');
+    rec.say('je pars demain');
+    await flush();
+    expect(last?.voice?.phase).not.toBe('error');
+    p.destroy();
+  });
+
   it('coupe l’écoute net quand le mode est désactivé', async () => {
     const p = build();
     await upToMic(p);

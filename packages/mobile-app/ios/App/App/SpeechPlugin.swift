@@ -47,6 +47,28 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
     private var sessionOwned = false
     /// Le moteur audio tourne-t-il déjà ? Cf. `ensureEngine`.
     private var engineRunning = false
+    /// Numéro de l'écoute courante : ce qui remonte d'une écoute passée est ignoré.
+    private var episode = 0
+
+    /**
+     Erreurs que SFSpeech rend en fin de flux et qui ne signalent aucune panne.
+
+     `1110` est « aucune parole détectée » : le cas nominal quand on se tait. Les
+     autres accompagnent une annulation, que le lecteur provoque lui-même à chaque
+     clip de référence. Les afficher ferait clignoter « micro indisponible » au
+     rythme normal de la répétition.
+     */
+    private static func isBenign(_ error: Error) -> Bool {
+        let e = error as NSError
+        switch e.domain {
+        case "kAFAssistantErrorDomain":
+            return [1110, 1107, 216, 203].contains(e.code)
+        case "kLSRErrorDomain":
+            return e.code == 301
+        default:
+            return e.code == NSUserCancelledError
+        }
+    }
 
     override public func load() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -115,7 +137,14 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Fin propre : le moteur a encore le droit d'émettre son dernier résultat.
+    /**
+     Fin propre : le flux est clos et la tâche se termine d'elle-même, au lieu d'être
+     abattue.
+
+     Ce qu'elle émettra ensuite n'est plus écouté — l'appelant a déjà tranché sur les
+     résultats partiels au moment où il demande l'arrêt (cf. `finish` côté
+     TypeScript), et son minuteur de silence ne l'attend pas.
+     */
     @objc func stop(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.teardown(cancel: false)
@@ -186,8 +215,17 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
 
         try ensureEngine()
 
+        // Une écoute terminée continue d'émettre : sa tâche rend son verdict, et
+        // souvent une erreur, APRÈS `endAudio()`. Comparer `task == nil` ne suffit
+        // pas — dès que l'écoute suivante a posé la sienne, la garde ne voit plus la
+        // différence et l'erreur de l'ancienne tue la nouvelle. Mesuré en
+        // répétition : la première tirade passait, la seconde affichait aussitôt
+        // « micro indisponible ». D'où un numéro d'épisode, comparé à l'arrivée.
+        episode += 1
+        let myEpisode = episode
+
         task = engineRecognizer.recognitionTask(with: req) { [weak self] result, error in
-            guard let self else { return }
+            guard let self, myEpisode == self.episode else { return }
             if let result {
                 let text = result.bestTranscription.formattedString
                 // `isFinal` ne vient qu'après `endAudio()` ou un silence détecté par
@@ -196,10 +234,11 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.emit(result.isFinal ? "final" : "partial", ["text": text])
             }
             if let error {
-                // Une annulation volontaire (`abort`) remonte ici comme une erreur :
-                // la signaler afficherait « micro indisponible » à chaque clip de
-                // référence, alors que tout va bien.
-                if self.task == nil { return }
+                // Fin de flux ordinaire — silence, ou annulation demandée. Ce n'est
+                // pas une panne : le TypeScript a son propre minuteur pour « rien
+                // entendu », et afficher une erreur ici couperait la boucle là où
+                // elle doit simplement redemander la réplique.
+                if Self.isBenign(error) { return }
                 self.emit("error", ["message": error.localizedDescription])
                 self.teardown(cancel: true)
             }
@@ -247,8 +286,9 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
      la lecture. Seul `release` les rend, quand le mode vocal s'arrête.
      */
     private func teardown(cancel: Bool) {
-        // `task = nil` AVANT d'annuler : le callback de la tâche s'en sert pour
-        // distinguer une vraie panne d'un arrêt demandé.
+        // L'épisode change ici : tout ce que l'écoute qu'on ferme émettra encore —
+        // et elle émettra — arrivera avec un numéro périmé, donc ignoré.
+        episode += 1
         let running = task
         task = nil
         // Dans les deux cas on ferme le flux ; `cancel` y ajoute l'abandon du
