@@ -22,7 +22,7 @@ import { ShortcutList } from './components/ShortcutList';
 import { StudyMode } from './components/StudyMode';
 import { Workspace, type DockPanel } from './components/Workspace';
 import { Modal } from './components/ui/Modal';
-import { Toasts, type FlashMessage } from './components/ui/Toasts';
+import { Toasts, type FlashMessage, type SaveFailure } from './components/ui/Toasts';
 import { applyTheme, loadTheme, type ThemePref } from './theme';
 import { loadSessionPrefs, saveSessionPrefs, type AppMode } from './sessionPrefs';
 import type { NavTarget } from './components/Reader';
@@ -72,9 +72,15 @@ export function App() {
   const [popover, setPopover] = useState<{ target: PopoverTarget } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [playsLoaded, setPlaysLoaded] = useState(false);
+  // Écritures perdues, en attente de reprise (cf. `reportFailure`).
+  const [failures, setFailures] = useState<SaveFailure[]>([]);
+  // Écritures de notes en vol : elles n'ont pas de témoin dans la barre, mais il
+  // y a bien quelque chose à perdre tant qu'elles ne sont pas revenues.
+  const [notesInFlight, setNotesInFlight] = useState(0);
   const pendingDraft = useRef<Note | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const flashId = useRef(0);
+  const failureId = useRef(0);
   // Empreinte du dernier état réellement écrit sur disque, avec sa pièce. C'est
   // LA garde contre l'autosauvegarde parasite : au premier rendu d'une pièce on
   // adopte son contenu fraîchement lu comme référence, si bien que le `setPlay`
@@ -127,6 +133,39 @@ export function App() {
   // Déclarée avant les gestionnaires qui remplacent `play` (import, sélection) :
   // ils doivent pouvoir vider le débounce en attente avant de changer de pièce.
 
+  /**
+   * Met une écriture perdue en attente de reprise, avec son contenu.
+   *
+   * Le témoin de la barre ne parle que de la pièce courante : une écriture qui
+   * échoue après un changement de pièce n'y laisserait aucune trace, et son
+   * contenu — absent de l'écran comme du disque — ne serait plus récupérable
+   * nulle part. `write` le retient dans sa fermeture, ce qui rend la reprise
+   * possible même une fois la pièce quittée.
+   */
+  const reportFailure = useCallback(
+    (playName: string, what: string, write: () => Promise<void>) => {
+      const id = (failureId.current += 1);
+      const retry = () => {
+        // Par la même chaîne que le reste : une reprise doit s'ordonner avec les
+        // écritures en cours, pas se glisser à côté.
+        const run = saveChain.current.then(async () => {
+          try {
+            await write();
+            setFailures((list) => list.filter((f) => f.id !== id));
+            flash(`${what} de « ${playName} » : enregistré.`);
+          } catch (e) {
+            // L'entrée reste : tant que l'écriture ne passe pas, il y a
+            // quelque chose à perdre.
+            flash(String(e));
+          }
+        });
+        saveChain.current = run.catch(() => undefined);
+      };
+      setFailures((list) => [...list, { id, playName, what, retry }]);
+    },
+    [flash],
+  );
+
   /** Écrit la pièce sur disque. Toujours passer par ici : c'est le point de sérialisation. */
   const persistPlay = useCallback(
     (p: PlayState, opts?: { manual?: boolean }) => {
@@ -137,15 +176,17 @@ export function App() {
       // quittée, et la première frappe sur la nouvelle serait adoptée comme
       // base de comparaison au lieu d'être écrite — donc perdue.
       const current = () => (playRef.current?.slug === p.slug ? playRef.current : null);
+      const write = () =>
+        api.savePlay(p.slug, p.fountain, {
+          name: p.name,
+          characters: p.characters,
+          template: p.template,
+          audio: p.audio,
+        });
       const run = saveChain.current.then(async () => {
         if (current()) setSaveState('saving');
         try {
-          await api.savePlay(p.slug, p.fountain, {
-            name: p.name,
-            characters: p.characters,
-            template: p.template,
-            audio: p.audio,
-          });
+          await write();
           // Pas de toast à chaque sauvegarde automatique : ce serait un clignotant
           // permanent. Le témoin suffit ; seule la sauvegarde manuelle est bavarde.
           if (opts?.manual) flash('Sauvegardé.');
@@ -156,8 +197,11 @@ export function App() {
           // rester « modifié » — la prochaine écriture est déjà armée par le débounce.
           setSaveState(playSignature(latest) !== sig ? 'dirty' : 'saved');
         } catch (e) {
-          if (current()) setSaveState('error');
           flash(String(e));
+          // Sur la pièce courante, le témoin `error` et ⌘S offrent déjà la reprise.
+          // Une fois la pièce quittée, il ne reste que cette file.
+          if (current()) setSaveState('error');
+          else reportFailure(p.name, 'Le texte', write);
         }
       });
       // La chaîne ne doit jamais rester rejetée, sinon toute écriture ultérieure
@@ -165,7 +209,7 @@ export function App() {
       saveChain.current = run.catch(() => undefined);
       return run;
     },
-    [flash],
+    [flash, reportFailure],
   );
 
   /**
@@ -281,16 +325,19 @@ export function App() {
   // modifications ne sont pas encore parties. L'écouteur n'est posé que quand il
   // y a quelque chose à perdre — présent en permanence, il gênerait chaque
   // rechargement pour rien. `error` en fait partie : une écriture qui a échoué
-  // laisse justement des modifications sur le carreau.
+  // laisse justement des modifications sur le carreau. Les échecs en attente de
+  // reprise et les écritures de notes en vol aussi, et ceux-là ne se lisent pas
+  // dans `saveState`, qui ne parle que de la pièce courante.
   useEffect(() => {
-    if (saveState !== 'dirty' && saveState !== 'saving' && saveState !== 'error') return;
+    const pending = saveState === 'dirty' || saveState === 'saving' || saveState === 'error';
+    if (!pending && failures.length === 0 && notesInFlight === 0) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [saveState]);
+  }, [saveState, failures.length, notesInFlight]);
 
   // ---- Session : pièce ouverte + mode, restaurés au chargement ----
   useEffect(() => {
@@ -311,10 +358,36 @@ export function App() {
     saveSessionPrefs({ slug: play?.slug ?? null, mode });
   }, [play?.slug, mode]);
 
-  const persistNotes = async (next: Note[]) => {
-    setNotes(next);
-    if (play) await api.saveNotes(play.slug, next).catch((e) => flash(String(e)));
-  };
+  /**
+   * Écrit les notes sur disque, par la même chaîne que la pièce.
+   *
+   * Hors de `saveChain`, une écriture de notes et une écriture de pièce
+   * pouvaient être en vol simultanément, sans ordre garanti entre elles.
+   *
+   * Tout échec alimente la file de reprise, y compris sur la pièce courante :
+   * les notes n'ont ni témoin dans la barre, ni débounce, ni ⌘S — sans cette
+   * file, il n'existe aucun moyen de rejouer l'écriture.
+   */
+  const persistNotes = useCallback(
+    (next: Note[]) => {
+      setNotes(next);
+      const p = playRef.current;
+      if (!p) return;
+      setNotesInFlight((n) => n + 1);
+      const run = saveChain.current.then(async () => {
+        try {
+          await api.saveNotes(p.slug, next);
+        } catch (e) {
+          flash(String(e));
+          reportFailure(p.name, 'Les notes', () => api.saveNotes(p.slug, next));
+        } finally {
+          setNotesInFlight((n) => n - 1);
+        }
+      });
+      saveChain.current = run.catch(() => undefined);
+    },
+    [flash, reportFailure],
+  );
 
   const onActivateNote = useCallback(
     (id: string, rect: DOMRect) => {
@@ -344,13 +417,13 @@ export function App() {
     if (!target) return;
     const existing = target.note && notes.some((n) => n.id === target.note!.id);
     if (existing) {
-      void persistNotes(
+      persistNotes(
         notes.map((n) =>
           n.id === target.note!.id ? { ...n, body, updatedAt: new Date().toISOString() } : n,
         ),
       );
     } else if (pendingDraft.current) {
-      void persistNotes([...notes, { ...pendingDraft.current, body }]);
+      persistNotes([...notes, { ...pendingDraft.current, body }]);
       pendingDraft.current = null;
     }
     setPopover(null);
@@ -358,7 +431,7 @@ export function App() {
 
   const onPopoverDelete = () => {
     const id = popover?.target.note?.id;
-    if (id) void persistNotes(notes.filter((n) => n.id !== id));
+    if (id) persistNotes(notes.filter((n) => n.id !== id));
     setPopover(null);
   };
 
@@ -796,7 +869,13 @@ export function App() {
         <ShortcutList />
       </Modal>
 
-      <Toasts busy={busy} message={message} onDismissMessage={() => setMessage(null)} />
+      <Toasts
+        busy={busy}
+        message={message}
+        failures={failures}
+        onDismissMessage={() => setMessage(null)}
+        onDismissFailure={(id) => setFailures((list) => list.filter((f) => f.id !== id))}
+      />
     </div>
   );
 }
