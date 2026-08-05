@@ -57,6 +57,15 @@ export const MAX_LEVEL = INTERVALS.length - 1;
 /** Heure de début d'une séance, faute de réglage. */
 export const DEFAULT_START_TIME = '19:30';
 /**
+ * Bornes des réglages, uniques et partagées : le formulaire, ses champs et
+ * `parseStudyState` doivent dire la même chose. Deux jeux de bornes rendaient
+ * possible un plan accepté par l'API mais déclaré invalide par l'écran.
+ */
+export const SESSION_MINUTES_MIN = 5;
+export const SESSION_MINUTES_MAX = 180;
+export const DAYS_PER_WEEK_MIN = 1;
+export const DAYS_PER_WEEK_MAX = 7;
+/**
  * Projection prudente : une portion sur trois est supposée repasser en
  * « hésitant ». Projeter un sans-faute donnerait un calendrier que personne ne
  * tient ; ce taux allonge la prévision de la part de révisions qu'on observe en
@@ -586,8 +595,8 @@ export function parseStudyState(value: unknown): StudyState | null {
   const target = c.target;
   if (typeof target !== 'string' || Number.isNaN(dayMs(target))) return null;
 
-  const sessionMinutes = boundedNumber(c.sessionMinutes, 1, 240);
-  const daysPerWeek = boundedNumber(c.daysPerWeek, 1, 7);
+  const sessionMinutes = boundedNumber(c.sessionMinutes, SESSION_MINUTES_MIN, SESSION_MINUTES_MAX);
+  const daysPerWeek = boundedNumber(c.daysPerWeek, DAYS_PER_WEEK_MIN, DAYS_PER_WEEK_MAX);
   if (sessionMinutes === null || daysPerWeek === null) return null;
 
   // Heure absente ou illisible → on retombe sur le défaut plutôt que de refuser

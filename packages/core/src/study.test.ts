@@ -3,7 +3,11 @@ import { slugify } from './ast';
 import { parseFountain } from './fountain';
 import {
   COST_PER_LINE,
+  DAYS_PER_WEEK_MAX,
+  DAYS_PER_WEEK_MIN,
   DEFAULT_START_TIME,
+  SESSION_MINUTES_MAX,
+  SESSION_MINUTES_MIN,
   INTERVALS,
   MAX_LEVEL,
   PREVIEW_CHARS,
@@ -430,6 +434,23 @@ describe('parseStudyState', () => {
     expect(parseStudyState({ ...valid, config: { ...config(), target: '2026-02-30' } })).toBeNull();
     expect(parseStudyState({ ...valid, config: { ...config(), roleIds: [] } })).toBeNull();
     expect(parseStudyState({ ...valid, config: { ...config(), daysPerWeek: 9 } })).toBeNull();
+  });
+
+  it('applique les mêmes bornes que celles exposées au formulaire', () => {
+    // Une borne locale à l'écran et une autre dans le validateur rendaient
+    // possible un plan accepté par l'API mais déclaré invalide par l'UI.
+    const withMinutes = (sessionMinutes: number): unknown =>
+      parseStudyState({ ...valid, config: { ...config(), sessionMinutes } });
+    expect(withMinutes(SESSION_MINUTES_MIN)).not.toBeNull();
+    expect(withMinutes(SESSION_MINUTES_MAX)).not.toBeNull();
+    expect(withMinutes(SESSION_MINUTES_MIN - 1)).toBeNull();
+    expect(withMinutes(SESSION_MINUTES_MAX + 1)).toBeNull();
+
+    const withDays = (daysPerWeek: number): unknown =>
+      parseStudyState({ ...valid, config: { ...config(), daysPerWeek } });
+    expect(withDays(DAYS_PER_WEEK_MIN)).not.toBeNull();
+    expect(withDays(DAYS_PER_WEEK_MAX)).not.toBeNull();
+    expect(withDays(DAYS_PER_WEEK_MAX + 1)).toBeNull();
   });
 
   it('borne les niveaux et écarte les entrées de progression malformées', () => {

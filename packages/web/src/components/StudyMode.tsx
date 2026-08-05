@@ -13,7 +13,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   COST_PER_MINUTE,
+  DAYS_PER_WEEK_MAX,
+  DAYS_PER_WEEK_MIN,
   DEFAULT_START_TIME,
+  SESSION_MINUTES_MAX,
+  SESSION_MINUTES_MIN,
   type AudioConfig,
   type Grade,
   type LineNode,
@@ -87,6 +91,24 @@ const VIEWS: { value: StudyView; label: string }[] = [
   { value: 'calendar', label: 'Calendrier' },
 ];
 
+/**
+ * Configuration proposée pour une pièce sans plan : rôles pris d'abord du mode
+ * répétition (ce que le comédien a réellement coché dans le lecteur), sinon de la
+ * case « moi » de la Distribution. Lecture seule — ces réglages appartiennent à
+ * d'autres fonctionnalités.
+ */
+function defaultDraft(slug: string, audio: AudioConfig): StudyConfig {
+  const fallback = audio.myCharacterId ? [audio.myCharacterId] : [];
+  const { myRoles } = loadReadingPrefs(slug, fallback);
+  return {
+    roleIds: myRoles.length ? myRoles : fallback,
+    target: addDays(isoDay(new Date()), 28),
+    sessionMinutes: 25,
+    daysPerWeek: 7,
+    startTime: DEFAULT_START_TIME,
+  };
+}
+
 export function StudyMode({
   slug,
   play,
@@ -118,27 +140,19 @@ export function StudyMode({
     return play.characters.filter((c) => ids.has(c.id));
   }, [play]);
 
-  /**
-   * Rôles pré-cochés : d'abord ceux du mode répétition (ce que le comédien a
-   * réellement coché dans le lecteur), sinon la case « moi » de la Distribution.
-   * Lecture seule — ces réglages appartiennent à d'autres fonctionnalités.
-   */
-  const [draft, setDraft] = useState<StudyConfig>(() => {
-    const fallback = audio.myCharacterId ? [audio.myCharacterId] : [];
-    const { myRoles } = loadReadingPrefs(slug, fallback);
-    return {
-      roleIds: myRoles.length ? myRoles : fallback,
-      target: addDays(isoDay(new Date()), 28),
-      sessionMinutes: 25,
-      daysPerWeek: 7,
-      startTime: DEFAULT_START_TIME,
-    };
-  });
+  const [draft, setDraft] = useState<StudyConfig>(() => defaultDraft(slug, audio));
 
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
     setLoadError(null);
+    // Tout ce qui décrit la pièce PRÉCÉDENTE est jeté avant de charger la
+    // suivante. Sans cela, un GET en échec (500, hors ligne) laissait le plan de
+    // l'ancienne pièce à l'écran — et une note l'aurait écrit dans la nouvelle.
+    setState(null);
+    setUndo(null);
+    setEditing(false);
+    setDraft(defaultDraft(slug, audio));
     api
       .loadStudy(slug)
       .then((s) => {
@@ -156,7 +170,7 @@ export function StudyMode({
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, audio]);
 
   const persist = (next: StudyState): void => {
     setState(next);
@@ -609,9 +623,13 @@ function StudyForm({
    * qui disparaissait au rechargement.
    */
   const minutesValid =
-    Number.isFinite(draft.sessionMinutes) && draft.sessionMinutes >= 5 && draft.sessionMinutes <= 180;
+    Number.isFinite(draft.sessionMinutes) &&
+    draft.sessionMinutes >= SESSION_MINUTES_MIN &&
+    draft.sessionMinutes <= SESSION_MINUTES_MAX;
   const daysValid =
-    Number.isInteger(draft.daysPerWeek) && draft.daysPerWeek >= 1 && draft.daysPerWeek <= 7;
+    Number.isInteger(draft.daysPerWeek) &&
+    draft.daysPerWeek >= DAYS_PER_WEEK_MIN &&
+    draft.daysPerWeek <= DAYS_PER_WEEK_MAX;
   const ready =
     draft.roleIds.length > 0 && dateValid && minutesValid && daysValid && portions.length > 0;
 
@@ -651,8 +669,8 @@ function StudyForm({
       <Row label="Minutes par séance">
         <NumberField
           value={draft.sessionMinutes}
-          min={5}
-          max={180}
+          min={SESSION_MINUTES_MIN}
+          max={SESSION_MINUTES_MAX}
           step={5}
           onChange={(sessionMinutes) => setDraft({ ...draft, sessionMinutes })}
         />
@@ -660,8 +678,8 @@ function StudyForm({
       <Row label="Jours par semaine">
         <NumberField
           value={draft.daysPerWeek}
-          min={1}
-          max={7}
+          min={DAYS_PER_WEEK_MIN}
+          max={DAYS_PER_WEEK_MAX}
           onChange={(daysPerWeek) => setDraft({ ...draft, daysPerWeek })}
         />
       </Row>
@@ -691,9 +709,15 @@ function StudyForm({
         )}
         {!dateValid && <p className="study-hint">Choisis une date postérieure à aujourd'hui.</p>}
         {!minutesValid && (
-          <p className="study-hint">Une séance dure entre 5 et 180 minutes.</p>
+          <p className="study-hint">
+            Une séance dure entre {SESSION_MINUTES_MIN} et {SESSION_MINUTES_MAX} minutes.
+          </p>
         )}
-        {!daysValid && <p className="study-hint">Entre 1 et 7 jours par semaine.</p>}
+        {!daysValid && (
+          <p className="study-hint">
+            Entre {DAYS_PER_WEEK_MIN} et {DAYS_PER_WEEK_MAX} jours par semaine.
+          </p>
+        )}
       </div>
 
       <div className="study-form__actions">
