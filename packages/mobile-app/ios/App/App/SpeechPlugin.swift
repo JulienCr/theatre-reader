@@ -45,12 +45,28 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// La session est-elle déjà passée en `.playAndRecord` ? Cf. `configureListeningSession`.
     private var sessionOwned = false
+    /// Le moteur audio tourne-t-il déjà ? Cf. `ensureEngine`.
+    private var engineRunning = false
 
     override public func load() {
         monitor.pathUpdateHandler = { [weak self] path in
             self?.online = path.status == .satisfied
         }
         monitor.start(queue: DispatchQueue(label: "fr.avolo.theatrereader.net"))
+
+        // Brancher des AirPods en cours de route change le format d'entrée, ce qui
+        // arrête le moteur et invalide son tap. Comme il tourne désormais en continu,
+        // personne ne le redémarrerait : l'écoute deviendrait muette sans une erreur
+        // pour le dire.
+        NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.engineRunning else { return }
+            self.engineRunning = false
+            try? self.ensureEngine()
+        }
     }
 
     // MARK: - Permissions
@@ -126,6 +142,9 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async {
             do {
                 try self.configureListeningSession()
+                // Le moteur aussi : son démarrage reconfigure l'entrée audio, autant
+                // que ce soit fait maintenant plutôt qu'en pleine réplique.
+                try self.ensureEngine()
                 call.resolve()
             } catch {
                 call.reject(error.localizedDescription)
@@ -133,10 +152,11 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// Rend la route audio à la lecture pleine qualité. Appelée quand le mode s'arrête.
+    /// Rend moteur et route audio. Appelée quand le mode vocal s'arrête.
     @objc func release(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.teardown(cancel: true)
+            self.stopEngine()
             self.restorePlaybackSession()
             call.resolve()
         }
@@ -164,12 +184,7 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         req.requiresOnDeviceRecognition = !online && engineRecognizer.supportsOnDeviceRecognition
         request = req
 
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        input.removeTap(onBus: 0) // idempotent : un tap resté en place ferait planter installTap
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            req.append(buffer)
-        }
+        try ensureEngine()
 
         task = engineRecognizer.recognitionTask(with: req) { [weak self] result, error in
             guard let self else { return }
@@ -190,30 +205,57 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
             }
         }
 
-        engine.prepare()
-        try engine.start()
     }
 
-    private func teardown(cancel: Bool) {
-        if engine.isRunning {
-            engine.stop()
-            engine.inputNode.removeTap(onBus: 0)
+    /**
+     Démarre `AVAudioEngine` s'il ne tourne pas déjà, et le laisse tourner ensuite.
+
+     Le démarrer à chaque tirade reconfigurait l'entrée audio du système à chaque
+     fois, ce qui est l'autre façon de perturber une lecture en cours. Le moteur
+     tourne donc en continu pendant le mode vocal ; ce sont les REQUÊTES de
+     reconnaissance qui vont et viennent, et le tap ne pousse rien tant qu'il n'y en
+     a pas.
+     */
+    private func ensureEngine() throws {
+        if engineRunning { return }
+        let input = engine.inputNode
+        // Le format dépend de la route active : il ne peut être lu qu'après la
+        // configuration de la session.
+        let format = input.outputFormat(forBus: 0)
+        input.removeTap(onBus: 0) // idempotent : un tap resté en place ferait planter installTap
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            // `request` est nil hors écoute : les tampons partent à la poubelle.
+            self?.request?.append(buffer)
         }
+        engine.prepare()
+        try engine.start()
+        engineRunning = true
+    }
+
+    private func stopEngine() {
+        guard engineRunning else { return }
+        engineRunning = false
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+    }
+
+    /**
+     Arrête l'écoute en cours.
+
+     Ne touche NI au moteur audio NI à la session : les deux survivent d'une tirade
+     à l'autre, et c'est le point — les redémarrer à chaque fois est ce qui coupait
+     la lecture. Seul `release` les rend, quand le mode vocal s'arrête.
+     */
+    private func teardown(cancel: Bool) {
         // `task = nil` AVANT d'annuler : le callback de la tâche s'en sert pour
         // distinguer une vraie panne d'un arrêt demandé.
         let running = task
         task = nil
-        if cancel {
-            running?.cancel()
-            request?.endAudio()
-        } else {
-            // Laisse le moteur rendre son dernier résultat, puis se terminer seul.
-            request?.endAudio()
-        }
+        // Dans les deux cas on ferme le flux ; `cancel` y ajoute l'abandon du
+        // résultat, quand plus personne n'attend ce qui a été dit.
+        request?.endAudio()
+        if cancel { running?.cancel() }
         request = nil
-        // La session N'EST PAS rendue ici : entre deux tirades elle doit rester en
-        // `.playAndRecord`, sans quoi la reprendre à l'ouverture suivante couperait
-        // le clip en cours. Seul `release` la rend.
     }
 
     // MARK: - Route audio
@@ -225,12 +267,18 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
 
      La contrepartie est connue : le Bluetooth passe alors en HFP, mono et sourd.
 
-     **Basculée UNE SEULE FOIS, et gardée.** Changer de catégorie coupe net ce que la
-     WebView est en train de jouer : mesuré en répétition, la réplique du camarade
-     s'arrêtait en plein milieu dès qu'on ouvrait le micro à l'avance. Tant que la
-     bascule tombait entre deux clips, elle ne s'entendait pas ; anticiper l'ouverture
-     l'a mise en plein dans le son. La session est donc prise au premier besoin et
-     rendue seulement quand le mode s'arrête (`release`), jamais entre deux tirades.
+     **`.mixWithOthers` n'est pas décoratif : c'est lui qui empêche de couper les
+     clips.** La documentation Apple est explicite — une session est *nonmixable* par
+     défaut, et l'activer « interrompt toute autre session audio ». La WebView qui
+     joue les répliques en est une : sans cette option, ouvrir le micro arrêtait net
+     la tirade du camarade. Mesuré en répétition, deux fois, y compris après avoir
+     supprimé la re-bascule de catégorie — ce n'était pas le changement de catégorie,
+     c'était l'exclusivité qu'il réclamait.
+
+     **Basculée UNE SEULE FOIS, et gardée** malgré tout : chaque `setCategory` reste
+     une reconfiguration de la route, et la répéter à chaque tirade n'apporte rien.
+     La session est prise au premier besoin et rendue quand le mode s'arrête
+     (`release`), jamais entre deux répliques.
 
      Le SDK iOS 26 a renommé l'option en `.allowBluetoothHFP` et déprécié l'ancien
      nom. Les deux valent 0x4 : le choix ci-dessous ne change rien à l'exécution, il
@@ -250,7 +298,7 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         try session.setCategory(
             .playAndRecord,
             mode: .default,
-            options: [.defaultToSpeaker, bluetoothInput, .allowBluetoothA2DP]
+            options: [.defaultToSpeaker, bluetoothInput, .allowBluetoothA2DP, .mixWithOthers]
         )
         try session.setActive(true)
         sessionOwned = true
