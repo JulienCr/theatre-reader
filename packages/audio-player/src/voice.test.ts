@@ -478,6 +478,26 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
+  // Un refus ne s'enferme pas : on peut accorder le micro dans les Réglages et
+  // revenir sans avoir à relancer le lecteur.
+  it('redemande l’autorisation après un refus', async () => {
+    let granted = false;
+    const flaky = { ...rec.api, available: () => Promise.resolve(granted) };
+    const p = build({ voice: { recognizer: flaky, enabled: true } });
+    await upToMic(p);
+    expect(last?.voice?.phase).toBe('error');
+
+    granted = true; // autorisé entre-temps, dans les Réglages
+    p.next();
+    await flush();
+    p.prev();
+    await flush();
+    await tick(TO_MIC);
+    expect(rec.starts).toBeGreaterThan(0);
+    expect(last?.voice?.phase).not.toBe('error');
+    p.destroy();
+  });
+
   it("n'ouvre pas le micro quand l'autorisation est refusée", async () => {
     const denied = { ...rec.api, available: () => Promise.resolve(false) };
     const p = build({ voice: { recognizer: denied, enabled: true } });

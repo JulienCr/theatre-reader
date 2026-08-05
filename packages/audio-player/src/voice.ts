@@ -172,12 +172,13 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   let timers: ReturnType<typeof setTimeout>[] = [];
   let idleId: ReturnType<typeof setTimeout> | null = null;
   /**
-   * Autorisation du moteur, retenue pour la session : `null` tant qu'on n'a pas
-   * demandé. C'est `available()` qui déclenche la demande système côté iOS, donc
-   * ne jamais l'appeler revient à ouvrir le micro sans l'avoir obtenu — `start()`
-   * échoue alors sans que personne n'ait vu passer la moindre demande.
+   * Autorisation obtenue — et elle seule est mémorisée (cf. `openMic`).
+   *
+   * C'est `available()` qui déclenche la demande système côté iOS : ne jamais
+   * l'appeler revient à ouvrir le micro sans l'avoir obtenu, et `start()` échoue
+   * alors sans que personne n'ait vu passer la moindre demande.
    */
-  let authorized: boolean | null = null;
+  let authorized = false;
 
   function emit(): void {
     o.onState({ phase, heard, result, failures, message });
@@ -259,7 +260,11 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   async function openMic(my: number): Promise<boolean> {
     if (listening) return true; // déjà chaud : c'est tout l'objet de `warmUp`
 
-    if (authorized === null) {
+    if (!authorized) {
+      // Seul un OUI se retient. Mémoriser un refus enfermerait le mode dans son
+      // erreur : accorder le micro dans les Réglages puis revenir ne changerait
+      // rien avant un redémarrage du lecteur. Redemander ne coûte rien — iOS ne
+      // réaffiche pas sa demande une fois la réponse donnée.
       try {
         authorized = await o.recognizer.available();
       } catch {
