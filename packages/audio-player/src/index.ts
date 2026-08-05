@@ -656,6 +656,13 @@ export function createPlayer(opts: PlayerOptions): Player {
     // ⏭/⏮ ne passent PAS par `nextIndex` : un saut explicite doit pouvoir quitter la
     // plage, c'est le seul moyen d'aller répéter la scène d'à côté sans couper la boucle.
     next: () => {
+      // ⏭ pendant ma pause vaut « je l'ai dite, on passe » : exactement ce que fait la
+      // reprise. Sans ça, la réplique qu'on vient de traverser restait floutée derrière
+      // soi — et le ⏭ est le geste naturel quand on n'a pas besoin de l'entendre.
+      if (waitingForUser && started) {
+        const t = tirades[index];
+        if (t) saidReveal(t.nodeId);
+      }
       playing = true;
       silentSkips = 0;
       cancelTimer();

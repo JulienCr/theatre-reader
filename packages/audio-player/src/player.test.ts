@@ -212,6 +212,25 @@ describe('@theatre/audio-player', () => {
     p.destroy();
   });
 
+  /* ⏭ est le geste naturel quand on n'a pas besoin de s'entendre : il vaut reprise, pas
+     abandon. Sans ça, la réplique traversée restait floutée derrière soi. */
+  it('⏭ pendant ma pause révèle ma réplique en la passant', async () => {
+    const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'));
+    const p = buildPlayer(c, { roles: ['benji'], settings: { rehearsal: true, mask: true, playMine: false } });
+    p.playFrom('a#0');
+    await flush();
+    p.next(); // → b#0, ma réplique : pause, encore floutée
+    await flush();
+    const b = c.querySelector('[data-nid="b#0"]') as HTMLElement;
+    expect(last?.waitingForUser).toBe(true);
+    expect(b.classList.contains('line--revealed')).toBe(false);
+    p.next(); // je l'ai dite : on passe
+    await flush();
+    expect(last?.currentNodeId).toBe('a#1');
+    expect(b.classList.contains('line--revealed')).toBe(true);
+    p.destroy();
+  });
+
   it('avancement auto : pause de la durée du mp3 puis avance', async () => {
     vi.useFakeTimers();
     const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'));
