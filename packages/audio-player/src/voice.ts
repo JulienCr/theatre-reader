@@ -336,7 +336,13 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     // Validation anticipée : la tirade est complète, inutile d'attendre le silence.
     // Seul un `ok` déclenche — un `borderline` sur un résultat partiel dirait
     // « tu as ajouté des mots » alors que la phrase n'est pas finie.
-    const r = evaluate(expected, t, { tolerance });
+    //
+    // Sur `mine` et non sur `t` : juger la transcription complète y laisserait la
+    // fin de la réplique précédente, c'est-à-dire exactement ce que le préfixe vient
+    // de retirer. Au-delà de quelques mots, elle épuise le départ libre de
+    // l'alignement et empêche la validation anticipée — au moment même où la chauffe
+    // sert à quelque chose.
+    const r = evaluate(expected, mine, { tolerance });
     if (r.verdict === 'ok') conclude(r);
   }
 

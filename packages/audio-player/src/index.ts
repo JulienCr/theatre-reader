@@ -622,7 +622,12 @@ export function createPlayer(opts: PlayerOptions): Player {
   /** Entre en pause sur ma réplique (index i) : bip éventuel + minuteur si avancement auto. */
   function enterCuePause(i: number, my: number, beep: boolean): void {
     waitingForUser = true;
-    cancelPending();
+    // `cancelInFlight` et non `cancelPending` : arriver sur ma réplique est le
+    // dernier maillon d'un enchaînement, pas un geste. `cancelPending` ferme le
+    // micro — donc celui que la chauffe vient d'ouvrir pour cette tirade précise,
+    // à l'instant même où il allait servir. L'anticipation était intégralement
+    // annulée juste avant d'être utile.
+    cancelInFlight();
     // Répétition vocale : c'est le coach qui mène la pause de bout en bout — la
     // respiration, le bip, l'ouverture du micro, et sa fin. Le minuteur de
     // l'avancement automatique n'a plus de sens ici : il déciderait à la place de

@@ -235,16 +235,20 @@ describe('@theatre/audio-player — répétition vocale', () => {
     audios[0]!.dispatchEvent(new Event('loadedmetadata'));
     await flush();
     await tick(4100);
-    rec.say('tu pars'); // la fin de la réplique de l'autre, captée pendant la chauffe
+    // La fin de la réplique de l'autre, captée pendant la chauffe. Volontairement
+    // plus longue que le départ libre de l'alignement : c'est ce qui distingue un
+    // retrait réel d'une amorce que l'alignement aurait absorbée de toute façon.
+    const capté = 'alors tu pars vraiment ce soir sans rien dire';
+    rec.say(capté);
     await flush();
     audios[0]!.dispatchEvent(new Event('ended'));
     await flush();
     await tick(TO_MIC);
-    // Le moteur rend l'énoncé complet depuis l'ouverture : ma réplique arrive
-    // derrière la sienne, et c'est bien la mienne seule qui doit être jugée.
-    rec.say(`tu pars ${TEXT.toLowerCase()}`);
+    // Le moteur rend l'énoncé complet depuis l'ouverture du micro : ma réplique
+    // arrive derrière la sienne, et c'est la mienne seule qui doit être jugée.
+    rec.say(`${capté} ${TEXT.toLowerCase()}`);
     await flush();
-    expect(last?.currentNodeId).toBe('b#1'); // validée
+    expect(last?.currentNodeId).toBe('b#1'); // validée, sans attendre le silence
     p.destroy();
   });
 
