@@ -135,14 +135,13 @@ export const STYLE =
 /* Option « mes scènes » : les plages exclues sont retirées du flux ; !important
    pour l'emporter sur le display propre aux répliques/en-têtes. */
 .scene--hidden { display: none !important; }
-.line--masked .speech { display: inline-block; filter: blur(5px); transition: filter .12s; cursor: pointer; }
-.line--masked.line--revealed .speech { filter: none; }
-/* Coup d'œil : rester appuyé dévoile la réplique (createPeek, @theatre/reader-ui).
-   Sans -webkit-touch-callout / user-select, iOS répond au maintien par sa loupe et
+/* Le maintien dévoile la réplique (createPeek, @theatre/reader-ui) : sans
+   -webkit-touch-callout / user-select, iOS répondrait à l'appui long par sa loupe et
    son menu Copier — par-dessus le texte qu'on vient justement de dévoiler. Restreint
    aux répliques masquées : ailleurs, la sélection reste celle du système. */
-.line--masked .speech { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-.line--masked.line--peek .speech { filter: none; }
+.line--masked .speech { display: inline-block; filter: blur(5px); transition: filter .12s; cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+/* Dite (le moteur) ou regardée le temps d'un appui (le peek) : dans les deux cas, en clair. */
+.line--masked.line--revealed .speech, .line--masked.line--peek .speech { filter: none; }
 .line-timer { display: block; height: 4px; margin: 0 0 6px; border-radius: 2px; background: color-mix(in srgb, var(--ink) 12%, transparent); overflow: hidden; }
 .line-timer-fill { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
 mark.reader-hit { background: var(--hit); color: var(--hit-ink); }
