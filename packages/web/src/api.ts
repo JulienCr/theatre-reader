@@ -184,11 +184,25 @@ export async function saveNotes(slug: string, notes: Note[]): Promise<void> {
   if (!res.ok) throw new Error(`Échec de la sauvegarde des notes (${res.status})`);
 }
 
+/**
+ * Message d'échec d'une requête du plan, corps du serveur compris.
+ *
+ * Les routes `/study` disent précisément ce qui ne va pas — `{ error: 'study
+ * (StudyState valide) requis' }` sur un PUT refusé, « study.json inexploitable »
+ * sur un GET —, et ne remonter que le status transformait ce diagnostic en un
+ * « 500 Internal Server Error » opaque à l'écran.
+ */
+async function studyError(res: Response, action: string): Promise<Error> {
+  const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+  const detail = body?.error ?? body?.message;
+  return new Error(detail ? `${action} : ${detail}` : `${action} (${res.status})`);
+}
+
 /** Plan d'apprentissage de la pièce ; `null` s'il n'a jamais été configuré. */
 export async function loadStudy(slug: string): Promise<StudyState | null> {
-  const { study } = await json<{ study: StudyState | null }>(
-    await fetch(`/api/plays/${encodeURIComponent(slug)}/study`),
-  );
+  const res = await fetch(`/api/plays/${encodeURIComponent(slug)}/study`);
+  if (!res.ok) throw await studyError(res, 'Échec du chargement du plan');
+  const { study } = (await res.json()) as { study: StudyState | null };
   return study;
 }
 
@@ -198,11 +212,11 @@ export async function saveStudy(slug: string, study: StudyState): Promise<void> 
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ study }),
   });
-  if (!res.ok) throw new Error(`Échec de la sauvegarde du plan (${res.status})`);
+  if (!res.ok) throw await studyError(res, 'Échec de la sauvegarde du plan');
 }
 
 /** Supprime le plan : la pièce repart d'un écran de configuration vierge. */
 export async function deleteStudy(slug: string): Promise<void> {
   const res = await fetch(`/api/plays/${encodeURIComponent(slug)}/study`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`Échec de la suppression du plan (${res.status})`);
+  if (!res.ok) throw await studyError(res, 'Échec de la suppression du plan');
 }
