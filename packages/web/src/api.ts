@@ -200,3 +200,9 @@ export async function saveStudy(slug: string, study: StudyState): Promise<void> 
   });
   if (!res.ok) throw new Error(`Échec de la sauvegarde du plan (${res.status})`);
 }
+
+/** Supprime le plan : la pièce repart d'un écran de configuration vierge. */
+export async function deleteStudy(slug: string): Promise<void> {
+  const res = await fetch(`/api/plays/${encodeURIComponent(slug)}/study`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Échec de la suppression du plan (${res.status})`);
+}

@@ -3,8 +3,10 @@ import { slugify } from './ast';
 import { parseFountain } from './fountain';
 import {
   COST_PER_LINE,
+  DEFAULT_START_TIME,
   INTERVALS,
   MAX_LEVEL,
+  PREVIEW_CHARS,
   type StudyConfig,
   type StudyState,
   addDays,
@@ -17,6 +19,7 @@ import {
   parseStudyState,
   planSession,
   portionState,
+  projectSchedule,
   pruneOrphans,
   splitIntoPortions,
 } from './study';
@@ -141,6 +144,20 @@ describe('splitIntoPortions', () => {
     expect(long.nodeIds).toHaveLength(1);
   });
 
+  it('donne à chaque portion l\'incipit de sa première réplique', () => {
+    expect(portions[0]!.preview).toBe('Je parle avant toute scène ici.');
+    expect(portions[1]!.preview).toBe('Ouais.');
+  });
+
+  it('tronque l\'incipit sur une frontière de mot', () => {
+    const long = portions[3]!.preview;
+    expect(long.length).toBeLessThanOrEqual(PREVIEW_CHARS + 1);
+    expect(long.endsWith('…')).toBe(true);
+    expect(long.startsWith('Une tirade nettement plus longue')).toBe(true);
+    // Pas de mot coupé en deux avant les points de suspension.
+    expect(/\s\S*…$/.test(long) || !long.includes(' ')).toBe(true);
+  });
+
   it('compte les répliques courtes', () => {
     expect(portions[1]!.shortLines).toBe(2);
     expect(portions[3]!.shortLines).toBe(0);
@@ -257,6 +274,17 @@ describe('planSession', () => {
     expect(s.minutes).toBeGreaterThan(1);
   });
 
+  it('ne laisse pas les révisions affamer le texte neuf', () => {
+    // Toutes les portions sauf la dernière sont dues, la séance est minuscule :
+    // le neuf doit passer quand même. Sans cela le rôle ne se termine jamais —
+    // mesuré sur BENJI, le plan s'arrêtait à la tirade 117 sur 157.
+    let st = state({ sessionMinutes: 1 });
+    for (const p of portions.slice(0, -1)) st = gradeNodes(st, p.nodeIds, 'again', addDays(TODAY, -1));
+    const s = planSession(portions, st, TODAY);
+    expect(s.due.length).toBe(portions.length - 1);
+    expect(s.fresh).toEqual([portions[portions.length - 1]]);
+  });
+
   it('programme quand même une portion plus coûteuse que la séance entière', () => {
     // La tirade seule coûte 20,5 → 4,6 min, bien au-delà d'une séance de 2 min.
     const only = [portions[3]!];
@@ -327,11 +355,65 @@ describe('forecast', () => {
   });
 });
 
+describe('projectSchedule', () => {
+  it('est déterministe', () => {
+    expect(projectSchedule(portions, state(), TODAY)).toEqual(
+      projectSchedule(portions, state(), TODAY),
+    );
+  });
+
+  it('commence aujourd\'hui et ne dépasse pas la date d\'atterrissage', () => {
+    const days = projectSchedule(portions, state(), TODAY);
+    expect(days[0]!.day).toBe(TODAY);
+    expect(days.every((d) => d.day <= '2026-09-02')).toBe(true);
+    // Jours strictement croissants.
+    expect(days.map((d) => d.day)).toEqual([...days.map((d) => d.day)].sort());
+    expect(new Set(days.map((d) => d.day)).size).toBe(days.length);
+  });
+
+  it('couvre toutes les portions', () => {
+    const seen = new Set(projectSchedule(portions, state(), TODAY).flatMap((d) => d.fresh.map((p) => p.id)));
+    expect(seen.size).toBe(portions.length);
+  });
+
+  it('respecte le rythme hebdomadaire', () => {
+    const days = projectSchedule(portions, state({ daysPerWeek: 3 }), TODAY).map((d) => d.day);
+    // Convention : les 3 premiers jours de chaque période de sept.
+    expect(days.slice(0, 4)).toEqual([TODAY, '2026-08-06', '2026-08-07', '2026-08-12']);
+  });
+
+  it('prévoit plus de révisions qu\'un sans-faute, puisqu\'une portion sur trois hésite', () => {
+    const days = projectSchedule(portions, state(), TODAY);
+    expect(days.some((d) => d.due.length > 0)).toBe(true);
+  });
+
+  it('ne mute pas l\'état d\'entrée', () => {
+    const before = state();
+    projectSchedule(portions, before, TODAY);
+    expect(before.progress).toEqual({});
+  });
+
+  it('rend un calendrier vide quand la date est déjà passée', () => {
+    expect(projectSchedule(portions, state({ target: addDays(TODAY, -1) }), TODAY)).toEqual([]);
+  });
+});
+
 describe('parseStudyState', () => {
   const valid = gradeNodes(state(), portions[0]!.nodeIds, 'good', TODAY);
 
-  it('accepte un état valide sans le déformer', () => {
-    expect(parseStudyState(JSON.parse(JSON.stringify(valid)))).toEqual(valid);
+  it('accepte un état valide et complète l\'heure de séance manquante', () => {
+    const parsed = parseStudyState(JSON.parse(JSON.stringify(valid)))!;
+    expect(parsed.progress).toEqual(valid.progress);
+    // Un plan écrit avant l'option n'est pas refusé : il reçoit le défaut.
+    expect(parsed.config).toEqual({ ...valid.config, startTime: DEFAULT_START_TIME });
+  });
+
+  it('garde une heure de séance valide et remplace une heure absurde', () => {
+    const at = (startTime: string): string | undefined =>
+      parseStudyState({ ...valid, config: { ...config(), startTime } })?.config.startTime;
+    expect(at('08:05')).toBe('08:05');
+    expect(at('25:00')).toBe(DEFAULT_START_TIME);
+    expect(at('19h30')).toBe(DEFAULT_START_TIME);
   });
 
   it('rejette ce qui n\'est pas exploitable', () => {

@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   COST_PER_MINUTE,
+  DEFAULT_START_TIME,
   type AudioConfig,
   type Grade,
   type LineNode,
@@ -29,13 +30,16 @@ import {
   newStudyState,
   planSession,
   portionState,
+  projectSchedule,
   pruneOrphans,
   splitIntoPortions,
 } from '@theatre/core';
 import { Button } from '@theatre/ui';
 import * as api from '../api';
 import { loadReadingPrefs } from '../readingPrefs';
-import { Check, DateField, NumberField, Row } from './controls';
+import { Check, DateField, NumberField, Row, TimeField } from './controls';
+import { StudyCalendar, WorkBlock, formatDay } from './StudyCalendar';
+import { Segmented } from './ui/Segmented';
 
 export interface StudyModeProps {
   slug: string;
@@ -63,6 +67,19 @@ const STATUS_ADVICE: Record<string, string> = {
 
 const minutesOf = (cost: number): number => Math.round(cost / COST_PER_MINUTE);
 
+const GRADE_LABEL: Record<Grade, string> = {
+  again: 'Pas su',
+  hard: 'Hésitant',
+  good: 'Su',
+};
+
+type StudyView = 'session' | 'calendar';
+
+const VIEWS: { value: StudyView; label: string }[] = [
+  { value: 'session', label: 'Séance du jour' },
+  { value: 'calendar', label: 'Calendrier' },
+];
+
 export function StudyMode({
   slug,
   play,
@@ -77,6 +94,13 @@ export function StudyMode({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [view, setView] = useState<StudyView>('session');
+  /**
+   * État d'avant la dernière note, pour se rétracter. Un seul cran : au-delà, la
+   * liste d'avancement permet de re-noter n'importe quelle portion, ce qui couvre
+   * le cas « je croyais la savoir » mieux qu'une pile d'annulations.
+   */
+  const [undo, setUndo] = useState<{ state: StudyState; label: string } | null>(null);
   const saveChain = useRef<Promise<unknown>>(Promise.resolve());
 
   // Personnages qui parlent : proposer un rôle muet n'aurait aucun sens.
@@ -100,6 +124,7 @@ export function StudyMode({
       target: addDays(isoDay(new Date()), 28),
       sessionMinutes: 25,
       daysPerWeek: 7,
+      startTime: DEFAULT_START_TIME,
     };
   });
 
@@ -158,8 +183,60 @@ export function StudyMode({
     [portions, state, today],
   );
 
+  const schedule = useMemo(
+    () => (state ? projectSchedule(portions, state, today) : []),
+    [portions, state, today],
+  );
+
+  /** Tirades encore jamais travaillées — l'unité que compte un comédien. */
+  const tiradesLeft = useMemo(
+    () =>
+      state
+        ? portions.filter((p) => portionState(p, state).seen === 0).reduce((s, p) => s + p.lines, 0)
+        : 0,
+    [portions, state],
+  );
+
+  /** Charge moyenne réellement projetée, si elle dépasse la durée demandée. */
+  const projectedLoad = useMemo(() => {
+    if (!state || !schedule.length) return null;
+    const avg = schedule.reduce((s, d) => s + d.minutes, 0) / schedule.length;
+    return avg > state.config.sessionMinutes + 1 ? Math.round(avg) : null;
+  }, [schedule, state]);
+
+  const roleNames = useMemo(() => {
+    const ids = state?.config.roleIds ?? [];
+    return (
+      play.characters
+        .filter((c) => ids.includes(c.id))
+        .map((c) => c.canonicalName)
+        .join(', ') || 'Mon rôle'
+    );
+  }, [play.characters, state?.config.roleIds]);
+
+  const resetProgress = (): void => {
+    if (!state) return;
+    setUndo({ state, label: 'Progression effacée' });
+    persist({ ...state, progress: {} });
+  };
+
+  const deletePlan = (): void => {
+    setUndo(null);
+    // Après les écritures en attente : un PUT en vol recréerait le fichier.
+    saveChain.current = saveChain.current
+      .then(() => api.deleteStudy(slug))
+      .then(() => {
+        setState(null);
+        setEditing(true);
+      })
+      .catch((e: unknown) => onError(String(e)));
+  };
+
   const grade = (p: Portion, g: Grade): void => {
-    if (state) persist(gradeNodes(state, p.nodeIds, g, today));
+    if (!state) return;
+    const range = p.toTirade === p.fromTirade ? `${p.fromTirade}` : `${p.fromTirade}→${p.toTirade}`;
+    setUndo({ state, label: `« ${GRADE_LABEL[g]} » sur les tirades ${range}` });
+    persist(gradeNodes(state, p.nodeIds, g, today));
   };
 
   if (!loaded) return <div className="empty">Chargement du plan…</div>;
@@ -193,6 +270,9 @@ export function StudyMode({
           today={today}
           preview={preview}
           canCancel={Boolean(state)}
+          hasProgress={Boolean(state && Object.keys(state.progress).length)}
+          onResetProgress={resetProgress}
+          onDeletePlan={deletePlan}
           onCancel={() => setEditing(false)}
           onSubmit={() => {
             // La progression survit à une reconfiguration : elle est indexée par
@@ -218,8 +298,9 @@ export function StudyMode({
                   {STATUS_LABEL[fc.status]}
                 </span>
                 <span className="study-head__detail">
-                  {fc.portionsLeft} portion{fc.portionsLeft > 1 ? 's' : ''} à découvrir ·{' '}
-                  {fc.daysLeft} jour{fc.daysLeft > 1 ? 's' : ''} de travail restants
+                  {/* En tirades : le découpage en portions est un détail du moteur. */}
+                  {tiradesLeft} tirade{tiradesLeft > 1 ? 's' : ''} à découvrir · {fc.daysLeft}{' '}
+                  jour{fc.daysLeft > 1 ? 's' : ''} de travail restants
                 </span>
               </div>
               <progress
@@ -232,12 +313,39 @@ export function StudyMode({
               )}
               <p className="study-head__load">
                 Séance d'environ {Math.round(session.minutes)} min
-                {session.minutes > state.config.sessionMinutes + 1 && ' — journée de rattrapage'}.{' '}
+                {session.minutes > state.config.sessionMinutes + 1 && ' — journée de rattrapage'}.
+                {/* Le statut ci-dessus ne répond qu'à « reste-t-il assez de jours pour
+                    tout découvrir ». La charge, révisions comprises, ne se mesure que
+                    par simulation : quand elle dépasse la durée demandée, le dire ici
+                    évite un « tendu » rassurant au-dessus d'un plan intenable. */}
+                {projectedLoad !== null && (
+                  <>
+                    {' '}
+                    D'ici le {formatDay(state.config.target)}, compte plutôt{' '}
+                    <strong>{projectedLoad} min par séance</strong>.
+                  </>
+                )}{' '}
                 <button className="linklike" onClick={() => setEditing(true)}>
                   Reconfigurer
                 </button>
               </p>
+              <Segmented value={view} options={VIEWS} onChange={setView} label="Vue" />
             </header>
+
+            {undo && (
+              <p className="study-undo">
+                {undo.label}.{' '}
+                <button
+                  className="linklike"
+                  onClick={() => {
+                    persist(undo.state);
+                    setUndo(null);
+                  }}
+                >
+                  Annuler
+                </button>
+              </p>
+            )}
 
             {session.orphans.length > 0 && (
               <p className="study-alert">
@@ -249,57 +357,85 @@ export function StudyMode({
               </p>
             )}
 
-            {session.due.length === 0 && session.fresh.length === 0 && (
-              <p className="study-done">
-                Rien à travailler aujourd'hui. Le texte est en place, reviens demain.
-              </p>
+            {view === 'calendar' ? (
+              <StudyCalendar
+                days={schedule}
+                config={state.config}
+                roleName={roleNames}
+                playTitle={play.title ?? 'Pièce'}
+                slug={slug}
+                onError={onError}
+              />
+            ) : (
+              <>
+                {session.due.length === 0 && session.fresh.length === 0 && (
+                  <p className="study-done">
+                    Rien à travailler aujourd'hui. Le texte est en place, reviens demain.
+                  </p>
+                )}
+
+                <PortionList
+                  title="À réviser"
+                  portions={session.due}
+                  onOpen={onOpenPortion}
+                  onGrade={grade}
+                />
+                <PortionList
+                  title="Nouveau"
+                  portions={session.fresh}
+                  onOpen={onOpenPortion}
+                  onGrade={grade}
+                  empty={
+                    today > state.config.target
+                      ? 'Date atteinte : entretien seul, plus de texte neuf.'
+                      : undefined
+                  }
+                />
+
+                <section className="study-all">
+                  <button className="linklike" onClick={() => setShowAll((v) => !v)}>
+                    {showAll ? "Masquer l'avancement détaillé" : 'Avancement détaillé'}
+                  </button>
+                  {showAll && (
+                    <ul className="study-progress">
+                      {portions.map((p) => {
+                        const st = portionState(p, state);
+                        return (
+                          <li key={p.id}>
+                            <span className="study-progress__where">
+                              {p.actLabel} {p.sceneLabel && `· ${p.sceneLabel}`} · tirades{' '}
+                              {p.fromTirade}
+                              {p.toTirade !== p.fromTirade && `→${p.toTirade}`}
+                            </span>
+                            <span className="study-progress__level">
+                              {st.seen === 0
+                                ? 'jamais vue'
+                                : st.seen < st.total
+                                  ? `${st.seen}/${st.total} répliques vues`
+                                  : `niveau ${st.level} · revoir le ${st.due}`}
+                            </span>
+                            {/* Re-noter ici : c'est le seul endroit où atteindre une
+                                portion déjà sortie de la séance du jour. */}
+                            <span className="study-grades">
+                              {(['again', 'hard', 'good'] as const).map((g) => (
+                                <Button
+                                  key={g}
+                                  size="sm"
+                                  className={`grade grade--${g}`}
+                                  onClick={() => grade(p, g)}
+                                >
+                                  {GRADE_LABEL[g]}
+                                </Button>
+                              ))}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              </>
             )}
-
-            <PortionList
-              title="À réviser"
-              portions={session.due}
-              onOpen={onOpenPortion}
-              onGrade={grade}
-            />
-            <PortionList
-              title="Nouveau"
-              portions={session.fresh}
-              onOpen={onOpenPortion}
-              onGrade={grade}
-              empty={
-                today > state.config.target
-                  ? 'Date atteinte : entretien seul, plus de texte neuf.'
-                  : undefined
-              }
-            />
-
-            <section className="study-all">
-              <button className="linklike" onClick={() => setShowAll((v) => !v)}>
-                {showAll ? "Masquer l'avancement détaillé" : `Avancement des ${portions.length} portions`}
-              </button>
-              {showAll && (
-                <ul className="study-progress">
-                  {portions.map((p) => {
-                    const st = portionState(p, state);
-                    return (
-                      <li key={p.id}>
-                        <span className="study-progress__where">
-                          {p.actLabel} {p.sceneLabel && `· ${p.sceneLabel}`} · tirades {p.fromTirade}
-                          {p.toTirade !== p.fromTirade && `→${p.toTirade}`}
-                        </span>
-                        <span className="study-progress__level">
-                          {st.seen === 0
-                            ? 'jamais vue'
-                            : st.seen < st.total
-                              ? `${st.seen}/${st.total} répliques vues`
-                              : `niveau ${st.level} · revoir le ${st.due}`}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
           </>
         )
       )}
@@ -334,11 +470,12 @@ function PortionList({
                 {p.actLabel}
                 {p.sceneLabel && ` · ${p.sceneLabel}`}
               </div>
+              {/* Les numéros de tirades sont portés par les bornes ci-dessus :
+                  les répéter ici ferait lire deux fois la même information. */}
+              <WorkBlock portions={[p]} />
               <div className="study-portion__what">
-                tirades {p.fromTirade}
-                {p.toTirade !== p.fromTirade && `→${p.toTirade}`} · {p.words} mots · ~
-                {minutesOf(p.cost)} min
-                {p.shortLines > 0 && ` · ${p.shortLines} réplique${p.shortLines > 1 ? 's' : ''} courte${p.shortLines > 1 ? 's' : ''}`}
+                {p.lines} tirade{p.lines > 1 ? 's' : ''} · {p.words} mots · ~{minutesOf(p.cost)} min
+                {p.shortLines > 0 && ` · ${p.shortLines} courte${p.shortLines > 1 ? 's' : ''}`}
               </div>
             </div>
             <Button size="sm" variant="ghost" onClick={() => onOpen(p.nodeIds[0]!)}>
@@ -365,6 +502,43 @@ function PortionList({
   );
 }
 
+/**
+ * Action destructive en deux temps. Pas de dialogue : le bouton s'arme, et se
+ * désarme si on l'ignore. Les jetons veulent une action destructive en texte, sur
+ * `--danger`, jamais en aplat — d'où la forme de lien plutôt que de bouton plein.
+ */
+function DangerAction({ label, question, onConfirm }: {
+  label: string;
+  question: string;
+  onConfirm: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  if (!armed) {
+    return (
+      <button className="linklike linklike--danger" onClick={() => setArmed(true)}>
+        {label}
+      </button>
+    );
+  }
+  return (
+    <span className="study-danger">
+      {question}
+      <button
+        className="linklike linklike--danger"
+        onClick={() => {
+          setArmed(false);
+          onConfirm();
+        }}
+      >
+        Confirmer
+      </button>
+      <button className="linklike" onClick={() => setArmed(false)}>
+        Non
+      </button>
+    </span>
+  );
+}
+
 function StudyForm({
   draft,
   setDraft,
@@ -372,6 +546,9 @@ function StudyForm({
   today,
   preview,
   canCancel,
+  hasProgress,
+  onResetProgress,
+  onDeletePlan,
   onCancel,
   onSubmit,
   onOpenCast,
@@ -382,6 +559,9 @@ function StudyForm({
   today: string;
   preview: { portions: Portion[]; fc: ReturnType<typeof forecast> };
   canCancel: boolean;
+  hasProgress: boolean;
+  onResetProgress: () => void;
+  onDeletePlan: () => void;
   onCancel: () => void;
   onSubmit: () => void;
   onOpenCast: () => void;
@@ -449,6 +629,13 @@ function StudyForm({
           onChange={(daysPerWeek) => setDraft({ ...draft, daysPerWeek })}
         />
       </Row>
+      <Row label="Heure de séance">
+        <TimeField
+          value={draft.startTime ?? DEFAULT_START_TIME}
+          onChange={(startTime) => setDraft({ ...draft, startTime })}
+          aria-label="Heure de début des séances, pour l'export vers l'agenda"
+        />
+      </Row>
 
       <div className="study-preview">
         {portions.length === 0 ? (
@@ -456,8 +643,9 @@ function StudyForm({
         ) : (
           <>
             <p>
-              <strong>{portions.length} portions</strong> · {Math.round(totalMinutes)} min de travail
-              au total · {fc.daysLeft} jour{fc.daysLeft > 1 ? 's' : ''} de travail d'ici là
+              <strong>{portions.reduce((s, p) => s + p.lines, 0)} tirades</strong> ·{' '}
+              {Math.round(totalMinutes)} min de travail au total · {fc.daysLeft} jour
+              {fc.daysLeft > 1 ? 's' : ''} de travail d'ici là
             </p>
             <p className={`study-status study-status--${fc.status}`}>
               {STATUS_LABEL[fc.status]}
@@ -474,6 +662,27 @@ function StudyForm({
         </Button>
         {canCancel && <Button onClick={onCancel}>Annuler</Button>}
       </div>
+
+      {canCancel && (
+        <div className="study-reset">
+          <p className="study-hint">
+            Changer la date ou la durée ci-dessus <strong>conserve</strong> ta progression —
+            elle est ancrée sur les répliques, pas sur le découpage. Pour repartir de zéro :
+          </p>
+          {hasProgress && (
+            <DangerAction
+              label="Effacer ma progression"
+              question="Tout ce qui est su redevient à apprendre. "
+              onConfirm={onResetProgress}
+            />
+          )}
+          <DangerAction
+            label="Supprimer le plan"
+            question="Le plan et sa progression disparaissent. "
+            onConfirm={onDeletePlan}
+          />
+        </div>
+      )}
     </div>
   );
 }

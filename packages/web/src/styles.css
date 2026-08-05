@@ -1720,3 +1720,182 @@ kbd {
   display: flex;
   gap: var(--sp-3);
 }
+
+/* ---- Apprentissage : annulation, calendrier ------------------------------ */
+
+.study-undo {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--paper-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-md);
+}
+
+.study-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.study-calendar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.study-calendar__figures {
+  margin: 0;
+  font-size: var(--fs-md);
+}
+
+.study-week {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.study-week__title {
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-weight: 600;
+}
+
+.study-days {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.study-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-md);
+}
+.study-day__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.study-day__date {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.study-day__time {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* La liste d'avancement accueille les trois notes : elle passe en grille pour
+   que les libellés ne se déplacent pas d'une ligne à l'autre. */
+.study-progress li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+}
+
+@media (max-width: 620px) {
+  .study-day {
+    grid-template-columns: 1fr auto;
+  }
+  .study-day__date {
+    grid-column: 1 / -1;
+  }
+  .study-progress li {
+    grid-template-columns: 1fr;
+    gap: var(--sp-1);
+  }
+}
+
+/* Journée projetée au-delà de la durée demandée : signalée, pas masquée. */
+.study-day--over .study-day__time {
+  color: var(--warn-ink);
+  font-weight: 600;
+}
+
+/* Bloc de travail : une ligne qui dit quoi et où, une ligne qui cite les deux
+   bornes. Deux alignements verticaux, pas six — les citations portent le sens,
+   tout le reste doit s'effacer. */
+.study-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.study-block + .study-block {
+  margin-top: var(--sp-2);
+}
+.study-block__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.study-block__label {
+  color: var(--text);
+  font-weight: 600;
+}
+.study-block__range {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.study-block__gaps {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* Les deux citations se partagent la ligne et se rognent à parts égales : la
+   seconde ne doit pas disparaître parce que la première est longue. */
+.study-block__quotes {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.study-block__text {
+  flex: 1 1 0;
+  color: var(--ink-muted);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.study-block__arrow {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+}
+
+/* Actions destructives : en texte sur --danger, jamais en aplat (cf. jetons). */
+.study-reset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.study-reset .study-hint {
+  flex-basis: 100%;
+}
+.linklike--danger {
+  color: var(--danger);
+}
+.study-danger {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+}
+

@@ -24,6 +24,7 @@ import { exportPdf } from './export';
 import { createLogger, formatRequestLine } from './logger';
 import { exportReaderHtml } from './reader-export';
 import {
+  deleteStudy,
   listPlays,
   loadNotes,
   loadPlay,
@@ -193,6 +194,11 @@ export async function buildServer(): Promise<FastifyInstance> {
       return { ok: true };
     },
   );
+
+  app.delete<{ Params: { slug: string } }>('/api/plays/:slug/study', async (req) => {
+    await deleteStudy(req.params.slug);
+    return { ok: true };
+  });
 
   app.post('/api/import', async (req, reply) => {
     const file = await req.file();

@@ -6,7 +6,7 @@
  *                     personnages et template courant, que Fountain ne porte pas.
  */
 
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -104,6 +104,18 @@ export async function saveStudy(slug: string, study: StudyState): Promise<void> 
   const dir = join(DATA_DIR, slug);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'study.json'), JSON.stringify(study, null, 2), 'utf8');
+}
+
+/**
+ * Supprime le plan d'apprentissage. Un fichier déjà absent n'est pas une erreur :
+ * l'appelant voulait qu'il n'y en ait plus, c'est le cas.
+ */
+export async function deleteStudy(slug: string): Promise<void> {
+  try {
+    await rm(join(DATA_DIR, slug, 'study.json'));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
 }
 
 /**

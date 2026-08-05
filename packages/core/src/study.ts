@@ -54,6 +54,15 @@ export const SHORT_LINE_WORDS = 5;
 export const INTERVALS = [1, 3, 7, 14, 30, 60];
 /** Niveau maximum : lié à la longueur de l'échelle, pour qu'aucun index ne sorte. */
 export const MAX_LEVEL = INTERVALS.length - 1;
+/** Heure de début d'une séance, faute de réglage. */
+export const DEFAULT_START_TIME = '19:30';
+/**
+ * Projection prudente : une portion sur trois est supposée repasser en
+ * « hésitant ». Projeter un sans-faute donnerait un calendrier que personne ne
+ * tient ; ce taux allonge la prévision de la part de révisions qu'on observe en
+ * pratique. C'est une hypothèse, pas une mesure — d'où le nom.
+ */
+export const PROJECTION_HARD_EVERY = 3;
 
 // Calibrage vérifié sur le rôle de BENJI (« Tout le monde se tire ») : 157
 // répliques, 1 584 mots → coût total 2 133,5, soit ~474 min ≈ 19 séances de
@@ -65,8 +74,14 @@ export interface StudyConfig {
   /** Date d'atterrissage, « YYYY-MM-DD ». */
   target: string;
   sessionMinutes: number;
-  /** 1..7 — sert au calcul de capacité, pas à fixer des jours précis. */
+  /** 1..7 — capacité quotidienne, et rythme de la projection. */
   daysPerWeek: number;
+  /**
+   * Heure de début des séances pour l'export calendrier, « HH:MM ». Absente sur
+   * un plan écrit avant cette option : `DEFAULT_START_TIME` s'applique alors
+   * (même défensive que les options de template, cf. CLAUDE.md).
+   */
+  startTime?: string;
 }
 
 export interface NodeState {
@@ -100,6 +115,17 @@ export interface Portion {
   fromTirade: number;
   toTirade: number;
   nodeIds: string[];
+  /**
+   * Début de la première réplique parlée, tronqué. Un numéro de tirade ne dit
+   * rien à un comédien : c'est l'incipit qui lui fait reconnaître le passage.
+   */
+  preview: string;
+  /**
+   * Idem pour la DERNIÈRE réplique parlée. Les deux ensemble bornent le passage :
+   * l'incipit seul dit où l'on commence, jamais jusqu'où l'on va. Égal à `preview`
+   * quand la portion tient en une réplique — l'appelant n'affiche alors qu'une ligne.
+   */
+  previewEnd: string;
   words: number;
   lines: number;
   shortLines: number;
@@ -191,6 +217,18 @@ function countWords(t: string): number {
   return t.split(/\s+/).filter(Boolean).length;
 }
 
+/** Longueur de l'incipit d'une portion, en caractères. */
+export const PREVIEW_CHARS = 90;
+
+/** Tronque sur une frontière de mot, sans couper le dernier en deux. */
+function truncateWords(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
 /**
  * Découpe les répliques des `roleIds` en portions d'au plus `budgetCost`.
  *
@@ -217,7 +255,8 @@ export function splitIntoPortions(play: Play, roleIds: string[], budgetCost: num
     for (let i = span.from; i < span.to; i++) {
       const n = play.nodes[i]!;
       if (n.type !== 'line' || !roles.has(n.characterId)) continue;
-      const words = countWords(speechText(n));
+      const spoken = speechText(n);
+      const words = countWords(spoken);
       const cost = words + COST_PER_LINE;
       if (cur && cur.cost + cost > budgetCost) {
         out.push(cur);
@@ -233,11 +272,20 @@ export function splitIntoPortions(play: Play, roleIds: string[], budgetCost: num
           fromTirade: tirade,
           toTirade: tirade,
           nodeIds: [],
+          preview: '',
+          previewEnd: '',
           words: 0,
           lines: 0,
           shortLines: 0,
           cost: 0,
         };
+      }
+      // Répliques qui disent quelque chose : une réplique faite d'une seule
+      // didascalie ne ferait reconnaître aucun passage.
+      if (spoken) {
+        const excerpt = truncateWords(spoken, PREVIEW_CHARS);
+        if (!cur.preview) cur.preview = excerpt;
+        cur.previewEnd = excerpt;
       }
       cur.nodeIds.push(ids[i]!);
       cur.words += words;
@@ -345,16 +393,19 @@ export function planSession(portions: Portion[], state: StudyState, today: strin
 
   let minutes = due.reduce((s, p) => s + p.cost * REVIEW_FACTOR, 0) / COST_PER_MINUTE;
   const fresh: Portion[] = [];
+  // Le neuf suit `maxFresh`, le rythme qu'il faut tenir pour la date — et RIEN
+  // d'autre. Le plafonner en plus par la charge de la séance laissait les
+  // révisions affamer la découverte : mesuré sur le rôle de BENJI, à partir du
+  // moment où elles remplissent 25 min, plus aucune portion neuve ne passait, et
+  // le plan s'arrêtait à la tirade 117 sur 157 en annonçant pourtant « tendu ».
+  // Une séance qui déborde se dit (`minutes`, « journée de rattrapage ») et se
+  // corrige en allongeant les séances ou en reculant la date ; un rôle qu'on
+  // n'apprend jamais ne se voit pas.
   for (let i = 0; i < portions.length && fresh.length < maxFresh; i++) {
     if (states[i]!.seen !== 0) continue;
     const p = portions[i]!;
-    const add = p.cost / COST_PER_MINUTE;
-    // La première neuve passe toujours : sans cette garde, une portion plus
-    // coûteuse que la séance entière ne serait jamais programmée et le plan
-    // resterait bloqué dessus indéfiniment.
-    if (fresh.length > 0 && minutes + add > state.config.sessionMinutes) break;
     fresh.push(p);
-    minutes += add;
+    minutes += p.cost / COST_PER_MINUTE;
   }
 
   const known = new Set<string>();
@@ -399,6 +450,81 @@ export function forecast(portions: Portion[], state: StudyState, today: string):
     : ratio <= 1 ? 'tight'
     : 'late';
   return { status, daysLeft, portionsLeft, neededPerDay, capacityPerDay };
+}
+
+/**
+ * Plages de tirades couvertes par un ensemble de portions, fusionnées quand elles
+ * se touchent. « 34 tirades à revoir » ne dit pas lesquelles ; « 1→34 » le dit, et
+ * tient sur une ligne là où quatorze plages séparées ne tiendraient pas.
+ */
+export function mergeTiradeRanges(portions: Portion[]): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = [];
+  for (const p of [...portions].sort((a, b) => a.fromTirade - b.fromTirade)) {
+    const last = out[out.length - 1];
+    if (last && p.fromTirade <= last.to + 1) last.to = Math.max(last.to, p.toTirade);
+    else out.push({ from: p.fromTirade, to: p.toTirade });
+  }
+  return out;
+}
+
+/** Une journée de travail telle que la projection l'anticipe. */
+export interface PlannedDay {
+  /** « YYYY-MM-DD ». */
+  day: string;
+  due: Portion[];
+  fresh: Portion[];
+  minutes: number;
+}
+
+/**
+ * Jours travaillés à partir de `from`, à raison de `daysPerWeek` par semaine.
+ *
+ * `daysPerWeek` ne dit pas QUELS jours — le moteur s'en sert pour la capacité, et
+ * personne n'a saisi de calendrier hebdomadaire. La projection doit pourtant poser
+ * des dates : convention, on travaille les `daysPerWeek` premiers jours de chaque
+ * période de sept. Arbitraire mais explicable, et exact à 7 jours sur 7.
+ */
+function workingDays(from: string, daysPerWeek: number, until: string, cap: number): string[] {
+  const out: string[] = [];
+  const span = Math.max(0, daysBetween(from, until));
+  for (let i = 0; i <= span && out.length < cap; i++) {
+    if (i % 7 < daysPerWeek) out.push(addDays(from, i));
+  }
+  return out;
+}
+
+/**
+ * Calendrier prévisionnel jusqu'à la date d'atterrissage, jour par jour.
+ *
+ * Rien n'est stocké : on rejoue le moteur sur un état simulé, en supposant que
+ * chaque portion travaillée est notée « su », sauf une sur `PROJECTION_HARD_EVERY`
+ * notée « hésitant ». Le résultat est donc une PRÉVISION, qui se recale d'elle-même
+ * dès qu'on ouvre l'app un autre jour ou qu'on note autre chose que prévu.
+ *
+ * Déterministe : deux appels sur le même état rendent le même calendrier. La
+ * variation vient d'un compteur, jamais d'un tirage.
+ */
+export function projectSchedule(
+  portions: Portion[],
+  state: StudyState,
+  today: string,
+  cap = 180,
+): PlannedDay[] {
+  const out: PlannedDay[] = [];
+  let sim = state;
+  let graded = 0;
+
+  for (const day of workingDays(today, state.config.daysPerWeek, state.config.target, cap)) {
+    const session = planSession(portions, sim, day);
+    if (!session.due.length && !session.fresh.length) continue;
+    out.push({ day, due: session.due, fresh: session.fresh, minutes: session.minutes });
+    for (const p of [...session.fresh, ...session.due]) {
+      graded++;
+      const grade: Grade = graded % PROJECTION_HARD_EVERY === 0 ? 'hard' : 'good';
+      sim = gradeNodes(sim, p.nodeIds, grade, day);
+    }
+  }
+  return out;
 }
 
 /** Retire les `nodeId` progressés qui ne correspondent plus à aucune portion. */
@@ -455,6 +581,13 @@ export function parseStudyState(value: unknown): StudyState | null {
   const daysPerWeek = boundedNumber(c.daysPerWeek, 1, 7);
   if (sessionMinutes === null || daysPerWeek === null) return null;
 
+  // Heure absente ou illisible → on retombe sur le défaut plutôt que de refuser
+  // le plan : c'est un confort d'export, pas une donnée d'apprentissage.
+  const startTime =
+    typeof c.startTime === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(c.startTime)
+      ? c.startTime
+      : DEFAULT_START_TIME;
+
   const progress: Record<string, NodeState> = {};
   const raw = v.progress;
   if (raw && typeof raw === 'object') {
@@ -467,5 +600,9 @@ export function parseStudyState(value: unknown): StudyState | null {
     }
   }
 
-  return { version: 1, config: { roleIds, target, sessionMinutes, daysPerWeek }, progress };
+  return {
+    version: 1,
+    config: { roleIds, target, sessionMinutes, daysPerWeek, startTime },
+    progress,
+  };
 }
