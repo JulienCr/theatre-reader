@@ -10,7 +10,7 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Note } from '@theatre/core';
 import { boot } from '@theatre/reader-runtime';
-import { buildReaderDocument, type ReaderDocument } from '@theatre/reader-ui';
+import { buildReaderDocument, storageKeyFor, type ReaderDocument } from '@theatre/reader-ui';
 import { uiCss } from '@theatre/ui';
 import { buildOnlineClips, loadNotes, loadPlay, type PlayMeta } from './api';
 import { discover } from './discovery';
@@ -66,7 +66,34 @@ function mountReader(doc: ReaderDocument): void {
   // EN DERNIER, impérativement : `boot()` cherche `.play` dans le DOM et lit le
   // global, une seule fois chacun, et retourne EN SILENCE si l'un des deux
   // manque — l'écran resterait blanc sans la moindre erreur.
-  boot();
+  //
+  // La sortie recharge la page sans `slug` plutôt que de démonter le lecteur :
+  // `boot()` n'est appelable qu'une fois par page et le runtime n'a pas d'API de
+  // démontage — même raison que l'ouverture d'une pièce dans Picker.
+  boot({ onExit: () => location.assign(location.pathname) });
+
+  // Le navigateur a déjà traité le fragment quand la page s'est chargée : à ce
+  // moment-là le corps de la pièce n'existait pas encore (il vient d'être injecté
+  // juste au-dessus), donc l'ancre ne menait nulle part. C'est ici, et seulement
+  // ici, qu'elle est atteignable.
+  const anchor = decodeAnchor(location.hash.slice(1));
+  if (anchor) document.getElementById(anchor)?.scrollIntoView({ block: 'start' });
+}
+
+/**
+ * `decodeURIComponent` JETTE sur un pourcentage mal formé (`#%zz`) — ce que
+ * l'app n'écrit jamais, mais qu'un lien reçu de l'extérieur peut très bien
+ * porter. L'exception remonterait au `catch` de `main()`, qui remplacerait par
+ * un message d'erreur le lecteur pourtant monté juste au-dessus : la pièce
+ * deviendrait illisible à cause de son seul fragment. Une ancre incompréhensible
+ * ne vaut pas ça — on ouvre au début.
+ */
+function decodeAnchor(hash: string): string {
+  try {
+    return decodeURIComponent(hash);
+  } catch {
+    return '';
+  }
 }
 
 function mountPicker(): void {
@@ -139,7 +166,7 @@ function buildDocument(slug: string, source: PlaySource): ReaderDocument {
     characters: source.meta.characters,
     template: source.meta.template,
     notes: source.notes,
-    storageKey: `theatre-reader:${slug}`,
+    storageKey: storageKeyFor(slug),
     clips: source.clips,
     myCharacterId: source.meta.audio?.myCharacterId,
   });

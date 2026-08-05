@@ -36,6 +36,12 @@ export interface StoredPlay {
  */
 export interface OfflineManifest {
   map: Record<string, string>;
+  /**
+   * Fin de la dernière préparation, en ms. Optionnel : les manifestes écrits avant
+   * son existence n'en ont pas, et l'accueil se contente alors de ne rien dire de
+   * la fraîcheur.
+   */
+  preparedAt?: number;
 }
 
 const ROOT = 'theatre';
@@ -146,6 +152,33 @@ export async function clipUrl(slug: string, key: string): Promise<string> {
     directory: Directory.Data,
   });
   return Capacitor.convertFileSrc(uri);
+}
+
+/**
+ * Poids du cache audio local, en octets — 0 si la pièce n'a aucun clip, ce qui est
+ * un état normal (aucune voix configurée).
+ *
+ * Mesuré sur le disque à chaque affichage plutôt que mémorisé à la préparation :
+ * c'est un seul appel natif, et un compteur stocké deviendrait faux à la première
+ * suppression ou préparation interrompue — précisément quand savoir la place prise
+ * compte le plus.
+ */
+export async function audioBytes(slug: string): Promise<number> {
+  try {
+    const { files } = await Filesystem.readdir({
+      path: `${playDir(slug)}/audio`,
+      directory: Directory.Data,
+    });
+    return files.reduce((total, file) => total + (file.size ?? 0), 0);
+  } catch {
+    // Pièce jamais préparée, ou préparée sans un seul clip : le dossier n'existe pas.
+    return 0;
+  }
+}
+
+/** Efface tout ce que ce téléphone garde d'une pièce : texte, notes, clips. */
+export async function deletePlay(slug: string): Promise<void> {
+  await Filesystem.rmdir({ path: playDir(slug), directory: Directory.Data, recursive: true });
 }
 
 /** Pièces préparées sur ce téléphone, avec leur nom lisible pour l'écran de choix. */

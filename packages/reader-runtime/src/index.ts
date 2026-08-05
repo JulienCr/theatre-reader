@@ -23,6 +23,19 @@ import { STYLE } from './styles';
 import type { ReaderData } from './types';
 
 export type { ReaderData } from './types';
+export { loadResume, type ResumePoint } from './state';
+
+/**
+ * Ce que l'hôte du runtime sait faire et que le lecteur, lui, ne peut pas deviner.
+ *
+ * `onExit` n'est fourni que par l'app : elle a une liste de pièces où revenir. Le
+ * .html exporté est un fichier isolé — il n'y a rien derrière lui — et l'absence
+ * de l'option y est donc la bonne réponse, pas un oubli : le chrome n'affiche
+ * alors aucune sortie.
+ */
+export interface BootOptions {
+  onExit?: () => void;
+}
 
 function injectStyle(css: string): void {
   const style = document.createElement('style');
@@ -30,7 +43,7 @@ function injectStyle(css: string): void {
   document.head.appendChild(style);
 }
 
-function init(d: ReaderData): void {
+function init(d: ReaderData, options: BootOptions): void {
   const play = document.querySelector<HTMLElement>('.play');
   if (!play) return;
 
@@ -53,15 +66,17 @@ function init(d: ReaderData): void {
   const host = document.createElement('div');
   host.id = 'reader-chrome';
   document.body.appendChild(host);
-  createRoot(host).render(createElement(Chrome, { data: d, play, search, initial }));
+  createRoot(host).render(
+    createElement(Chrome, { data: d, play, search, initial, onExit: options.onExit }),
+  );
 }
 
-export function boot(): void {
+export function boot(options: BootOptions = {}): void {
   const d = (window as unknown as { __THEATRE_READER_DATA__?: ReaderData }).__THEATRE_READER_DATA__;
   if (!d) return;
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => init(d));
+    document.addEventListener('DOMContentLoaded', () => init(d, options));
   } else {
-    init(d);
+    init(d, options);
   }
 }

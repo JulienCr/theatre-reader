@@ -76,12 +76,15 @@ export function Chrome({
   play,
   search,
   initial,
+  onExit,
 }: {
   data: ReaderData;
   /** Le `.play` rendu par @theatre/core — jamais rendu par React, seulement muté. */
   play: HTMLElement;
   search: SearchController;
   initial: PersistedState;
+  /** Fourni par l'app seule : le .html exporté n'a nulle part où sortir. */
+  onExit?: () => void;
 }) {
   const [selected, setSelected] = useState<string[]>(initial.selected);
   // Borné dès la lecture : un localStorage abîmé ne doit pas rendre la pièce illisible.
@@ -187,6 +190,15 @@ export function Chrome({
     [data.toc, sceneId],
   );
 
+  // Point de reprise offert à l'écran d'accueil de l'app. Il ne s'efface JAMAIS
+  // de lui-même : avant le premier en-tête — page de titre, distribution — la
+  // scène courante est nulle, et remonter là-haut une seconde n'est pas une
+  // demande d'oublier où on en était.
+  const [resume, setResume] = useState(initial.resume);
+  useEffect(() => {
+    if (sceneId && sceneLabel) setResume({ sceneId, label: sceneLabel, at: Date.now() });
+  }, [sceneId, sceneLabel]);
+
   // Taille du texte : posée en inline sur `.play`. useLayoutEffect (et non
   // useEffect) pour que la valeur restaurée soit appliquée avant la peinture,
   // sinon le texte s'affiche brièvement à 100 %.
@@ -260,8 +272,8 @@ export function Chrome({
       mounted.current = true;
       return;
     }
-    saveState(data.storageKey, { selected, fontPct, reading, myRoles });
-  }, [data.storageKey, selected, fontPct, reading, myRoles]);
+    saveState(data.storageKey, { selected, fontPct, reading, myRoles, resume });
+  }, [data.storageKey, selected, fontPct, reading, myRoles, resume]);
 
   // Le champ de recherche n'est focalisé qu'à l'ouverture de sa sheet.
   useEffect(() => {
@@ -367,6 +379,17 @@ export function Chrome({
           état ouvert : leur transition CSS (translateY) ne jouerait pas si elles
           apparaissaient déjà ouvertes au montage. */}
       <Sheet title="Options" open={sheet === 'options'} onClose={closeSheet}>
+        {/* Dans son propre bloc, au-dessus de la navigation interne : quitter la
+            pièce et se déplacer dedans ne sont pas la même sorte d'action. */}
+        {onExit && (
+          <div className="sheet-nav">
+            <button type="button" className="sheet-nav-item" onClick={onExit}>
+              <Icon name="chevron-left" size={20} />
+              <span className="sheet-nav-label">Mes pièces</span>
+            </button>
+          </div>
+        )}
+
         <div className="sheet-nav">
           <NavItem icon="users" label="Personnages" onClick={() => openSheet('chars', 'options')} />
           <NavItem icon="list" label="Scènes" onClick={() => openSheet('scenes', 'options')} />

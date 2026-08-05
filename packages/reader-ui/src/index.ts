@@ -23,6 +23,7 @@ export { TransportDock, type TransportDockProps } from './TransportDock';
 export { readerChromeCss } from './chrome-css';
 export {
   buildReaderDocument,
+  storageKeyFor,
   type ReaderData,
   type ReaderDocument,
   type ReaderDocumentInput,
