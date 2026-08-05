@@ -175,6 +175,13 @@ function buildDocument(slug: string, source: PlaySource): ReaderDocument {
 async function main(): Promise<void> {
   const slug = new URLSearchParams(location.search).get('slug');
   if (!slug) {
+    // Le clair forcé par index.html sert le texte de la pièce, rendu par
+    // @theatre/core en encre sombre sur papier blanc (rendu partagé avec le PDF,
+    // donc non inversable). L'écran de choix, lui, n'affiche aucun texte de
+    // pièce : rien ne justifie de brûler les yeux en coulisses. Le retrait de
+    // l'attribut rend la main à `color-scheme: light dark`, qui emporte aussi
+    // les surfaces peintes par le navigateur (canevas, barre de défilement).
+    document.documentElement.removeAttribute('data-theme');
     mountPicker();
     return;
   }

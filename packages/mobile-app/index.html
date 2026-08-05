@@ -7,6 +7,11 @@
   par @theatre/core en encre sombre sur papier blanc (couleurs de surlignage
   pâles comprises), et ce rendu est partagé avec le PDF — on ne peut donc pas
   l'inverser. Un chrome sombre sur une page blanche serait incohérent.
+
+  C'est donc la bonne valeur par défaut, et elle tient même si le script échoue.
+  `main()` la retire au démarrage dans le seul cas où elle n'a pas lieu d'être :
+  l'écran de choix des pièces, qui n'affiche aucun texte de pièce et suit alors
+  `prefers-color-scheme`.
 -->
 <html lang="fr" data-theme="light">
   <head>
