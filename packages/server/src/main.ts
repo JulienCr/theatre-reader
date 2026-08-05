@@ -38,11 +38,19 @@ try {
     startDiscovery(PORT, (message) => {
       app.log.warn(`Annonce mDNS impossible (${message}) — saisir l'adresse à la main dans l'app.`);
     });
-    // Les adresses sont logguées même quand l'annonce réussit : c'est le filet de
-    // secours si la découverte échoue côté téléphone (permission « réseau local »
-    // refusée, Wi-Fi qui isole les clients), et il faut alors pouvoir les recopier.
-    for (const url of [`http://${ADVERTISED_HOST}:${PORT}`, ...lanAddresses().map((ip) => `http://${ip}:${PORT}`)]) {
-      app.log.info(`Joignable depuis le téléphone : ${url}`);
+    // Deux publics, deux libellés — les confondre coûte du temps de dépannage.
+    //
+    // Le nom `.local` est le seul que l'app iOS sache joindre (l'exception ATS
+    // `NSAllowsLocalNetworking` ne couvre pas les IP privées), mais il ne résout que
+    // si l'annonce mDNS aboutit — ce qui n'est pas encore connu ici : les échecs
+    // d'annonce sont asynchrones et arrivent par le `warn` ci-dessus. On annonce donc
+    // l'intention, jamais un fait.
+    //
+    // Les IP, elles, sont vraies dès maintenant puisque le serveur écoute dessus,
+    // mais elles servent depuis un navigateur du réseau, pas depuis l'app.
+    app.log.info(`Découverte par l'app iOS : http://${ADVERTISED_HOST}:${PORT}`);
+    for (const ip of lanAddresses()) {
+      app.log.info(`Depuis un navigateur du réseau : http://${ip}:${PORT}`);
     }
   }
 } catch (err) {
