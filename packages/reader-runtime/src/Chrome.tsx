@@ -68,6 +68,20 @@ const REHEARSAL_OPTIONS: { key: keyof ReadingSettings; label: string; hint: stri
 ];
 
 /**
+ * Les ordres qu'on peut dire à la place de sa réplique, micro déjà ouvert.
+ *
+ * Une seule formulation est montrée par ordre — la liste sert à savoir que ça
+ * existe, pas à réciter un vocabulaire. Les variantes acceptées vivent dans
+ * `@theatre/voice-match` (`commands.ts`), qui reste seul propriétaire de la règle.
+ */
+const VOICE_COMMANDS: { say: string; does: string }[] = [
+  { say: 'passe', does: 'joue ma réplique, puis enchaîne' },
+  { say: 'indice', does: "souffle le début de ma réplique, puis j'y retourne" },
+  { say: 'début de la scène', does: 'reprend la scène en cours' },
+  { say: 'scène suivante', does: 'saute à la scène d’après' },
+];
+
+/**
  * Boîte d'observation des en-têtes : tout ce qui est au-dessus de la ligne des
  * 12 % de hauteur d'écran. Un en-tête « intersecte » donc exactement quand il a
  * été franchi, et le bandeau affiche le dernier de la liste dans ce cas.
@@ -661,21 +675,34 @@ export function Chrome({
             </label>
 
             {voiceOn && (
-              <div className="mode-seg mode-seg--sub" role="group" aria-label="Exigence de la validation">
-                {[
-                  { key: 'soft' as const, label: 'Souple' },
-                  { key: 'strict' as const, label: 'Strict' },
-                ].map((t) => (
-                  <Button
-                    key={t.key}
-                    size="touch"
-                    aria-pressed={voice.tolerance === t.key}
-                    onClick={() => void changeVoice({ tolerance: t.key })}
-                  >
-                    {t.label}
-                  </Button>
-                ))}
-              </div>
+              <>
+                <div className="mode-seg mode-seg--sub" role="group" aria-label="Exigence de la validation">
+                  {[
+                    { key: 'soft' as const, label: 'Souple' },
+                    { key: 'strict' as const, label: 'Strict' },
+                  ].map((t) => (
+                    <Button
+                      key={t.key}
+                      size="touch"
+                      aria-pressed={voice.tolerance === t.key}
+                      onClick={() => void changeVoice({ tolerance: t.key })}
+                    >
+                      {t.label}
+                    </Button>
+                  ))}
+                </div>
+
+                {/* Rien n'est découvrable à l'oreille : sans cette liste, les ordres
+                    n'existent que pour qui a lu le code. */}
+                <dl className="voice-commands">
+                  {VOICE_COMMANDS.map((c) => (
+                    <div className="voice-commands-row" key={c.say}>
+                      <dt>« {c.say} »</dt>
+                      <dd>{c.does}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
             )}
           </>
         )}

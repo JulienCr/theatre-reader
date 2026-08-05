@@ -103,6 +103,17 @@ comparison, no DOM) → `createVoiceCoach` (state machine) → the host, which i
   the bar for the rest of the scene.
 - The mode forces `playMine`/`autoAdvance` off (they'd fight the listening), and the cue
   beep plays even when the `tick` setting is off — it announces the mic opening.
+- **Spoken commands** (`voice-match/commands.ts`, pure) turn the open mic into the only
+  hands-free control: *passe* (play my clip, then chain), *indice* (2 s of it, then
+  listen again), *début de la scène*, *scène suivante*. Two rules hold the whole thing
+  up, and both exist to protect the text: a command is only recognized on a **complete**
+  utterance — hence the single dispatch point in `finish()`, never in `onPartial`, so a
+  line starting with "Passe…" is never cut off — and a command whose words appear
+  **inside the expected tirade is disabled for that tirade** ("Je passe par là" makes
+  *passe* a failed attempt, not a skip; that's why each command has several wordings).
+  The host executes and returns a boolean: a scene command with nowhere to go must not
+  leave a pause with the mic shut and nothing expected. `playReference(limitMs)` serves
+  the hint — its pre-existing safety timeout *is* the truncation, not a second path.
 - **iOS plugin is local to the App target** (`ios/App/App/SpeechPlugin.swift`, registered
   by `MainViewController.capacitorDidLoad()`, which `Main.storyboard` must point at).
   `cap sync` regenerates `Package.swift` and `public/` but never `project.pbxproj`, so

@@ -9,7 +9,22 @@
  * qu'une liste d'erreurs qu'il faudrait recoller mentalement au texte.
  */
 import { Fragment } from 'react';
-import type { Evaluation, VoiceStatus } from '@theatre/audio-player';
+import type { Evaluation, VoiceCommand, VoiceStatus } from '@theatre/audio-player';
+
+/**
+ * Ce que le bandeau dit d'un ordre reçu.
+ *
+ * Seul l'indice reste affiché le temps qu'on l'entende : les trois autres relancent
+ * la lecture, qui clôt l'épisode et repasse le bandeau à vide. C'est le son de
+ * commande, puis le clip qui démarre, qui portent alors le retour — le mode est
+ * fait pour s'utiliser sans regarder.
+ */
+const COMMANDS: Record<VoiceCommand, string> = {
+  skip: 'je passe',
+  hint: 'indice',
+  'scene-start': 'on reprend la scène',
+  'scene-next': 'scène suivante',
+};
 
 /** Ce que dit le bandeau selon l'état de la boucle. `null` = rien à annoncer. */
 function label(status: VoiceStatus): string | null {
@@ -28,6 +43,8 @@ function label(status: VoiceStatus): string | null {
       return 'rien entendu';
     case 'reference':
       return 'écoute le modèle';
+    case 'command':
+      return status.command ? COMMANDS[status.command] : null;
     case 'error':
       return 'micro indisponible';
     default:

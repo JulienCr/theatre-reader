@@ -11,7 +11,13 @@
  * Rien n'est conservé : la transcription est effacée dès l'évaluation, et il ne
  * reste à l'écran que les quelques mots des écarts.
  */
-import { evaluate, type Evaluation, type Tolerance } from '@theatre/voice-match';
+import {
+  evaluate,
+  matchCommand,
+  type Evaluation,
+  type Tolerance,
+  type VoiceCommand,
+} from '@theatre/voice-match';
 
 /**
  * Ce que l'hôte doit fournir pour écouter. Les événements sont poussés (et non
@@ -56,6 +62,8 @@ export type VoicePhase =
   | 'no-speech'
   /** Lecture du clip de référence, après deux échecs. */
   | 'reference'
+  /** Un ordre vient d'être dit à la place de la tirade (cf. `commands.ts`). */
+  | 'command'
   | 'error';
 
 export interface VoiceStatus {
@@ -68,6 +76,8 @@ export interface VoiceStatus {
   failures: number;
   /** Message court à l'écran (erreur, ou invitation à reprendre la main). */
   message: string | null;
+  /** L'ordre reconnu (phase `command`), pour que l'écran dise lequel. */
+  command: VoiceCommand | null;
 }
 
 export interface VoiceCoachOptions {
@@ -76,9 +86,20 @@ export interface VoiceCoachOptions {
   locale?: string;
   /** Joue le clip de la tirade courante et résout à la fin — ou tout de suite s'il n'y en a pas. */
   playReference: () => Promise<void>;
+  /** Idem, mais tronqué : le début de la tirade, juste de quoi la relancer. */
+  playHint: () => Promise<void>;
+  /**
+   * Exécute un ordre de navigation. Rend faux quand il n'y a nulle part où aller
+   * (pas de découpage en scènes, dernière scène de la pièce).
+   *
+   * Le booléen n'est pas décoratif : un refus silencieux laisserait une pause
+   * micro fermé qui n'attend plus rien, c'est-à-dire une lecture bloquée sans
+   * rien à l'écran pour le dire. Sur faux, le coach rouvre l'écoute.
+   */
+  command: (c: Exclude<VoiceCommand, 'hint'>) => boolean;
   /** La tirade est acquise : au lecteur d'enchaîner. */
   advance: () => void;
-  sound: (kind: 'cue' | 'reject' | 'borderline') => void;
+  sound: (kind: 'cue' | 'reject' | 'borderline' | 'command') => void;
   onState: (s: VoiceStatus) => void;
 }
 
@@ -158,6 +179,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   let silent = 0;
   let expected = '';
   let message: string | null = null;
+  let command: VoiceCommand | null = null;
 
   let listening = false;
   /** Le micro tourne, mais ce n'est pas encore à moi : on n'évalue rien. */
@@ -181,7 +203,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   let authorized = false;
 
   function emit(): void {
-    o.onState({ phase, heard, result, failures, message });
+    o.onState({ phase, heard, result, failures, message, command });
   }
 
   function at(ms: number, fn: () => void): void {
@@ -298,11 +320,18 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     return true;
   }
 
-  async function listen(delay: number, cue: boolean): Promise<void> {
+  /**
+   * `note` survit à la réouverture du micro — c'est le seul moyen de dire pourquoi
+   * on réécoute alors qu'aucun verdict n'a été rendu (un ordre sans destination).
+   * Sans lui, le `message = null` d'ici effacerait la phrase à l'instant même où
+   * elle vient d'être posée.
+   */
+  async function listen(delay: number, cue: boolean, note: string | null = null): Promise<void> {
     const my = gen;
     const dueAt = Date.now() + delay;
     heard = '';
-    message = null;
+    message = note;
+    command = null;
     emit();
 
     if (!(await openMic(my))) return;
@@ -370,11 +399,62 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       noSpeech();
       return;
     }
+    // Les ordres se jugent ICI et nulle part ailleurs : `finish` est le seul point
+    // par lequel passe un énoncé TERMINÉ (silence armé par `armIdle`, ou résultat
+    // final du moteur). Le tester dans `onPartial` couperait la parole à qui
+    // commence sa réplique par « Passe… » — or c'est justement la règle qu'on
+    // s'est donnée : une commande est l'énoncé entier, pas un mot dedans.
+    const cmd = matchCommand(heard, expected);
+    if (cmd) {
+      runCommand(cmd);
+      return;
+    }
     conclude(evaluate(expected, heard, { tolerance }));
+  }
+
+  function runCommand(c: VoiceCommand): void {
+    // Quelqu'un a parlé : la série de tentatives muettes est rompue, comme après
+    // n'importe quel verdict (cf. `conclude`).
+    silent = 0;
+    heard = ''; // rien n'est conservé, un ordre pas plus que le reste
+    result = null;
+    phase = 'command';
+    command = c;
+    message = null;
+    emit();
+    o.sound('command');
+    if (c === 'hint') {
+      void hint();
+      return;
+    }
+    // L'hôte reprend la lecture, ce qui clôt l'épisode de son côté. S'il n'a nulle
+    // part où aller, la pause tiendrait toute seule, micro fermé : on réécoute.
+    if (!o.command(c)) void listen(FEEDBACK_MS, false, 'Rien à cet endroit.');
+  }
+
+  /**
+   * Souffle le début de la tirade, puis rend la parole.
+   *
+   * Même forme que `reference()`, à deux détails près qui font tout le sens du
+   * geste : le clip est tronqué (c'est un indice, pas un modèle), et `failures`
+   * n'est PAS remis à zéro — demander un coup de pouce n'est ni une faute ni un
+   * pardon, la référence complète reste due au deuxième échec.
+   */
+  async function hint(): Promise<void> {
+    const my = gen;
+    stopListening(true); // le micro ne doit rien entendre du clip
+    try {
+      await o.playHint();
+    } catch {
+      /* pas de clip : on repart écouter quand même */
+    }
+    if (destroyed || my !== gen) return;
+    void listen(BREATH_MS, true);
   }
 
   function conclude(r: Evaluation): void {
     stopListening(false);
+    command = null;
     if (r.verdict === 'no-speech') {
       noSpeech();
       return;
@@ -433,6 +513,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     silent++;
     result = null;
     heard = '';
+    command = null;
     phase = 'no-speech';
     if (silent >= MAX_SILENT) {
       message = 'Rien entendu. Reprends quand tu veux.';
@@ -450,6 +531,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     const my = gen;
     stopListening(true); // le micro ne doit rien entendre du clip
     phase = 'reference';
+    command = null;
     emit();
     try {
       await o.playReference();
@@ -473,6 +555,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     phase = 'idle';
     heard = '';
     message = null;
+    command = null;
     // `result` est délibérément conservé : après une validation limite, les écarts
     // doivent rester lisibles pendant que la lecture continue.
     emit();
@@ -492,6 +575,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       stopListening(true);
       phase = 'error';
       message = msg;
+      command = null;
       emit();
     }),
   ];
@@ -528,6 +612,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       result = null;
       heard = '';
       message = null;
+      command = null;
       phase = 'waiting';
       emit();
       void listen(BREATH_MS, true);
@@ -544,6 +629,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       phase = 'idle';
       heard = '';
       message = null;
+      command = null;
       emit();
     },
     cancel: cancelAll,

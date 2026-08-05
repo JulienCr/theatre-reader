@@ -23,7 +23,7 @@ export {
 } from './voice';
 // Ré-exporté ici pour que les hôtes (chrome du lecteur, app mobile) n'aient pas à
 // dépendre de @theatre/voice-match juste pour nommer le niveau de tolérance.
-export type { Evaluation, EvaluatedWord, Tolerance } from '@theatre/voice-match';
+export type { Evaluation, EvaluatedWord, Tolerance, VoiceCommand } from '@theatre/voice-match';
 
 export interface AudioTirade {
   nodeId: string;
@@ -383,7 +383,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     at?: number;
     ms: number;
   }
-  const TONES: Record<'cue' | 'reject' | 'borderline', Tone[]> = {
+  const TONES: Record<'cue' | 'reject' | 'borderline' | 'command', Tone[]> = {
     // Le bip historique « c'est à toi », inchangé.
     cue: [{ hz: 880, ms: 150 }],
     // Deux notes descendantes, graves et brèves : identifiable sans être agressif,
@@ -397,9 +397,15 @@ export function createPlayer(opts: PlayerOptions): Player {
       { hz: 660, ms: 80 },
       { hz: 660, at: 0.13, ms: 80 },
     ],
+    // Deux notes montantes : « ordre reçu ». Aucune des trois autres ne monte —
+    // c'est ce qui le rend reconnaissable sans regarder l'écran, seul but du son.
+    command: [
+      { hz: 520, ms: 70 },
+      { hz: 780, at: 0.09, ms: 90 },
+    ],
   };
 
-  function playTones(kind: 'cue' | 'reject' | 'borderline'): void {
+  function playTones(kind: 'cue' | 'reject' | 'borderline' | 'command'): void {
     try {
       const Ctor =
         window.AudioContext ??
@@ -444,6 +450,12 @@ export function createPlayer(opts: PlayerOptions): Player {
    * le coach retire par son préfixe.
    */
   const PRE_ARM_MS = 1000;
+
+  /**
+   * Durée de l'indice : de quoi entendre l'attaque de la réplique, pas de quoi
+   * s'en dispenser. Deux secondes, la valeur demandée à l'issue.
+   */
+  const HINT_MS = 2000;
 
   // --- Pause automatique (avancement auto) : durée = celle du mp3, sans le jouer. ---
   const FALLBACK_MIN_MS = 1500;
@@ -652,8 +664,13 @@ export function createPlayer(opts: PlayerOptions): Player {
    *
    * Ni `resolveCue` ni `playIndex` ne conviennent : tous deux avancent. C'est le
    * seul chemin qui joue puis rend la main exactement là où on était.
+   *
+   * `limitMs` coupe le clip — c'est l'indice, quelques secondes pour relancer la
+   * mémoire. Le filet de sécurité qui existait déjà (sans `ended` ni erreur, le
+   * coach resterait suspendu et le micro ne se rouvrirait jamais) EST le mécanisme
+   * de troncature : une seule voie de sortie, pas deux à tenir d'accord.
    */
-  function playReference(): Promise<void> {
+  function playReference(limitMs?: number): Promise<void> {
     const t = tirades[index];
     if (!t) return Promise.resolve();
     const my = token;
@@ -679,8 +696,6 @@ export function createPlayer(opts: PlayerOptions): Player {
             resolve();
           });
         }
-        // Filet : sans `ended` ni erreur (clip corrompu, WebView qui refuse), le
-        // coach resterait suspendu et le micro ne se rouvrirait jamais.
         setTimeout(
           () => {
             if (referenceDone !== resolve) return;
@@ -688,7 +703,7 @@ export function createPlayer(opts: PlayerOptions): Player {
             stopAudio();
             resolve();
           },
-          Math.max(15000, estimateMs(t.text) * 2),
+          limitMs ?? Math.max(15000, estimateMs(t.text) * 2),
         );
       });
     })();
@@ -712,9 +727,41 @@ export function createPlayer(opts: PlayerOptions): Player {
     const next = tirades[from + 1];
     if (next && rangeOf(next) === range) return from + 1;
     // Bout de la plage (ou de la pièce) : retour à sa première tirade.
+    return rangeStart(from);
+  }
+
+  /**
+   * Première tirade de la plage à laquelle `from` appartient.
+   *
+   * Une seule définition de « le début de la scène », partagée par la boucle et
+   * par la commande vocale : deux remontées écrites séparément finiraient par ne
+   * plus désigner le même endroit. Sans découpage, `from` est son propre début.
+   */
+  function rangeStart(from: number): number {
+    const rangeOf = opts.rangeOf;
+    const cur = tirades[from];
+    if (!rangeOf || !cur) return from;
+    const range = rangeOf(cur);
+    if (range == null) return from;
     let start = from;
     while (start > 0 && rangeOf(tirades[start - 1]!) === range) start--;
     return start;
+  }
+
+  /**
+   * Première tirade de la plage SUIVANTE, ou `tirades.length` s'il n'y en a plus.
+   *
+   * Rendre la longueur plutôt que de la borner : l'appelant doit pouvoir dire
+   * « il n'y a pas de scène suivante » au lieu de rejouer la dernière.
+   */
+  function rangeNext(from: number): number {
+    const rangeOf = opts.rangeOf;
+    const cur = tirades[from];
+    if (!rangeOf || !cur) return tirades.length;
+    const range = rangeOf(cur);
+    let i = from + 1;
+    while (i < tirades.length && rangeOf(tirades[i]!) === range) i++;
+    return i;
   }
 
   /**
@@ -843,6 +890,21 @@ export function createPlayer(opts: PlayerOptions): Player {
       tolerance: opts.voice.tolerance ?? 'soft',
       locale: opts.voice.locale,
       playReference,
+      playHint: () => playReference(HINT_MS),
+      command: (c) => {
+        // Sans découpage en plages, « la scène » n'existe pas pour le moteur : il
+        // vaut mieux le dire (le coach rouvre l'écoute) que sauter au hasard.
+        if (!opts.rangeOf && c !== 'skip') return false;
+        const to =
+          c === 'skip' ? index : c === 'scene-start' ? rangeStart(index) : rangeNext(index);
+        if (to >= tirades.length) return false; // fin de pièce : nulle part où aller
+        cancelTimer();
+        playing = true;
+        // `skip` rejoue MA réplique avant d'enchaîner — le même chemin que
+        // `resolveCue` avec « Me faire répéter », qui joue puis passe à la suite.
+        void playIndex(to, c === 'skip');
+        return true;
+      },
       // Volontairement PAS `resolveCue` : celui-ci rejouerait ma réplique quand
       // « Me faire répéter » est coché, alors que je viens de la dire — l'issue veut
       // qu'une tirade validée enchaîne, sans rien ajouter.
