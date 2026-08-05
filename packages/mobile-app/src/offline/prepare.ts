@@ -120,7 +120,7 @@ export async function prepareOffline(
     if (missingKeys.has(entry.key)) delete map[nodeId];
     else map[nodeId] = entry.key;
   }
-  await store.saveManifest(slug, { map });
+  await store.saveManifest(slug, { map, preparedAt: Date.now() });
   return result;
 }
 

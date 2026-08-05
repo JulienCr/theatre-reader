@@ -22,7 +22,7 @@ import {
 } from '@theatre/core';
 // Sous-chemin et non le baril : `@theatre/reader-ui` expose aussi des composants
 // React (DOM + JSX), que le tsconfig du serveur — Node pur — ne sait pas typer.
-import { buildReaderDocument } from '@theatre/reader-ui/document';
+import { buildReaderDocument, storageKeyFor } from '@theatre/reader-ui/document';
 import { DEFAULT_OUTPUT_FORMAT, DEFAULT_TTS_MODEL, hasElevenLabsKey, synthesize } from './tts';
 import { audioCacheKey, readAudioCache, writeAudioCache } from './storage';
 
@@ -172,7 +172,7 @@ export async function exportReaderHtml(
     characters,
     template,
     notes,
-    storageKey: `theatre-reader:${slug}`,
+    storageKey: storageKeyFor(slug),
     clips: audio?.clips,
     myCharacterId: audio?.myCharacterId,
   });

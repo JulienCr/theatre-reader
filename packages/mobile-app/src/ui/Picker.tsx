@@ -11,9 +11,12 @@
  * en permanence.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { loadResume, type ResumePoint } from '@theatre/reader-runtime';
+import { storageKeyFor } from '@theatre/reader-ui';
 import { Button, Icon, IconButton, Sheet } from '@theatre/ui';
 import * as api from '../api';
 import { discover, lanBase, type Instance } from '../discovery';
+import { formatAge, formatBytes } from '../format';
 import { prepareOffline, type PrepareProgress, type PrepareResult } from '../offline/prepare';
 import * as store from '../offline/store';
 import { getManualBase, setManualBase } from '../settings';
@@ -26,6 +29,12 @@ interface Row {
   local: boolean;
   /** Clips audio présents localement ; 0 est normal (pièce sans voix configurée). */
   clips: number;
+  /** Place prise par les clips sur le téléphone, en octets. */
+  bytes: number;
+  /** Fin de la dernière synchronisation ; absente des copies préparées avant son suivi. */
+  preparedAt?: number;
+  /** Dernière scène franchie dans le lecteur, si la pièce a déjà été ouverte. */
+  resume?: ResumePoint;
 }
 
 type Status = 'searching' | 'online' | 'offline';
@@ -45,6 +54,8 @@ export function Picker() {
   const [progress, setProgress] = useState<PrepareProgress | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Slug de la pièce dont la feuille d'actions est ouverte. */
+  const [actions, setActions] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     const local = await localRows();
@@ -79,9 +90,13 @@ export function Picker() {
    * Rechargement de la page plutôt que montage à chaud : `boot()` n'est appelable
    * qu'une fois par page et le runtime n'a pas d'API de démontage. Tout étant
    * local, le rechargement est instantané.
+   *
+   * `sceneId` devient le fragment de l'URL : c'est `main.ts` qui l'atteint, une
+   * fois la pièce injectée dans le DOM.
    */
-  function open(slug: string): void {
-    location.search = `?slug=${encodeURIComponent(slug)}`;
+  function open(slug: string, sceneId?: string): void {
+    const anchor = sceneId ? `#${encodeURIComponent(sceneId)}` : '';
+    location.assign(`${location.pathname}?slug=${encodeURIComponent(slug)}${anchor}`);
   }
 
   function saveManual(): void {
@@ -107,7 +122,24 @@ export function Picker() {
     }
   }
 
+  /**
+   * Efface la copie locale. La ligne ne disparaît pas pour autant si le Mac est
+   * joignable : la pièce y est toujours, elle redevient simplement « pas
+   * téléchargée ». D'où le rechargement complet plutôt qu'un retrait de la liste.
+   */
+  async function forget(slug: string): Promise<void> {
+    setActions(null);
+    setError(null);
+    try {
+      await store.deletePlay(slug);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const nothingLocal = rows.every((r) => !r.local);
+  const actionRow = rows.find((r) => r.slug === actions) ?? null;
 
   return (
     <main className="picker">
@@ -138,23 +170,44 @@ export function Picker() {
             {rows.map((row) => (
               <li className="picker-row" key={row.slug}>
                 <div className="picker-row-main">
-                  <button type="button" className="picker-open" onClick={() => open(row.slug)}>
+                  <button
+                    type="button"
+                    className="picker-open"
+                    onClick={() => open(row.slug, row.resume?.sceneId)}
+                  >
                     <span className="picker-name">{row.name}</span>
                     <span className="picker-meta">{metaLabel(row)}</span>
+                    {row.resume && (
+                      <span className="picker-resume">
+                        <Icon name="chevron-right" size={13} />
+                        Reprendre · {row.resume.label}
+                      </span>
+                    )}
                   </button>
-                  {/* Sans serveur il n'y a rien à rapatrier : l'action laisse la
-                      place à un simple témoin, plutôt que d'échouer à l'usage. */}
-                  {status === 'online' ? (
+                  {/* Une seule action secondaire visible : télécharger tant que la
+                      pièce n'est pas sur le téléphone — c'est alors la seule chose
+                      à en faire — puis le menu, qui contient la resynchronisation.
+                      Sans serveur il ne reste que le menu : rien à rapatrier. */}
+                  {row.local ? (
                     <IconButton
-                      icon="download"
-                      label={row.local ? `Synchroniser ${row.name}` : `Télécharger ${row.name}`}
+                      icon="more-horizontal"
+                      label={`Actions pour ${row.name}`}
                       variant="ghost"
                       size="touch"
                       disabled={busy !== null}
-                      onClick={() => void prepare(row.slug)}
+                      onClick={() => setActions(row.slug)}
                     />
                   ) : (
-                    row.local && <Icon name="check" size={22} className="picker-check" />
+                    status === 'online' && (
+                      <IconButton
+                        icon="download"
+                        label={`Télécharger ${row.name}`}
+                        variant="ghost"
+                        size="touch"
+                        disabled={busy !== null}
+                        onClick={() => void prepare(row.slug)}
+                      />
+                    )
                   )}
                 </div>
 
@@ -165,6 +218,52 @@ export function Picker() {
           </ul>
         </>
       )}
+
+      <Sheet
+        open={actionRow !== null}
+        title={actionRow?.name ?? ''}
+        onClose={() => setActions(null)}
+      >
+        <div className="sheet-nav">
+          {actionRow?.resume && (
+            <button
+              type="button"
+              className="sheet-nav-item"
+              onClick={() => open(actionRow.slug)}
+            >
+              <Icon name="list" size={20} />
+              <span className="sheet-nav-label">Ouvrir depuis le début</span>
+            </button>
+          )}
+          {status === 'online' && actionRow && (
+            <button
+              type="button"
+              className="sheet-nav-item"
+              onClick={() => {
+                setActions(null);
+                void prepare(actionRow.slug);
+              }}
+            >
+              <Icon name="refresh" size={20} />
+              <span className="sheet-nav-label">Resynchroniser</span>
+            </button>
+          )}
+          {actionRow && (
+            <button
+              type="button"
+              className="sheet-nav-item picker-danger"
+              onClick={() => void forget(actionRow.slug)}
+            >
+              <Icon name="trash" size={20} />
+              <span className="sheet-nav-label">Supprimer du téléphone</span>
+            </button>
+          )}
+        </div>
+        <p className="picker-help">
+          Supprimer n'efface que la copie de ce téléphone : la pièce reste sur le Mac, et se
+          retélécharge quand tu veux.
+        </p>
+      </Sheet>
 
       <Sheet open={sheetOpen} title="Connexion" onClose={() => setSheetOpen(false)}>
         <p className="picker-sheet-state">
@@ -286,23 +385,48 @@ function statusLabel(status: Status, server: Instance | null): string {
   return 'Hors ligne — appuie pour connecter';
 }
 
+/**
+ * Assemblé à partir de ce qui est connu, sans trou : une copie préparée avant le
+ * suivi des dates n'a pas de fraîcheur à annoncer, une pièce sans voix n'a ni clip
+ * ni poids — dans les deux cas la ligne se raccourcit au lieu d'afficher un vide.
+ */
 function metaLabel(row: Row): string {
   if (!row.local) return 'Sur le Mac · pas téléchargée';
-  return row.clips > 0 ? `Hors-ligne · ${row.clips} clips` : 'Hors-ligne';
+  const parts = ['Hors-ligne'];
+  if (row.clips > 0) parts.push(`${row.clips} clips`);
+  const size = formatBytes(row.bytes);
+  if (size) parts.push(size);
+  const age = formatAge(row.preparedAt);
+  if (age) parts.push(`synchro ${age}`);
+  return parts.join(' · ');
+}
+
+/**
+ * Le point de reprise vit dans localStorage, écrit par le lecteur — il existe donc
+ * dès qu'une pièce a été ouverte, téléchargée ou non.
+ */
+function resumeOf(slug: string): ResumePoint | undefined {
+  return loadResume(storageKeyFor(slug));
 }
 
 async function localRows(): Promise<Row[]> {
   const local = await store.listLocalPlays();
   return Promise.all(
-    local.map(async (play) => ({
-      ...play,
-      local: true,
-      // Dédoublonné par clé, comme le bilan de `prepareOffline` : deux répliques au
-      // texte identique dites par la même voix partagent un seul fichier. Compter les
-      // entrées du manifeste (une par réplique) afficherait un nombre plus élevé que
-      // celui annoncé juste au-dessus par « N clips prêts hors-ligne ».
-      clips: new Set(Object.values((await store.loadManifest(play.slug))?.map ?? {})).size,
-    })),
+    local.map(async (play) => {
+      const manifest = await store.loadManifest(play.slug);
+      return {
+        ...play,
+        local: true,
+        resume: resumeOf(play.slug),
+        preparedAt: manifest?.preparedAt,
+        bytes: await store.audioBytes(play.slug),
+        // Dédoublonné par clé, comme le bilan de `prepareOffline` : deux répliques au
+        // texte identique dites par la même voix partagent un seul fichier. Compter les
+        // entrées du manifeste (une par réplique) afficherait un nombre plus élevé que
+        // celui annoncé juste au-dessus par « N clips prêts hors-ligne ».
+        clips: new Set(Object.values(manifest?.map ?? {})).size,
+      };
+    }),
   );
 }
 
@@ -316,7 +440,9 @@ function merge(local: Row[], served: { slug: string; name: string }[]): Row[] {
   const rows = served.map((play) => {
     const row = bySlug.get(play.slug);
     bySlug.delete(play.slug);
-    return row ? { ...row, name: play.name } : { ...play, local: false, clips: 0 };
+    return row
+      ? { ...row, name: play.name }
+      : { ...play, local: false, clips: 0, bytes: 0, resume: resumeOf(play.slug) };
   });
   return [...rows, ...bySlug.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -415,7 +541,19 @@ export const pickerCss = `
   white-space: nowrap;
 }
 .picker-meta { font-size: 13px; color: var(--ink-muted); }
-.picker-check { flex: 0 0 auto; color: var(--ok); margin-right: var(--sp-2); }
+.picker-danger { color: var(--danger); }
+/* En accent : c'est ce que fait le tap sur la rangée, pas une information de plus. */
+.picker-resume {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── États ─────────────────────────────────────────────────────────────────── */
 .picker-hint { font-size: 13px; color: var(--ink-muted); margin: 0 0 var(--sp-3); }

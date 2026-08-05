@@ -24,6 +24,19 @@ import {
   type Template,
 } from '@theatre/core';
 
+/**
+ * Clé localStorage sous laquelle le lecteur garde l'état d'une pièce — surlignages,
+ * taille du texte, réglages de répétition, position de lecture.
+ *
+ * Ici et nulle part ailleurs : elle est fabriquée par les deux producteurs de
+ * documents (l'export .html du serveur et l'app mobile) et RELUE par l'écran
+ * d'accueil de l'app pour proposer la reprise. Trois copies de la même chaîne, et
+ * la première divergence casse la reprise sans un message d'erreur.
+ */
+export function storageKeyFor(slug: string): string {
+  return `theatre-reader:${slug}`;
+}
+
 export interface ReaderData {
   characters: { id: string; name: string }[];
   toc: { id: string; label: string; scene: boolean }[];
