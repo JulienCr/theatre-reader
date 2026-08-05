@@ -87,8 +87,6 @@ export interface PlayerOptions {
   onError?: (msg: string) => void;
   /** Classe CSS posée sur la tirade en cours (défaut 'line--speaking'). */
   speakingClass?: string;
-  /** Notifié quand une réplique masquée est révélée (« dite » ou tap-to-peek). */
-  onReveal?: (nodeId: string) => void;
   /** Source de durée optionnelle pour l'avancement auto (secondes) ; essayée avant la sonde. */
   resolveDuration?: (t: AudioTirade) => Promise<number | null>;
   /** Classe sur les répliques masquées. Défaut 'line--masked'. */
@@ -111,8 +109,14 @@ export interface Player {
   toggle(): void;
   next(): void;
   prev(): void;
-  /** Joue une tirade précise (clic sur une réplique). */
+  /** Joue une tirade précise (clic sur une réplique) : la position s'y place. */
   playFrom(nodeId: string): void;
+  /**
+   * Place la position sur une tirade sans rien jouer — le clic quand l'hôte n'a pas
+   * d'audio. Sans lui, le masquage y serait figé : la position ne bougerait jamais,
+   * or c'est elle qui décide de ce qui est flouté.
+   */
+  seek(nodeId: string): void;
   /** Résout une pause de répétition : joue ou saute ma réplique (selon playMine) ; révèle toujours. */
   resume(): void;
   /** Modifie les réglages (fusion partielle) ; re-masque et ré-évalue la position. */
@@ -122,15 +126,6 @@ export interface Player {
   setRate(rate: number): void;
   /** Rejoue la plage courante au lieu d'enchaîner sur la suivante. Exige `rangeOf`. */
   setLoop(on: boolean): void;
-  /**
-   * Bascule l'état révélé (peek) d'une réplique masquée — pour le tap-to-peek.
-   *
-   * Refermer une réplique re-masque aussi TOUT ce qui la suit : c'est la même règle que
-   * `playFrom`/`prev`/la boucle — revenir sur une réplique, c'est annoncer que rien n'a
-   * encore été dit à partir d'elle. Un peek posé plus loin ne survit donc pas non plus à
-   * un retour en arrière : il vit dans le même registre que les répliques « dites ».
-   */
-  reveal(nodeId: string): void;
   /** Reconstruit la liste des tirades (après re-pagination), en gardant la position. */
   refresh(): void;
   getState(): PlayerState;
@@ -216,9 +211,11 @@ export function createPlayer(opts: PlayerOptions): Player {
   let timerId: ReturnType<typeof setTimeout> | null = null;
   let timed = false;
   let timedMs: number | null = null;
-  // nodeIds déjà « dits »/peekés — survit à refresh(), mais purgé à partir du point
-  // d'arrivée d'un retour en arrière (cf. `remaskFrom`).
-  const revealed = new Set<string>();
+  // Mes répliques masquées et leurs fragments (Paged.js peut couper une réplique sur
+  // deux pages), dans l'ordre de lecture. Mémoïsé par `applyMask` pour que `syncMask`
+  // n'ait plus qu'à basculer des classes : il tourne à chaque émission d'état, et
+  // ré-interroger le DOM pour chaque réplique à ce rythme se sentirait sur mobile.
+  let maskedLines: { at: number; els: HTMLElement[] }[] = [];
   let audioCtx: AudioContext | null = null;
 
   function rolesPredicate(cids: string[]): (cid: string) => boolean {
@@ -257,6 +254,9 @@ export function createPlayer(opts: PlayerOptions): Player {
     };
   }
   function emit(): void {
+    // Le flou est une fonction de la position, pas un état à tenir à jour à côté :
+    // il se recalcule à chaque changement d'état plutôt que geste par geste.
+    syncMask();
     opts.onState?.(snapshot());
   }
 
@@ -273,63 +273,51 @@ export function createPlayer(opts: PlayerOptions): Player {
     el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
   }
 
-  // --- Masquage « répétition » : cache le texte de mes répliques jusqu'à ce
-  //     qu'elles aient été dites. Piloté ici car le moteur possède les éléments. ---
+  // --- Masquage « répétition » ---------------------------------------------------
+  //
+  // UNE seule règle : la position de lecture partage la pièce en deux. Ce qui est
+  // DERRIÈRE elle a été dit et s'affiche en clair ; ce qui est DEVANT reste flouté.
+  // Rien n'est mémorisé — un registre de « déjà révélé » avait fini par demander une
+  // purge par geste (clic, ⏮, boucle, tap), et chaque geste oublié était un bug.
+
   function fragmentsOf(nodeId: string): NodeListOf<HTMLElement> {
     const safe = nodeId.replace(/"/g, '\\"');
     return opts.container.querySelectorAll<HTMLElement>(`p.line[data-nid="${safe}"]`);
   }
+
+  /**
+   * Vrai quand la tirade de rang `at` est derrière la position : elle a été dite.
+   *
+   * La tirade COURANTE compte comme dite dès qu'on ne l'attend plus — c'est le cas de
+   * `playMine`, où le TTS la lit sans qu'on bouge d'un rang. Tant que rien n'a été joué
+   * (`started`), même la position 0 est devant nous : à l'ouverture, rien n'est en clair.
+   */
+  function isSaid(at: number): boolean {
+    if (at < index) return true;
+    return at === index && started && !waitingForUser;
+  }
+
+  /** Recense mes répliques et pose le masque. À rejouer quand la LISTE change. */
   function applyMask(): void {
     opts.container
       .querySelectorAll<HTMLElement>(`.${maskedClass}`)
       .forEach((el) => el.classList.remove(maskedClass, revealedClass));
+    maskedLines = [];
     if (!shouldMask()) return;
-    opts.container.querySelectorAll<HTMLElement>('p.line[data-cid]').forEach((el) => {
-      const cid = el.getAttribute('data-cid');
-      if (cid && isMine(cid)) el.classList.add(maskedClass);
+    tirades.forEach((t, at) => {
+      if (!isMine(t.characterId)) return;
+      const els = Array.from(fragmentsOf(t.nodeId));
+      els.forEach((el) => el.classList.add(maskedClass));
+      maskedLines.push({ at, els });
     });
-    revealed.forEach((nid) => fragmentsOf(nid).forEach((el) => el.classList.add(revealedClass)));
+    syncMask();
   }
-  function saidReveal(nodeId: string): void {
-    revealed.add(nodeId);
-    fragmentsOf(nodeId).forEach((el) => el.classList.add(revealedClass));
-    opts.onReveal?.(nodeId);
-  }
-  function toggleReveal(nodeId: string): void {
-    if (revealed.has(nodeId)) {
-      // Re-masquer à la main, c'est dire « je reprends ici » : la suite n'a pas plus été
-      // dite que cette réplique-là. Même règle que les autres retours en arrière.
-      const i = tirades.findIndex((t) => t.nodeId === nodeId);
-      if (i >= 0) {
-        remaskFrom(i);
-      } else {
-        // Réplique hors liste (scène masquée par « mes scènes ») : elle n'a pas de rang,
-        // on ne peut re-masquer qu'elle.
-        revealed.delete(nodeId);
-        fragmentsOf(nodeId).forEach((el) => el.classList.remove(revealedClass));
-      }
-    } else {
-      saidReveal(nodeId);
-    }
-  }
-  /**
-   * Re-masque tout ce qui a été « dit » à partir de l'index `i`.
-   *
-   * `revealed` n'est pas une archive de ce qui a été lu une fois : il veut dire « déjà
-   * dit DEPUIS la position courante ». Revenir en arrière invalide donc tout ce qui suit
-   * le point d'arrivée — sans ça, boucler sur une scène ne fait travailler la mémoire
-   * qu'au premier tour, ce qui est précisément l'inverse de ce qu'on demande à la boucle.
-   *
-   * Purge inconditionnelle (même masque éteint) : rallumer le masque ensuite doit trouver
-   * l'ardoise propre, pas ressusciter des révélations d'avant le retour en arrière.
-   * Retirer `revealedClass` suffit à re-flouter — `maskedClass` reste posée en permanence
-   * par `applyMask`, c'est `revealedClass` qui fait commutateur.
-   */
-  function remaskFrom(i: number): void {
-    for (let k = Math.max(0, i); k < tirades.length; k++) {
-      const nid = tirades[k]!.nodeId;
-      if (!revealed.delete(nid)) continue;
-      fragmentsOf(nid).forEach((el) => el.classList.remove(revealedClass));
+
+  /** Aligne le flou sur la position. À rejouer quand la POSITION change (cf. `emit`). */
+  function syncMask(): void {
+    for (const { at, els } of maskedLines) {
+      const said = isSaid(at);
+      for (const el of els) el.classList.toggle(revealedClass, said);
     }
   }
 
@@ -486,26 +474,19 @@ export function createPlayer(opts: PlayerOptions): Player {
   }
 
   /**
-   * Enchaîne sur la suite de `from`, en re-masquant si la boucle vient de rembobiner.
+   * Termine la pause courante : joue ma réplique (playMine) ou la saute.
    *
-   * Tous les enchaînements AUTOMATIQUES passent par ici ; `prefetch` reste sur `nextIndex`
-   * seul, qui doit rester pur — préparer l'audio de la tirade d'après n'est pas y aller.
+   * Dans les deux cas elle passe derrière la position — on ne l'attend plus si elle est
+   * jouée, on est passé à la suivante si elle est sautée — donc elle se démasque d'elle-
+   * même. Rien à révéler à la main.
    */
-  function advance(from: number): void {
-    const i = nextIndex(from);
-    if (i <= from) remaskFrom(i); // `<=` : une plage d'une seule tirade rembobine sur elle-même
-    void playIndex(i);
-  }
-
-  /** Termine la pause courante : révèle ma réplique puis la joue (playMine) ou la saute. */
   function resolveCue(): void {
     const t = tirades[index];
     if (!t) return;
     cancelTimer();
-    saidReveal(t.nodeId);
     playing = true;
     if (settings.playMine) void playIndex(index, true); // lit ma réplique, puis enchaîne
-    else advance(index); // saute ma réplique
+    else void playIndex(nextIndex(index)); // saute ma réplique
   }
 
   function stopAudio(): void {
@@ -567,7 +548,7 @@ export function createPlayer(opts: PlayerOptions): Player {
         emit();
         return;
       }
-      advance(i);
+      void playIndex(nextIndex(i));
       return;
     }
 
@@ -597,7 +578,7 @@ export function createPlayer(opts: PlayerOptions): Player {
 
   function onEnded(): void {
     if (destroyed || !playing) return;
-    advance(index);
+    void playIndex(nextIndex(index));
   }
   audio.addEventListener('ended', onEnded);
 
@@ -656,16 +637,11 @@ export function createPlayer(opts: PlayerOptions): Player {
     // ⏭/⏮ ne passent PAS par `nextIndex` : un saut explicite doit pouvoir quitter la
     // plage, c'est le seul moyen d'aller répéter la scène d'à côté sans couper la boucle.
     next: () => {
-      // ⏭ pendant ma pause vaut « je l'ai dite, on passe » : exactement ce que fait la
-      // reprise. Sans ça, la réplique qu'on vient de traverser restait floutée derrière
-      // soi — et le ⏭ est le geste naturel quand on n'a pas besoin de l'entendre.
-      if (waitingForUser && started) {
-        const t = tirades[index];
-        if (t) saidReveal(t.nodeId);
-      }
       playing = true;
       silentSkips = 0;
       cancelTimer();
+      // ⏭ pendant ma pause vaut « je l'ai dite, on passe » : la position franchit ma
+      // réplique, qui se démasque du même coup.
       void playIndex(started ? index + 1 : index);
     },
     prev: () => {
@@ -674,19 +650,29 @@ export function createPlayer(opts: PlayerOptions): Player {
       cancelTimer();
       // Symétrique de `next` : sans ça, un premier ⏮ à l'index 0 sortirait des
       // bornes et s'arrêterait en silence.
-      const i = started ? index - 1 : index;
-      if (i < index) remaskFrom(i); // vrai recul (pas le premier ⏮, qui démarre sur place)
-      void playIndex(i);
+      void playIndex(started ? index - 1 : index);
     },
     playFrom: (nodeId: string) => {
       const i = tirades.findIndex((t) => t.nodeId === nodeId);
       if (i < 0) return;
-      // Cliquer plus haut dans la pièce, c'est y retourner : ce qui suit n'a pas encore
-      // été dit. (Un clic sur une réplique MASQUÉE passe par `reveal`, jamais par ici.)
-      if (i < index) remaskFrom(i);
       playing = true;
       silentSkips = 0;
       void playIndex(i);
+    },
+    seek: (nodeId: string) => {
+      const i = tirades.findIndex((t) => t.nodeId === nodeId);
+      if (i < 0) return;
+      token++; // invalide résolution audio et sonde de durée en vol
+      stopAudio();
+      cancelTimer();
+      playing = false;
+      waitingForUser = false;
+      index = i;
+      // Comme après un `refresh()` qui a déplacé la position : le prochain ⏭ doit
+      // démarrer ICI, et la tirade visée reste devant nous, donc floutée.
+      started = false;
+      highlight(tirades[i]!.element);
+      emit();
     },
     resume: resolveCue,
     setSettings: (patch: Partial<ReadingSettings>) => {
@@ -695,7 +681,6 @@ export function createPlayer(opts: PlayerOptions): Player {
     },
     setRoles: (cids: string[]) => {
       mineFn = rolesPredicate(cids);
-      revealed.clear();
       reevaluate();
     },
     setRate: (r: number) => {
@@ -715,13 +700,15 @@ export function createPlayer(opts: PlayerOptions): Player {
       loop = on && Boolean(opts.rangeOf);
       emit();
     },
-    reveal: toggleReveal,
     refresh: () => {
       const prev = tirades;
       const prevId = prev[index]?.nodeId ?? null;
       tirades = collectTirades(opts.container);
       index = relocate(prev, index, tirades);
       const nextId = tirades[index]?.nodeId ?? null;
+      // Avant toute relance : la liste vient de changer, et `syncMask` (appelé par
+      // chaque `emit`) travaille sur les éléments recensés ici.
+      applyMask();
 
       // Comparaison SANS garde sur `prevId` : le passage d'une liste vide à une
       // liste peuplée est un déplacement, au même titre que l'inverse. Exiger
@@ -743,7 +730,6 @@ export function createPlayer(opts: PlayerOptions): Player {
         const t = tirades[index];
         if (t) highlight(t.element);
       }
-      applyMask();
       emit();
     },
     getState: snapshot,

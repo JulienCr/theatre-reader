@@ -122,7 +122,8 @@ export function Chrome({
   const hasClips = Boolean(data.audio && Object.keys(data.audio.clips).length);
 
   // Le moteur pilote le masquage « répétition » (réglages + rôles), même sans clips :
-  // sans audio, on garde le déroulé + tap-to-peek ; avec audio, la répétition joue.
+  // sans audio, le tap sur une réplique déplace seul la position (`seek`) et c'est elle
+  // qui décide de ce qui est flouté ; avec audio, la répétition joue.
   // Créé une seule fois : `.play` ne change jamais d'identité dans le lecteur mobile
   // (pas de re-pagination, contrairement au lecteur web).
   useEffect(() => {
@@ -147,13 +148,13 @@ export function Chrome({
       const line = t.closest('.line') as HTMLElement | null;
       if (!line) return;
       const nid = line.getAttribute('data-nid');
-      // Réplique masquée : un tap la révèle (peek), sans la jouer.
-      if (line.classList.contains('line--masked')) {
-        if (nid) player.reveal(nid);
-        return;
-      }
-      // Sinon : cliquer une réplique la joue (si audio embarqué).
-      if (hasClips && nid) player.playFrom(nid);
+      if (!nid) return;
+      // Taper une réplique, c'est s'y placer : le masquage se déduit de la position
+      // (avant elle = dit, donc en clair ; à partir d'elle = flouté). Sans clips il n'y
+      // a rien à jouer, mais la position doit bouger quand même — c'est le seul geste
+      // de navigation dont dispose alors le lecteur.
+      if (hasClips) player.playFrom(nid);
+      else player.seek(nid);
     };
     play.addEventListener('click', onClick);
 

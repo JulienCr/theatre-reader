@@ -291,19 +291,22 @@ describe('@theatre/audio-player', () => {
     p.destroy();
   });
 
-  it('reveal() bascule le peek sur TOUS les fragments (Paged.js)', () => {
+  it('le masque suit la position sur TOUS les fragments (Paged.js)', async () => {
     const c = mount(
       line('michel', 'a#0', 'Un') +
         line('benji', 'b#0', 'Deux') +
-        '<p class="line" data-cid="benji" data-nid="b#0"><span class="speech">Deux (suite)</span></p>',
+        '<p class="line" data-cid="benji" data-nid="b#0"><span class="speech">Deux (suite)</span></p>' +
+        line('michel', 'a#1', 'Trois'),
     );
     const p = buildPlayer(c, { roles: ['benji'], settings: { rehearsal: true, mask: true } });
     const frags = c.querySelectorAll('[data-nid="b#0"]');
     expect(frags.length).toBe(2);
     frags.forEach((f) => expect(f.classList.contains('line--masked')).toBe(true));
-    p.reveal('b#0');
+    p.playFrom('a#1'); // b#0 passe derrière la position
+    await flush();
     frags.forEach((f) => expect(f.classList.contains('line--revealed')).toBe(true));
-    p.reveal('b#0');
+    p.playFrom('a#0'); // et repasse devant
+    await flush();
     frags.forEach((f) => expect(f.classList.contains('line--revealed')).toBe(false));
     p.destroy();
   });
@@ -718,16 +721,19 @@ describe('@theatre/audio-player', () => {
   });
 
   /**
-   * Revenir sur un passage déjà lu, c'est le reprendre : ce qui a été « dit » avant le
-   * retour en arrière ne l'est plus à partir du point d'arrivée.
+   * Le flou se déduit de la position : ce qui est derrière elle a été dit et s'affiche
+   * en clair, ce qui est devant reste flouté. Tous les gestes qui déplacent la position
+   * en héritent, sans règle propre.
    */
-  describe('re-masquage au retour en arrière', () => {
+  describe('le masque suit la position', () => {
     const THREE = (): HTMLElement =>
       mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'));
     const REHEARSING: Partial<PlayerOptions> = {
       roles: ['benji'],
       settings: { rehearsal: true, mask: true, playMine: false },
     };
+    const el = (c: HTMLElement, nid: string): HTMLElement =>
+      c.querySelector(`[data-nid="${nid}"]`) as HTMLElement;
 
     it('un clic sur une réplique antérieure re-floute ce qui suit', async () => {
       const c = THREE();
@@ -788,39 +794,59 @@ describe('@theatre/audio-player', () => {
       p.destroy();
     });
 
-    /* a, b, c dites : refermer a re-floute aussi b et c. Sans ça, seule la réplique
-       tapée redevenait floue et les suivantes restaient en clair. */
-    it('refermer une réplique re-floute aussi celles qui la suivent', () => {
+    /* a, b, c dites : taper a les refloute toutes les trois. C'est la même règle que
+       partout ailleurs — taper une réplique, c'est s'y placer. */
+    it('taper une réplique déjà dite la refloute, elle et les suivantes', async () => {
       const c = mount(
         line('benji', 'a#0', 'Un') +
           line('michel', 'x#0', 'Entre-deux') +
           line('benji', 'b#0', 'Deux') +
-          line('benji', 'c#0', 'Trois'),
+          line('benji', 'c#0', 'Trois') +
+          line('michel', 'x#1', 'Fin'),
       );
       const p = buildPlayer(c, REHEARSING);
-      ['a#0', 'b#0', 'c#0'].forEach((nid) => p.reveal(nid));
-      const el = (nid: string): HTMLElement => c.querySelector(`[data-nid="${nid}"]`) as HTMLElement;
+      p.playFrom('x#1'); // tout est derrière la position
+      await flush();
       ['a#0', 'b#0', 'c#0'].forEach((nid) =>
-        expect(el(nid).classList.contains('line--revealed')).toBe(true),
+        expect(el(c, nid).classList.contains('line--revealed')).toBe(true),
       );
-      p.reveal('a#0'); // re-clic sur la première
+      p.playFrom('a#0'); // je reprends à la première
+      await flush();
       ['a#0', 'b#0', 'c#0'].forEach((nid) =>
-        expect(el(nid).classList.contains('line--revealed')).toBe(false),
+        expect(el(c, nid).classList.contains('line--revealed')).toBe(false),
       );
       p.destroy();
     });
 
-    /* Le premier ⏮ démarre sur la tirade courante (cf. `started`) : ce n'est pas un
-       recul, et re-flouter là révélerait le bug en l'annulant à peine posé. */
-    it('ne touche à rien quand ⏮ sert de démarrage', async () => {
-      const c = THREE();
+    /* Sans audio, `seek` est le seul geste qui déplace la position : sans lui le masque
+       resterait figé sur la pièce entière. */
+    it('seek() déplace la position sans jouer', async () => {
+      const c = mount(
+        line('benji', 'b#0', 'Un') + line('michel', 'a#0', 'Deux') + line('benji', 'b#1', 'Trois'),
+      );
       const p = buildPlayer(c, REHEARSING);
-      p.reveal('b#0'); // peek avant toute lecture
-      const b = c.querySelector('[data-nid="b#0"]') as HTMLElement;
-      expect(b.classList.contains('line--revealed')).toBe(true);
+      calls.length = 0;
+      p.seek('a#0');
+      await flush();
+      expect(calls).toEqual([]); // rien n'a été résolu : aucune lecture
+      expect(last?.playing).toBe(false);
+      expect(last?.currentNodeId).toBe('a#0');
+      expect(el(c, 'b#0').classList.contains('line--revealed')).toBe(true); // derrière
+      expect(el(c, 'b#1').classList.contains('line--revealed')).toBe(false); // devant
+      p.destroy();
+    });
+
+    /* À l'ouverture, la position 0 est encore DEVANT nous : rien n'a été dit, et le
+       premier ⏮ démarre sur place au lieu de reculer. */
+    it('ne démasque rien tant que rien n\'a été joué', async () => {
+      const c = mount(line('benji', 'b#0', 'Un') + line('michel', 'a#0', 'Deux'));
+      const p = buildPlayer(c, REHEARSING);
+      const b = el(c, 'b#0');
+      expect(b.classList.contains('line--revealed')).toBe(false);
       p.prev();
       await flush();
-      expect(b.classList.contains('line--revealed')).toBe(true);
+      expect(last?.currentNodeId).toBe('b#0');
+      expect(b.classList.contains('line--revealed')).toBe(false); // en pause dessus : à moi de la dire
       p.destroy();
     });
   });
