@@ -17,8 +17,20 @@ const config: CapacitorConfig = {
   appName: 'Theatre Reader',
   webDir: 'dist',
   ios: {
-    // Le lecteur gère lui-même ses marges ; on laisse la WebView occuper l'écran.
-    contentInset: 'always',
+    // Le lecteur gère lui-même ses marges, en CSS (`env(safe-area-inset-*)` +
+    // `viewport-fit=cover`) : la WebView doit donc occuper l'écran entier et
+    // n'ajouter aucun inset de son côté — d'où `never`.
+    //
+    // `always` (la valeur d'origine) faisait tout le contraire : le scrollView
+    // réservait la safe area (62 pt en haut + 34 pt en bas sur un iPhone 17),
+    // en double des marges CSS, et le premier affichage peignait le document à
+    // `y = 0` au lieu de `y = -contentInset.top` — la page paraissait remontée
+    // sous la barre d'état, tout le vide reporté en bas. Seul l'écran d'accueil
+    // le montrait : il n'est pas assez long pour défiler et Capacitor met
+    // `bounces = false`, donc aucun geste de scroll ne pouvait re-clamper le
+    // `contentOffset` — il fallait un pinch. Le lecteur, lui, se remettait droit
+    // au premier défilement.
+    contentInset: 'never',
   },
 };
 

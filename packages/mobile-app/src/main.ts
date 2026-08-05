@@ -13,6 +13,7 @@ import { boot } from '@theatre/reader-runtime';
 import { buildReaderDocument, type ReaderDocument } from '@theatre/reader-ui';
 import { uiCss } from '@theatre/ui';
 import { buildOnlineClips, loadNotes, loadPlay, type PlayMeta } from './api';
+import { discover } from './discovery';
 import { buildOfflineClips } from './offline/prepare';
 import * as store from './offline/store';
 import { Picker, pickerCss } from './ui/Picker';
@@ -110,18 +111,29 @@ async function loadServerSource(slug: string): Promise<PlaySource> {
  * n'intervient que pour une pièce jamais préparée.
  */
 async function openPlay(slug: string): Promise<void> {
-  const source = (await loadLocalSource(slug)) ?? (await loadServerSource(slug));
-  mountReader(
-    buildReaderDocument({
-      fountain: source.fountain,
-      characters: source.meta.characters,
-      template: source.meta.template,
-      notes: source.notes,
-      storageKey: `theatre-reader:${slug}`,
-      clips: source.clips,
-      myCharacterId: source.meta.audio?.myCharacterId,
-    }),
-  );
+  const local = await loadLocalSource(slug);
+  if (local) {
+    mountReader(buildDocument(slug, local));
+    return;
+  }
+  // `discover()` seulement ici : il coûte un aller-retour réseau et, au premier
+  // lancement, la demande de permission « réseau local ». Une pièce déjà rapatriée
+  // n'a besoin ni de l'un ni de l'autre — c'est ce qui garde l'ouverture instantanée
+  // Mac éteint.
+  await discover();
+  mountReader(buildDocument(slug, await loadServerSource(slug)));
+}
+
+function buildDocument(slug: string, source: PlaySource): ReaderDocument {
+  return buildReaderDocument({
+    fountain: source.fountain,
+    characters: source.meta.characters,
+    template: source.meta.template,
+    notes: source.notes,
+    storageKey: `theatre-reader:${slug}`,
+    clips: source.clips,
+    myCharacterId: source.meta.audio?.myCharacterId,
+  });
 }
 
 async function main(): Promise<void> {

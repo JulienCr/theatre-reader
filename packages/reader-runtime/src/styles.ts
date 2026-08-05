@@ -89,7 +89,14 @@ mark.reader-hit--current { background: var(--hit-current); }
    qui réclame une action — le bouton Lecture, la bascule Répétition active et le
    « à toi » du bandeau. Trois rouges pour un seul et même état, c'était un de trop. */
 .line--speaking { outline: 2px solid var(--ink-muted); outline-offset: 3px; border-radius: 4px; scroll-margin: 40vh; }
-/* Réserve la hauteur du dock (bandeau + barre) : la dernière réplique doit
-   rester atteignable. */
-.play { padding-bottom: calc(120px + env(safe-area-inset-bottom)); }
+/* La page occupe l'écran entier — dans l'app iOS, la WebView n'ajoute aucun inset
+   (contentInset: 'never', capacitor.config.ts) — donc les deux bords se réservent
+   ici : la barre d'état en haut, le dock (bandeau + barre) et l'indicateur
+   d'accueil en bas. Sans quoi la première réplique démarre sous l'heure et la
+   dernière reste sous le dock. Hors app, env() vaut 0 et il ne reste que l'air
+   de --sp-3. */
+.play {
+  padding-top: max(var(--sp-3), env(safe-area-inset-top));
+  padding-bottom: calc(120px + env(safe-area-inset-bottom));
+}
 `;

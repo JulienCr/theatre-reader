@@ -1,22 +1,34 @@
 /**
- * Écran de choix : régler l'adresse du Mac, ouvrir une pièce, la préparer hors-ligne.
+ * Écran d'accueil : retrouver une pièce, en télécharger une nouvelle.
  *
- * S'affiche quand aucune pièce n'est demandée. Il doit rester utilisable SANS
- * serveur : c'est l'écran qu'on voit dans le métro ou en coulisses, où la seule
- * chose qui compte est de retrouver une pièce déjà rapatriée. Le serveur n'est
- * interrogé que pour enrichir cette liste et proposer la préparation.
+ * Il doit rester utilisable SANS serveur : c'est l'écran qu'on voit dans le métro
+ * ou en coulisses, où la seule chose qui compte est de retrouver une pièce déjà
+ * rapatriée. D'où l'ordre d'affichage — les pièces locales apparaissent tout de
+ * suite, la recherche du Mac vient enrichir la liste ensuite.
+ *
+ * Tout ce qui concerne la connexion tient dans une pastille et une feuille :
+ * l'adresse du Mac ne se saisit qu'en dépannage, elle n'a pas à occuper l'écran
+ * en permanence.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Button } from '@theatre/ui';
+import { Button, Icon, IconButton, Sheet } from '@theatre/ui';
 import * as api from '../api';
+import { discover, lanBase, type Instance } from '../discovery';
 import { prepareOffline, type PrepareProgress, type PrepareResult } from '../offline/prepare';
 import * as store from '../offline/store';
-import { getApiBase, setApiBase } from '../settings';
+import { getManualBase, setManualBase } from '../settings';
 
-interface PlayEntry {
+/** Une pièce telle qu'affichée : la fusion de ce qu'a le téléphone et de ce qu'a le Mac. */
+interface Row {
   slug: string;
   name: string;
+  /** Téléchargée sur ce téléphone, donc lisible sans réseau. */
+  local: boolean;
+  /** Clips audio présents localement ; 0 est normal (pièce sans voix configurée). */
+  clips: number;
 }
+
+type Status = 'searching' | 'online' | 'offline';
 
 /** Bilan de la dernière préparation, épinglé sous la pièce concernée. */
 interface Report extends PrepareResult {
@@ -24,46 +36,44 @@ interface Report extends PrepareResult {
 }
 
 export function Picker() {
-  const [base, setBase] = useState(getApiBase());
-  const [plays, setPlays] = useState<PlayEntry[]>([]);
-  const [localSlugs, setLocalSlugs] = useState<Set<string>>(new Set());
-  /** Le serveur a répondu : conditionne la préparation hors-ligne et le message d'état. */
-  const [online, setOnline] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [server, setServer] = useState<Instance | null>(null);
+  const [status, setStatus] = useState<Status>('searching');
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [manual, setManual] = useState(getManualBase());
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<PrepareProgress | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async (): Promise<void> => {
-    setLoading(true);
-    const local = await store.listLocalPlays();
-    setLocalSlugs(new Set(local.map((p) => p.slug)));
+  const load = useCallback(async (): Promise<void> => {
+    const local = await localRows();
+    // Affiché avant toute requête : hors ligne, l'écran est complet dès la première
+    // frame, et la recherche du Mac ne fait qu'y ajouter.
+    setRows(local);
+    setStatus('searching');
 
-    let served: PlayEntry[] | null = null;
-    if (getApiBase()) {
-      try {
-        served = (await api.listPlays()).plays;
-      } catch {
-        // Mac éteint, hors du tailnet, adresse fausse : tous ces cas se valent
-        // ici, on bascule simplement sur ce qui est déjà dans le téléphone.
-        served = null;
-      }
+    const found = await discover();
+    setServer(found);
+    if (!found) {
+      setStatus('offline');
+      return;
     }
-    setOnline(served !== null);
-    setPlays(served ?? local);
-    setLoading(false);
+    try {
+      const { plays } = await api.listPlays();
+      setRows(merge(local, plays));
+      setStatus('online');
+    } catch {
+      // `/api/health` a répondu mais pas la liste : serveur à moitié debout, on le
+      // traite comme absent plutôt que d'afficher une liste vide trompeuse.
+      setServer(null);
+      setStatus('offline');
+    }
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  function connect(): void {
-    setApiBase(base);
-    setBase(getApiBase());
-    void refresh();
-  }
+    void load();
+  }, [load]);
 
   /**
    * Rechargement de la page plutôt que montage à chaud : `boot()` n'est appelable
@@ -74,6 +84,12 @@ export function Picker() {
     location.search = `?slug=${encodeURIComponent(slug)}`;
   }
 
+  function saveManual(): void {
+    setManualBase(manual);
+    setManual(getManualBase());
+    void load();
+  }
+
   async function prepare(slug: string): Promise<void> {
     setBusy(slug);
     setReport(null);
@@ -82,7 +98,7 @@ export function Picker() {
     try {
       const result = await prepareOffline(slug, setProgress);
       setReport({ slug, ...result });
-      await refresh();
+      await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -91,85 +107,140 @@ export function Picker() {
     }
   }
 
+  const nothingLocal = rows.every((r) => !r.local);
+
   return (
     <main className="picker">
-      <h1>Mes pièces</h1>
+      <header className="picker-head">
+        <h1 className="picker-title">Mes pièces</h1>
+        <button
+          type="button"
+          className="picker-status"
+          onClick={() => setSheetOpen(true)}
+          aria-label="Connexion au Mac"
+        >
+          <span className={`picker-dot picker-dot--${status}`} aria-hidden="true" />
+          <span className="picker-status-text">{statusLabel(status, server)}</span>
+          <Icon name="chevron-right" size={16} className="picker-status-chevron" />
+        </button>
+      </header>
 
-      <label className="picker-label" htmlFor="api-base">
-        Adresse du Mac (Tailscale)
-      </label>
-      <div className="picker-field">
-        <input
-          id="api-base"
-          className="picker-input"
-          type="url"
-          inputMode="url"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          placeholder="https://mon-mac.tailnet.ts.net"
-          value={base}
-          onChange={(e) => setBase(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') connect();
-          }}
-        />
-        <Button variant="neutral" size="touch" onClick={connect}>
-          Connecter
-        </Button>
-      </div>
+      {error && <p className="picker-error">Erreur : {error}</p>}
 
-      <section className="picker-section">
-        <p className="picker-note">
-          {loading
-            ? 'Recherche des pièces…'
-            : online
-              ? 'Connecté au Mac.'
-              : 'Hors ligne — Mac injoignable. Seules les pièces déjà préparées sont listées.'}
+      {rows.length === 0 ? (
+        <Empty status={status} onSearch={() => void load()} onSettings={() => setSheetOpen(true)} />
+      ) : (
+        <>
+          {status === 'online' && nothingLocal && (
+            <p className="picker-hint">Télécharge une pièce pour répéter sans réseau.</p>
+          )}
+          <ul className="picker-list">
+            {rows.map((row) => (
+              <li className="picker-row" key={row.slug}>
+                <div className="picker-row-main">
+                  <button type="button" className="picker-open" onClick={() => open(row.slug)}>
+                    <span className="picker-name">{row.name}</span>
+                    <span className="picker-meta">{metaLabel(row)}</span>
+                  </button>
+                  {/* Sans serveur il n'y a rien à rapatrier : l'action laisse la
+                      place à un simple témoin, plutôt que d'échouer à l'usage. */}
+                  {status === 'online' ? (
+                    <IconButton
+                      icon="download"
+                      label={row.local ? `Synchroniser ${row.name}` : `Télécharger ${row.name}`}
+                      variant="ghost"
+                      size="touch"
+                      disabled={busy !== null}
+                      onClick={() => void prepare(row.slug)}
+                    />
+                  ) : (
+                    row.local && <Icon name="check" size={22} className="picker-check" />
+                  )}
+                </div>
+
+                {busy === row.slug && progress && <Progress progress={progress} />}
+                {report?.slug === row.slug && <ReportNote report={report} />}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <Sheet open={sheetOpen} title="Connexion" onClose={() => setSheetOpen(false)}>
+        <p className="picker-sheet-state">
+          {statusLabel(status, server)}
+          {server && <span className="picker-sheet-base">{server.base}</span>}
         </p>
 
-        {error && <p className="picker-error">Erreur : {error}</p>}
+        <Button
+          variant="primary"
+          size="touch"
+          icon="refresh"
+          className="picker-sheet-search"
+          onClick={() => void load()}
+        >
+          Rechercher le Mac
+        </Button>
 
-        {!loading && plays.length === 0 && (
-          <p className="picker-note">
-            Aucune pièce. Renseigne l'adresse du Mac, puis prépare une pièce hors-ligne.
-          </p>
-        )}
-
-        <ul className="picker-list">
-          {plays.map((play) => (
-            <li className="picker-play" key={play.slug}>
-              <div className="picker-play-head">
-                <span className="picker-play-name">{play.name}</span>
-                {localSlugs.has(play.slug) && <span className="picker-tag">hors-ligne</span>}
-              </div>
-              <div className="picker-play-slug">{play.slug}</div>
-
-              <div className="picker-actions">
-                <Button variant="primary" size="touch" onClick={() => open(play.slug)}>
-                  Ouvrir
-                </Button>
-                {/* Sans serveur il n'y a rien à rapatrier : le bouton disparaît
-                    plutôt que d'échouer à l'usage. */}
-                {online && (
-                  <Button
-                    variant="neutral"
-                    size="touch"
-                    disabled={busy !== null}
-                    onClick={() => void prepare(play.slug)}
-                  >
-                    {busy === play.slug ? 'Préparation…' : 'Préparer hors-ligne'}
-                  </Button>
-                )}
-              </div>
-
-              {busy === play.slug && progress && <Progress progress={progress} />}
-              {report?.slug === play.slug && <ReportNote report={report} />}
-            </li>
-          ))}
-        </ul>
-      </section>
+        <label className="picker-label" htmlFor="api-base">
+          Adresse à distance (Tailscale)
+        </label>
+        <div className="picker-field">
+          <input
+            id="api-base"
+            className="picker-input"
+            type="url"
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="https://mon-mac.tailnet.ts.net"
+            value={manual}
+            onChange={(e) => setManual(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveManual();
+            }}
+          />
+          <Button variant="neutral" size="touch" onClick={saveManual}>
+            Enregistrer
+          </Button>
+        </div>
+        <p className="picker-help">
+          Sur le même réseau que le Mac, l'app le trouve toute seule. Cette adresse ne sert
+          qu'à distance — mais elle reste prioritaire tant qu'elle est renseignée.
+        </p>
+        <p className="picker-help">
+          Cherché sur le réseau : <code>{lanBase}</code>
+        </p>
+      </Sheet>
     </main>
+  );
+}
+
+function Empty({
+  status,
+  onSearch,
+  onSettings,
+}: {
+  status: Status;
+  onSearch: () => void;
+  onSettings: () => void;
+}) {
+  if (status === 'searching') return <p className="picker-hint">Recherche du Mac…</p>;
+  if (status === 'online') return <p className="picker-hint">Aucune pièce sur le Mac.</p>;
+  return (
+    <div className="picker-empty">
+      <p className="picker-empty-title">Aucune pièce sur ce téléphone</p>
+      <p className="picker-empty-note">
+        Allume le Mac et connecte-toi au même réseau : l'app le trouvera toute seule.
+      </p>
+      <Button variant="primary" size="touch" icon="refresh" onClick={onSearch}>
+        Chercher le Mac
+      </Button>
+      <button type="button" className="picker-link" onClick={onSettings}>
+        Saisir une adresse
+      </button>
+    </div>
   );
 }
 
@@ -181,7 +252,7 @@ function Progress({ progress }: { progress: PrepareProgress }) {
         <div className="picker-bar-fill" style={{ width: `${pct}%` }} />
       </div>
       <span className="picker-progress-text">
-        {progress.total ? `${progress.done} / ${progress.total} clips` : 'Lecture de la pièce…'}
+        {progress.total ? `${progress.done} / ${progress.total}` : '…'}
       </span>
     </div>
   );
@@ -196,33 +267,197 @@ function ReportNote({ report }: { report: Report }) {
   const ready = report.prepared + report.skipped;
   return (
     <p className="picker-report">
-      {ready} clip{ready > 1 ? 's' : ''} prêt{ready > 1 ? 's' : ''} hors-ligne
-      {report.skipped > 0 && ` (dont ${report.skipped} déjà présent${report.skipped > 1 ? 's' : ''})`}.
+      {ready} clip{ready > 1 ? 's' : ''} prêt{ready > 1 ? 's' : ''} hors-ligne.
       {report.missing > 0 && (
         <>
           {' '}
-          {report.missing} clip{report.missing > 1 ? 's' : ''} manquant
-          {report.missing > 1 ? 's' : ''} sur le Mac : ces répliques resteront muettes. Lance
-          « 🎙️ Générer l'audio » dans l'atelier web, puis relance la préparation.
+          {report.missing} manquant{report.missing > 1 ? 's' : ''} sur le Mac : ces répliques
+          resteront muettes. Lance « 🎙️ Générer l'audio » dans l'atelier web, puis relance la
+          synchronisation.
         </>
       )}
     </p>
   );
 }
 
-/** Injecté par `main.ts` en même temps que `uiCss`, dont il consomme les jetons. */
+function statusLabel(status: Status, server: Instance | null): string {
+  if (status === 'searching') return 'Recherche du Mac…';
+  if (status === 'online') return `Connecté · ${server?.host || 'Mac'}`;
+  return 'Hors ligne — appuie pour connecter';
+}
+
+function metaLabel(row: Row): string {
+  if (!row.local) return 'Sur le Mac · pas téléchargée';
+  return row.clips > 0 ? `Hors-ligne · ${row.clips} clips` : 'Hors-ligne';
+}
+
+async function localRows(): Promise<Row[]> {
+  const local = await store.listLocalPlays();
+  return Promise.all(
+    local.map(async (play) => ({
+      ...play,
+      local: true,
+      // Dédoublonné par clé, comme le bilan de `prepareOffline` : deux répliques au
+      // texte identique dites par la même voix partagent un seul fichier. Compter les
+      // entrées du manifeste (une par réplique) afficherait un nombre plus élevé que
+      // celui annoncé juste au-dessus par « N clips prêts hors-ligne ».
+      clips: new Set(Object.values((await store.loadManifest(play.slug))?.map ?? {})).size,
+    })),
+  );
+}
+
+/**
+ * Une pièce présente des deux côtés n'apparaît qu'une fois, et une pièce effacée du
+ * Mac ne disparaît pas de la liste : elle est sur le téléphone, elle doit rester
+ * ouvrable. Le nom vient du serveur, plus frais que la copie locale.
+ */
+function merge(local: Row[], served: { slug: string; name: string }[]): Row[] {
+  const bySlug = new Map(local.map((row) => [row.slug, row]));
+  const rows = served.map((play) => {
+    const row = bySlug.get(play.slug);
+    bySlug.delete(play.slug);
+    return row ? { ...row, name: play.name } : { ...play, local: false, clips: 0 };
+  });
+  return [...rows, ...bySlug.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Injecté par `main.ts` en même temps que `uiCss`, dont il consomme les jetons.
+ *
+ * Les tailles de texte sont en pixels et non en `--fs-*` : les jetons partagés
+ * plafonnent à 19 px, calibrés pour l'atelier desktop, et donnent un écran
+ * illisible à bout de bras. Même arbitrage que `reader-runtime/src/styles.ts`.
+ * Le reste (couleurs, rayons, ombres, espacements) reste aux jetons.
+ *
+ * Les marges latérales viennent du `padding: 0 16px` du <body> (index.html) ; on
+ * n'ajoute ici que les encoches du mode paysage.
+ */
 export const pickerCss = `
 .picker {
   max-width: 560px;
   margin: 0 auto;
-  padding: var(--sp-5) 0 var(--sp-6);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: max(var(--sp-6), env(safe-area-inset-bottom));
   font-family: var(--font-ui);
   color: var(--ink);
 }
-.picker h1 { font-size: var(--fs-xl); margin: 0 0 var(--sp-5); }
+
+/* ── En-tête ───────────────────────────────────────────────────────────────── */
+.picker-head {
+  padding-top: max(var(--sp-5), calc(env(safe-area-inset-top) + var(--sp-3)));
+  padding-bottom: var(--sp-4);
+}
+.picker-title { font-size: 28px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 var(--sp-3); }
+
+.picker-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--ctl-h-touch);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink-muted);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.picker-status:active { opacity: .55; }
+.picker-status-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-status-chevron { flex: 0 0 auto; color: var(--ink-faint); }
+.picker-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: var(--r-full); background: var(--ink-faint); }
+.picker-dot--online { background: var(--ok); }
+.picker-dot--searching { background: var(--rule-strong); animation: picker-pulse 1.2s ease-in-out infinite; }
+@keyframes picker-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .picker-dot--searching { animation: none; } }
+
+/* ── Liste ─────────────────────────────────────────────────────────────────── */
+.picker-list { list-style: none; margin: 0; padding: 0; }
+.picker-row { border-top: 1px solid var(--rule); }
+.picker-row:last-child { border-bottom: 1px solid var(--rule); }
+.picker-row-main { display: flex; align-items: center; gap: var(--sp-2); }
+
+/* Toute la rangée est la cible d'ouverture : sur téléphone, viser un lien de la
+   taille d'un mot est une brimade. L'action secondaire garde ses 44 px à côté. */
+.picker-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 64px;
+  justify-content: center;
+  margin: 0;
+  padding: var(--sp-3) var(--sp-2) var(--sp-3) 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.picker-open:active { background: var(--paper-sunken); }
+.picker-open:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--r-sm); }
+.picker-name {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-meta { font-size: 13px; color: var(--ink-muted); }
+.picker-check { flex: 0 0 auto; color: var(--ok); margin-right: var(--sp-2); }
+
+/* ── États ─────────────────────────────────────────────────────────────────── */
+.picker-hint { font-size: 13px; color: var(--ink-muted); margin: 0 0 var(--sp-3); }
+.picker-error { font-size: 15px; color: var(--danger); margin: 0 0 var(--sp-4); }
+.picker-empty { padding: var(--sp-6) 0; text-align: center; }
+.picker-empty-title { font-size: 17px; font-weight: 600; margin: 0 0 var(--sp-2); }
+.picker-empty-note {
+  font-size: 15px;
+  color: var(--ink-muted);
+  line-height: 1.45;
+  margin: 0 auto var(--sp-5);
+  max-width: 34ch;
+}
+.picker-link {
+  display: block;
+  margin: var(--sp-4) auto 0;
+  min-height: var(--ctl-h-touch);
+  padding: 0 var(--sp-3);
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Progression & bilan ───────────────────────────────────────────────────── */
+.picker-progress { display: flex; align-items: center; gap: var(--sp-3); padding-bottom: var(--sp-3); }
+.picker-bar { flex: 1 1 auto; height: 4px; background: var(--paper-sunken); border-radius: var(--r-full); overflow: hidden; }
+.picker-bar-fill { height: 100%; background: var(--accent); transition: width .2s linear; }
+.picker-progress-text { font-size: 13px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.picker-report { font-size: 13px; color: var(--ink-muted); margin: 0; padding-bottom: var(--sp-3); line-height: 1.45; }
+
+/* ── Feuille « Connexion » ─────────────────────────────────────────────────── */
+.picker-sheet-state { display: flex; flex-direction: column; gap: 2px; font-size: 15px; margin: 0 0 var(--sp-4); }
+.picker-sheet-base { font-family: var(--font-mono); font-size: 13px; color: var(--ink-faint); overflow-wrap: anywhere; }
+.picker-sheet-search { width: 100%; justify-content: center; margin-bottom: var(--sp-5); }
 .picker-label {
   display: block;
-  font-size: var(--fs-sm);
+  font-size: 12px;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--ink-muted);
@@ -235,46 +470,16 @@ export const pickerCss = `
   height: var(--ctl-h-touch);
   padding: 0 var(--sp-3);
   font: inherit;
-  font-size: var(--fs-lg);
+  /* 16 px minimum, sinon iOS zoome sur le champ au focus et laisse la page décalée. */
+  font-size: 16px;
   color: var(--ink);
   background: var(--paper-raised);
   border: 1px solid var(--rule-strong);
   border-radius: var(--r-md);
 }
 .picker-input:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.picker-section { margin-top: var(--sp-6); }
-.picker-note { font-size: var(--fs-md); color: var(--ink-muted); margin: 0 0 var(--sp-3); }
-.picker-error { font-size: var(--fs-md); color: var(--danger); margin: 0 0 var(--sp-3); }
-.picker-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
-.picker-play {
-  background: var(--paper-raised);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-lg);
-  padding: var(--sp-4);
-  box-shadow: var(--sh-1);
-}
-.picker-play-head { display: flex; align-items: center; gap: var(--sp-2); }
-.picker-play-name { font-size: var(--fs-lg); font-weight: 600; }
-.picker-tag {
-  font-size: var(--fs-xs);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-  color: var(--ok);
-  border: 1px solid currentColor;
-  border-radius: var(--r-full);
-  padding: 1px var(--sp-2);
-}
-.picker-play-slug { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-faint); }
-.picker-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
-.picker-progress { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
-.picker-bar {
-  flex: 1 1 auto;
-  height: 6px;
-  background: var(--paper-sunken);
-  border-radius: var(--r-full);
-  overflow: hidden;
-}
-.picker-bar-fill { height: 100%; background: var(--accent); }
-.picker-progress-text { font-size: var(--fs-sm); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
-.picker-report { font-size: var(--fs-md); color: var(--ink-muted); margin: var(--sp-3) 0 0; line-height: 1.45; }
+.picker-help { font-size: 13px; color: var(--ink-muted); line-height: 1.5; margin: var(--sp-3) 0 0; }
+/* En bloc : à 12 px en mono, l'adresse ne tient pas sur la fin d'une ligne de
+   texte et se ferait couper en plein milieu du token (« h / ttp:// »). */
+.picker-help code { display: block; margin-top: 2px; font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
 `;

@@ -24,6 +24,36 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!--
+		Découverte du Mac sur le réseau local. Ces trois clés vont ensemble ; il en
+		manque une et la découverte échoue en silence.
+
+		- NSAllowsLocalNetworking : exception App Transport Security prévue par Apple
+		  pour le HTTP en clair vers les noms Bonjour `.local` et le link-local. C'est
+		  elle qui rend `http://theatre-reader.local:3001` possible sans ouvrir un
+		  NSAllowsArbitraryLoads général. Elle ne couvre PAS les IP privées
+		  192.168.x.x : d'où le choix d'annoncer un nom `.local` côté serveur
+		  (server/src/discovery.ts) plutôt qu'une adresse.
+		- NSLocalNetworkUsageDescription : texte de la demande de permission iOS 14+.
+		  Sans elle, la permission n'est jamais demandée et tout accès LAN est refusé.
+		- NSBonjourServices : nécessaire seulement pour parcourir Bonjour, ce que
+		  l'app ne fait pas (elle résout un nom fixe). Déclaré quand même, au cas où
+		  iOS durcirait la résolution `.local`.
+
+		Ce sont des clés Info.plist, pas des entitlements : la signature et le profil
+		de provisionnement ne changent pas.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Theatre Reader cherche ton Mac sur le réseau local pour y télécharger tes pièces.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_theatre._tcp</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
