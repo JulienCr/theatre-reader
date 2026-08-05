@@ -62,6 +62,11 @@ function init(d: ReaderData, options: BootOptions): void {
     myRoles: d.audio?.myCharacterId ? [d.audio.myCharacterId] : [],
   };
   const initial = loadState(d.storageKey, defaults);
+  // Un rôle persisté qui n'existe plus dans la pièce (personnage renommé, autre
+  // pièce sous la même clé) n'appartiendrait à aucune plage : « mes scènes » les
+  // masquerait TOUTES et la pièce s'ouvrirait vide, sans rien pour l'expliquer.
+  const known = new Set(d.characters.map((c) => c.id));
+  initial.myRoles = initial.myRoles.filter((id) => known.has(id));
 
   const host = document.createElement('div');
   host.id = 'reader-chrome';

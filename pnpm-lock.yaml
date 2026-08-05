@@ -107,6 +107,9 @@ importers:
       '@theatre/audio-player':
         specifier: workspace:*
         version: link:../audio-player
+      '@theatre/core':
+        specifier: workspace:*
+        version: link:../core
       '@theatre/reader-ui':
         specifier: workspace:*
         version: link:../reader-ui
@@ -117,9 +120,6 @@ importers:
         specifier: ^10.29.7
         version: 10.29.7
     devDependencies:
-      '@theatre/core':
-        specifier: workspace:*
-        version: link:../core
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17

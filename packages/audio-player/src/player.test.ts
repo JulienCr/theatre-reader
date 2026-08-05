@@ -403,4 +403,111 @@ describe('@theatre/audio-player', () => {
       win.AudioContext = origAudioContext;
     }
   });
+
+  describe('refresh() — repositionnement après masquage', () => {
+    /** 5 répliques ; `hide` masque une plage comme le fait le runtime mobile. */
+    const five = (): HTMLElement =>
+      mount(
+        line('michel', 'n1#0', 'Un') +
+          line('michel', 'n2#0', 'Deux') +
+          line('michel', 'n3#0', 'Trois') +
+          line('benji', 'n4#0', 'Quatre') +
+          line('benji', 'n5#0', 'Cinq'),
+      );
+    const hide = (cont: HTMLElement, ...nids: string[]): void => {
+      for (const nid of nids) cont.querySelector(`[data-nid="${nid}"]`)!.classList.add('scene--hidden');
+    };
+
+    it('se replace sur la première tirade SUIVANTE encore visible', async () => {
+      const cont = five();
+      const p = buildPlayer(cont);
+      p.playFrom('n2#0');
+      await flush();
+      hide(cont, 'n1#0', 'n2#0', 'n3#0');
+      p.refresh();
+      await flush();
+      // Un clamp numérique aurait donné l'index 1 de la liste rétrécie, soit n5#0.
+      expect(last?.currentNodeId).toBe('n4#0');
+      p.destroy();
+    });
+
+    it('garde la position quand la tirade courante survit', async () => {
+      const cont = five();
+      const p = buildPlayer(cont);
+      p.playFrom('n4#0');
+      await flush();
+      hide(cont, 'n1#0');
+      p.refresh();
+      await flush();
+      expect(last?.currentNodeId).toBe('n4#0');
+      expect(last?.total).toBe(4);
+      p.destroy();
+    });
+
+    it('recule quand plus rien ne suit', async () => {
+      const cont = five();
+      const p = buildPlayer(cont);
+      p.playFrom('n4#0');
+      await flush();
+      hide(cont, 'n4#0', 'n5#0');
+      p.refresh();
+      await flush();
+      expect(last?.currentNodeId).toBe('n3#0');
+      p.destroy();
+    });
+
+    it('survit à une pièce entièrement masquée', async () => {
+      const cont = five();
+      const p = buildPlayer(cont);
+      p.playFrom('n2#0');
+      await flush();
+      hide(cont, 'n1#0', 'n2#0', 'n3#0', 'n4#0', 'n5#0');
+      p.refresh();
+      await flush();
+      expect(last?.total).toBe(0);
+      expect(last?.currentNodeId).toBeNull();
+      p.destroy();
+    });
+
+    it('coupe le son quand la tirade en cours vient d\'être masquée', async () => {
+      const cont = five();
+      const p = buildPlayer(cont);
+      p.playFrom('n2#0');
+      await flush();
+      calls = [];
+      hide(cont, 'n1#0', 'n2#0', 'n3#0');
+      p.refresh();
+      await flush();
+      // La lecture reprend à la première visible, et n2#0 n'est jamais re-résolue.
+      expect(calls.map((t) => t.nodeId)).toContain('n4#0');
+      expect(calls.map((t) => t.nodeId)).not.toContain('n2#0');
+      p.destroy();
+    });
+  });
+
+  describe('premier ⏭ / ⏮', () => {
+    it('démarre sur la tirade courante tant que rien n\'a été joué', async () => {
+      const p = make();
+      p.next();
+      await flush();
+      // Sans ça, le premier appui sauterait la première réplique de la scène.
+      expect(last?.currentNodeId).toBe('a#0');
+      p.next();
+      await flush();
+      expect(last?.currentNodeId).toBe('b#0');
+      p.destroy();
+    });
+
+    it('redevient un démarrage après un refresh qui a déplacé la position', async () => {
+      const cont = mount(line('michel', 'n1#0', 'Un') + line('benji', 'n2#0', 'Deux'));
+      const p = buildPlayer(cont);
+      cont.querySelector('[data-nid="n1#0"]')!.classList.add('scene--hidden');
+      p.refresh();
+      await flush();
+      p.next();
+      await flush();
+      expect(last?.currentNodeId).toBe('n2#0');
+      p.destroy();
+    });
+  });
 });

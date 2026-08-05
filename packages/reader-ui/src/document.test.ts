@@ -33,7 +33,7 @@ describe('buildReaderDocument', () => {
     expect(doc.data.audio?.myCharacterId).toBe('michel');
   });
 
-  it('embarque la présence des personnages par scène (option « mes scènes »)', () => {
+  it('embarque la présence des personnages par plage (option « mes scènes »)', () => {
     const doc = buildReaderDocument({
       fountain: SRC,
       characters: [],
@@ -41,9 +41,25 @@ describe('buildReaderDocument', () => {
       storageKey: 'k',
     });
     expect(doc.data.sceneMembers).toEqual([
-      { id: expect.stringMatching(/^h-\d+$/), characterIds: ['michel', 'benji'] },
+      { id: 'h-0', kind: 'act', characterIds: [] },
+      { id: expect.stringMatching(/^h-\d+$/), kind: 'scene', characterIds: ['michel', 'benji'] },
     ]);
-    // L'id doit être celui du sommaire (pour que le runtime relie scène ↔ présence).
-    expect(doc.data.toc.some((e) => e.id === doc.data.sceneMembers[0]!.id)).toBe(true);
+    // L'id doit être celui du sommaire (pour que le runtime relie plage ↔ présence).
+    const scene = doc.data.sceneMembers.find((m) => m.kind === 'scene')!;
+    expect(doc.data.toc.some((e) => e.id === scene.id)).toBe(true);
+  });
+
+  it('embarque le prologue d\'un acte comme une plage à part entière', () => {
+    // Sans cette entrée, le contenu placé avant la première scène d'un acte
+    // échappe au filtre « mes scènes » : il reste affiché ET jouable.
+    const doc = buildReaderDocument({
+      fountain: `# ACTE I.\n\nNARRATEUR\nIl était une fois.\n\n## SCENE I.\n\nBENJI\nMe voilà.\n`,
+      characters: [],
+      template: actorReadingTemplate,
+      storageKey: 'k',
+    });
+    const act = doc.data.sceneMembers.find((m) => m.kind === 'act')!;
+    expect(act.characterIds).toEqual(['narrateur']);
+    expect(doc.data.toc.some((e) => e.id === act.id)).toBe(true);
   });
 });
