@@ -20,6 +20,7 @@ import {
   type Portion,
   type StudyConfig,
   buildStudyIcs,
+  daysBetween,
   icsStamp,
   isoDay,
   mergeTiradeRanges,
@@ -69,7 +70,11 @@ function buildWeeks(days: PlannedDay[]): (PlannedDay | null)[][] {
   // Nombre de semaines déduit de la plage réelle, sans borne arbitraire : un
   // garde-fou fixe tronquait la fin du calendrier en silence dès qu'un rythme
   // lent (un jour par semaine) et une date lointaine dépassaient sa valeur.
-  const spanDays = Math.round((localDate(lastDay).getTime() - cursor.getTime()) / 86_400_000);
+  //
+  // `daysBetween` et non une soustraction de timestamps : ceux-ci sont locaux, et
+  // un jour de changement d'heure fait 23 ou 25 heures — l'arrondi décalait alors
+  // le compte d'une semaine. Le helper compte en jours civils UTC.
+  const spanDays = daysBetween(isoDay(cursor), lastDay);
   const weekCount = Math.max(1, Math.ceil((spanDays + 1) / 7));
 
   const weeks: (PlannedDay | null)[][] = [];
@@ -229,21 +234,22 @@ export function StudyCalendar({
         </p>
       )}
 
-      <div className="study-grid" role="grid">
-        <div className="study-grid__weekdays" role="row">
+      {/* Pas de rôles ARIA de grille : le motif `grid` promet une navigation au
+          clavier (flèches, roving tabindex) qu'on n'implémente pas, et il masque
+          la sémantique native des boutons. Chaque case s'annonce déjà seule, avec
+          sa date complète — les en-têtes de colonnes sont donc purement visuels. */}
+      <div className="study-grid">
+        <div className="study-grid__weekdays" aria-hidden="true">
           {WEEKDAYS.map((w) => (
-            <span key={w} role="columnheader">
-              {w}
-            </span>
+            <span key={w}>{w}</span>
           ))}
         </div>
         {weeks.map((week, wi) => (
-          <div className="study-grid__week" role="row" key={wi}>
+          <div className="study-grid__week" key={wi}>
             {week.map((d, di) =>
               d ? (
                 <button
                   key={d.day}
-                  role="gridcell"
                   className={[
                     'study-cell',
                     d.minutes > config.sessionMinutes + 1 ? 'study-cell--over' : '',
@@ -275,7 +281,11 @@ export function StudyCalendar({
                   )}
                 </button>
               ) : (
-                <span key={`${wi}-${di}`} className="study-cell study-cell--empty" role="gridcell" />
+                <span
+                  key={`${wi}-${di}`}
+                  className="study-cell study-cell--empty"
+                  aria-hidden="true"
+                />
               ),
             )}
           </div>
