@@ -19,6 +19,7 @@ export const ICONS = {
   // sont rendues en aplat (cf. FILLED_ICONS) et un trait n'a aucune aire.
   'skip-back': 'M18 5.5v13L9 12zM6 5h2.2v14H6z',
   'skip-forward': 'M6 5.5v13L15 12zM15.8 5H18v14h-2.2z',
+  repeat: 'M17 2.5l3.5 3.5-3.5 3.5M3.5 11.5v-1a4 4 0 0 1 4-4h13M7 21.5L3.5 18 7 14.5M20.5 12.5v1a4 4 0 0 1-4 4h-13',
 
   // Navigation / structure
   menu: 'M4 7h16M4 12h16M4 17h16',

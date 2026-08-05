@@ -16,30 +16,58 @@ import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
 const HEAD = 'h2.act, h3.scene';
 
 /**
- * Pose (et retire) `.scene--hidden` sur les plages masquées de `.play`.
+ * Rattache chaque nœud de `.play` à sa plage, en ordre de document.
  *
  * Le rendu de @theatre/core est PLAT : `.play` a pour enfants directs le préambule
  * (`header.play-header`, `section.distribution`, `nav.toc`) puis les nœuds de la
- * pièce, chacun porteur d'un `data-nid`. On ne touche QUE les porteurs de
+ * pièce, chacun porteur d'un `data-nid`. On ne visite QUE les porteurs de
  * `data-nid` — c'est ce qui garantit que le préambule reste visible même quand la
  * plage de tête (le contenu placé avant tout en-tête) tombe.
  *
- * Un seul passage en ordre de document : chaque en-tête ouvre une plage, le reste
- * en hérite. C'est ce qui permet de masquer la QUEUE d'un acte (son prologue) sans
- * sa TÊTE — un acte dont une scène survit reste un repère de structure.
+ * Chaque en-tête ouvre une plage, le reste en hérite. C'est ce qui permet de traiter
+ * la QUEUE d'un acte (son prologue) séparément de sa TÊTE — un acte dont une scène
+ * survit reste un repère de structure.
+ *
+ * Factorisé parce que deux fonctions en dépendent (masquage et boucle) : deux
+ * parcours concurrents finiraient par ne plus répondre la même chose à « à quelle
+ * plage appartient ce nœud », et c'est exactement le genre de divergence qui a déjà
+ * laissé du contenu hors-scène échapper au filtre.
+ */
+function walkRanges(
+  play: HTMLElement,
+  visit: (el: HTMLElement, rangeId: string, isHead: boolean) => void,
+): void {
+  let range = LEAD_RANGE_ID;
+  for (const el of Array.from(play.children) as HTMLElement[]) {
+    if (!el.hasAttribute('data-nid')) continue; // préambule : intouchable
+    const isHead = el.matches(HEAD);
+    if (isHead) range = el.id;
+    visit(el, range, isHead);
+  }
+}
+
+/**
+ * Pose (et retire) `.scene--hidden` sur les plages masquées de `.play`.
  *
  * La classe est posée ET retirée à chaque passage : c'est le seul chemin de
  * démasquage quand l'utilisateur décoche l'option.
  */
 export function applySceneVisibility(play: HTMLElement, v: SceneVisibility): void {
-  let hidden = v.ranges.has(LEAD_RANGE_ID);
-  for (const el of Array.from(play.children) as HTMLElement[]) {
-    if (!el.hasAttribute('data-nid')) continue; // préambule : intouchable
-    if (el.matches(HEAD)) {
-      hidden = v.ranges.has(el.id);
-      el.classList.toggle(HIDDEN_SCENE_CLASS, v.headings.has(el.id));
-      continue;
-    }
-    el.classList.toggle(HIDDEN_SCENE_CLASS, hidden);
-  }
+  walkRanges(play, (el, range, isHead) => {
+    el.classList.toggle(HIDDEN_SCENE_CLASS, isHead ? v.headings.has(range) : v.ranges.has(range));
+  });
+}
+
+/**
+ * `data-nid` → id de plage (`h-<n>` ou `LEAD_RANGE_ID`), pour la boucle du moteur
+ * audio : il ne voit qu'une liste plate de tirades et n'a aucun autre moyen de
+ * savoir où une scène finit.
+ */
+export function rangeIndex(play: HTMLElement): Map<string, string> {
+  const out = new Map<string, string>();
+  walkRanges(play, (el, range) => {
+    const nid = el.getAttribute('data-nid');
+    if (nid) out.set(nid, range);
+  });
+  return out;
 }

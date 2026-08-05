@@ -534,4 +534,154 @@ describe('@theatre/audio-player', () => {
       p.destroy();
     });
   });
+
+  describe('boucle sur la plage courante', () => {
+    // Le moteur ne voit qu'une liste plate : c'est l'hôte qui lui dit à quelle plage
+    // appartient chaque tirade. Ici deux scènes de deux répliques.
+    const RANGES: Record<string, string> = {
+      'a#0': 'h-1',
+      'b#0': 'h-1',
+      'c#0': 'h-2',
+      'd#0': 'h-2',
+    };
+    const twoScenes = (): HTMLElement =>
+      mount(
+        line('michel', 'a#0', 'Un') +
+          line('benji', 'b#0', 'Deux') +
+          line('michel', 'c#0', 'Trois') +
+          line('benji', 'd#0', 'Quatre'),
+      );
+
+    /**
+     * L'élément `<audio>` du moteur n'est jamais inséré dans le document : le test
+     * l'intercepte à la création pour pouvoir lui envoyer `ended`, le seul événement
+     * qui déclenche l'enchaînement — et donc la boucle.
+     */
+    const buildLooping = (
+      cont: HTMLElement,
+      extra: Partial<PlayerOptions> = {},
+    ): { p: ReturnType<typeof buildPlayer>; endClip: () => void } => {
+      const real = document.createElement.bind(document);
+      const made: HTMLAudioElement[] = [];
+      document.createElement = ((tag: string) => {
+        const el = real(tag);
+        if (tag === 'audio') made.push(el as HTMLAudioElement);
+        return el;
+      }) as typeof document.createElement;
+      const p = buildPlayer(cont, { rangeOf: (t) => RANGES[t.nodeId] ?? null, ...extra });
+      document.createElement = real;
+      return { p, endClip: () => void made[0]!.dispatchEvent(new Event('ended')) };
+    };
+
+    it('repart de la première tirade de la plage au lieu d\'enchaîner sur la suivante', async () => {
+      const { p, endClip } = buildLooping(twoScenes());
+      p.setLoop(true);
+      p.playFrom('a#0');
+      await flush();
+      endClip();
+      await flush();
+      expect(last?.currentNodeId).toBe('b#0'); // dans la plage : on avance normalement
+      endClip();
+      await flush();
+      expect(last?.currentNodeId).toBe('a#0'); // bout de la plage : retour à son début
+      p.destroy();
+    });
+
+    it('sans boucle, enchaîne sur la plage suivante', async () => {
+      const { p, endClip } = buildLooping(twoScenes());
+      p.playFrom('b#0');
+      await flush();
+      endClip();
+      await flush();
+      expect(last?.currentNodeId).toBe('c#0');
+      p.destroy();
+    });
+
+    it('suit la plage où l\'on se trouve, pas celle où la boucle a été activée', async () => {
+      const { p, endClip } = buildLooping(twoScenes());
+      p.setLoop(true);
+      p.playFrom('a#0');
+      await flush();
+      p.next(); // b#0
+      await flush();
+      p.next(); // ⏭ manuel : quitte la plage, c'est le seul moyen de changer de scène
+      await flush();
+      expect(last?.currentNodeId).toBe('c#0');
+      endClip();
+      await flush();
+      expect(last?.currentNodeId).toBe('d#0');
+      endClip();
+      await flush();
+      expect(last?.currentNodeId).toBe('c#0'); // c'est la seconde scène qui boucle
+      p.destroy();
+    });
+
+    it('boucle aussi en fin de pièce', async () => {
+      const { p, endClip } = buildLooping(twoScenes());
+      p.setLoop(true);
+      p.playFrom('d#0');
+      await flush();
+      endClip();
+      await flush();
+      expect(last?.currentNodeId).toBe('c#0');
+      p.destroy();
+    });
+
+    /**
+     * Sans garde-fou, une plage dont aucune réplique n'a de clip (export partiel,
+     * personnages sans voix) enchaînerait les sauts pour l'éternité — et sans un son
+     * pour s'en rendre compte. Ce test boucle vraiment si la protection saute.
+     */
+    it('s\'arrête au lieu de tourner à vide dans une plage sans aucun clip', async () => {
+      const { p } = buildLooping(twoScenes(), {
+        resolveAudio: (t) => {
+          calls.push(t);
+          return Promise.resolve(null);
+        },
+      });
+      p.setLoop(true);
+      p.playFrom('a#0');
+      await flush();
+      expect(last?.playing).toBe(false);
+      p.destroy();
+    });
+  });
+
+  describe('vitesse de lecture', () => {
+    it('raccourcit la pause de l\'avancement automatique d\'autant', async () => {
+      vi.useFakeTimers();
+      const c = mount(
+        line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'),
+      );
+      const p = buildPlayer(c, {
+        roles: ['benji'],
+        settings: { rehearsal: true, autoAdvance: true, playMine: false, mask: true },
+        resolveDuration: () => Promise.resolve(2),
+      });
+      p.setRate(2);
+      p.playFrom('b#0');
+      await vi.advanceTimersByTimeAsync(0);
+      // À 2×, tout le reste va deux fois plus vite : attendre 2 s la durée nominale
+      // ferait traîner chaque tour de parole.
+      expect(last?.timedMs).toBe(1000);
+      p.destroy();
+      vi.useRealTimers();
+    });
+
+    it('refuse une vitesse nulle, qui rendrait la pause infinie', async () => {
+      vi.useFakeTimers();
+      const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux'));
+      const p = buildPlayer(c, {
+        roles: ['benji'],
+        settings: { rehearsal: true, autoAdvance: true },
+        resolveDuration: () => Promise.resolve(2),
+      });
+      p.setRate(0);
+      p.playFrom('b#0');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(last?.timedMs).toBe(2000);
+      p.destroy();
+      vi.useRealTimers();
+    });
+  });
 });

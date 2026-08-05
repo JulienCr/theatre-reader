@@ -22,16 +22,33 @@ export const STYLE =
   box-shadow: 0 -2px 12px rgba(0,0,0,.06);
   padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
 }
-.reader-bar { gap: var(--sp-2); padding: var(--sp-2) var(--sp-3) 0; background: transparent; }
+/* Padding horizontal à --sp-2 et non --sp-3 : à sept contrôles, les 8 px gagnés sont
+   ce qui fait tenir la barre sur un écran de 375 px (368 px de contenu mesurés). */
+.reader-bar { gap: var(--sp-2); padding: var(--sp-2) var(--sp-2) 0; background: transparent; }
 /* Les deux zones latérales ont la même souplesse : la zone du milieu est donc
    centrée sans qu'on ait à la mesurer. flex-basis à 0 et non auto, sinon la
    largeur du contenu (menu à gauche, bascule à droite) décalerait le centre. */
-.reader-bar-side, .reader-bar .transport-mode { flex: 1 1 0; }
+/* Le min-width annule celui de la primitive (0) : une base à 0 laisse sinon le groupe
+   devenir plus étroit que son contenu, et les boutons se CHEVAUCHENT au lieu de
+   déborder. Mesuré à 320 px : deux paires superposées, chacune rendant l'autre
+   incliquable. Sans effet aux largeurs où tout tient — la base reste 0, donc le
+   centrage ne dépend toujours pas du contenu. */
+.reader-bar-side, .reader-bar .transport-mode { flex: 1 1 0; min-width: min-content; }
 .reader-bar > .reader-bar-side:last-child, .reader-bar .transport-mode { justify-content: flex-end; }
 /* Les cibles restent à 44 px, mais sans la générosité horizontale du bouton
    tactile par défaut : à 320 px, 14 px de marge de chaque côté suffisaient à
    pousser la bascule hors de la barre. */
 .reader-bar .btn--touch { padding: 0 var(--sp-3); }
+/* Une cible tactile ne se négocie pas : sous la largeur nécessaire, la barre déborde
+   (ça se voit) plutôt que de rétrécir ses boutons (ça ne se voit pas, et le doigt les
+   rate). Mesuré sans ce garde : 20 px de large à 320 px d'écran. */
+.reader-bar .btn { flex: 0 0 auto; }
+/* « 1,5× » tient largement dans une cible carrée : la ramener à 44 px la fait
+   compter comme une icône dans le budget de largeur de la barre. */
+.reader-bar .btn--rate {
+  width: var(--ctl-h-touch); min-width: 0; padding: 0;
+  font-size: var(--fs-md); font-variant-numeric: tabular-nums;
+}
 
 /* ── Sheets ───────────────────────────────────────────────────────────────── */
 .sheet-nav { margin: 0 calc(var(--sp-5) * -1) var(--sp-3); }
@@ -47,6 +64,9 @@ export const STYLE =
 .sheet-nav-hint { color: var(--ink-muted); font-size: var(--fs-lg); }
 .sheet-nav-chevron { color: var(--ink-faint); flex: 0 0 auto; }
 
+/* Ligne d'explication en tête d'une sheet, avant la première rangée. */
+.sheet-intro { margin: 0 0 var(--sp-3); color: var(--ink-muted); font-size: var(--fs-lg); }
+
 .sheet-field { padding: var(--sp-3) 0 0; }
 .sheet-field-head { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
 .sheet-field-label { display: inline-flex; align-items: center; gap: var(--sp-2); }
@@ -61,7 +81,6 @@ export const STYLE =
 .sheet-body .scene-link { display: block; color: inherit; text-decoration: none; }
 .sheet-body .scene-link.is-scene { padding-left: 18px; }
 .sheet-body .mode-hint { display: block; font-size: var(--fs-md); color: var(--ink-muted); margin: 4px 0 0 30px; }
-.sheet-body .mode-subhead { font-weight: 600; margin: var(--sp-5) 0 var(--sp-2); }
 
 .reader-search { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-4); }
 /* 16 px minimum : en deçà, iOS zoome sur le champ à la prise de focus. */
