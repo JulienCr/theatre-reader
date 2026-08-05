@@ -40,13 +40,22 @@ interface SceneRange {
   characterIds: string[];
 }
 
-/** Présence par plage, telle qu'embarquée à l'export pour le lecteur mobile. */
+/** Présence par plage, telle que PRODUITE par `sceneMembers` : `kind` est garanti. */
 export interface SceneMember {
   /** `h-<index de l'en-tête>` (comme `buildToc`), ou `LEAD_RANGE_ID`. */
   id: string;
   kind: SceneRangeKind;
   characterIds: string[];
 }
+
+/**
+ * Présence par plage telle qu'elle est LUE, où `kind` peut manquer : la donnée
+ * arrive du bloc embarqué à l'export, qui a pu être produit avant son
+ * introduction. Le producteur reste strict, le consommateur seul est tolérant —
+ * un type qui garantit `kind` au point de lecture inviterait un `switch`
+ * exhaustif sur une valeur parfois absente.
+ */
+export type EmbeddedSceneMember = Omit<SceneMember, 'kind'> & { kind?: SceneRangeKind };
 
 /**
  * Ce qui disparaît en mode « mes scènes ».
@@ -129,23 +138,26 @@ export function sceneMembers(play: Play): SceneMember[] {
  * `roleIds` vide → rien de masqué. C'est aussi le chemin de démasquage complet
  * quand l'utilisateur décoche l'option.
  */
-export function sceneVisibility(members: SceneMember[], roleIds: string[]): SceneVisibility {
+export function sceneVisibility(
+  members: readonly EmbeddedSceneMember[],
+  roleIds: string[],
+): SceneVisibility {
   const headings = new Set<string>();
   const ranges = new Set<string>();
   if (!roleIds.length) return { headings, ranges };
 
   const roles = new Set(roleIds);
-  const mine = (m: SceneMember): boolean => m.characterIds.some((c) => roles.has(c));
+  const mine = (m: EmbeddedSceneMember): boolean => m.characterIds.some((c) => roles.has(c));
   // Une plage sans aucune réplique n'est à personne : didascalie d'ouverture, page
   // de garde. Elle suit son acte au lieu de tomber pour absence de dialogue.
-  const speaks = (m: SceneMember): boolean => m.characterIds.length > 0;
-  const hideAll = (m: SceneMember): void => {
+  const speaks = (m: EmbeddedSceneMember): boolean => m.characterIds.length > 0;
+  const hideAll = (m: EmbeddedSceneMember): void => {
     headings.add(m.id);
     ranges.add(m.id);
   };
   // Donnée d'un export antérieur à `kind` : rien que des scènes, on retombe sur la
   // règle historique (cf. « Template option back-compat » dans CLAUDE.md).
-  const kindOf = (m: SceneMember): SceneRangeKind => m.kind ?? 'scene';
+  const kindOf = (m: EmbeddedSceneMember): SceneRangeKind => m.kind ?? 'scene';
 
   let i = 0;
   while (i < members.length) {
@@ -168,7 +180,7 @@ export function sceneVisibility(members: SceneMember[], roleIds: string[]): Scen
 
     // Acte : lui et TOUTES ses scènes, jusqu'au prochain acte.
     const act = m;
-    const scenes: SceneMember[] = [];
+    const scenes: EmbeddedSceneMember[] = [];
     let j = i + 1;
     while (j < members.length && kindOf(members[j]!) === 'scene') scenes.push(members[j++]!);
 

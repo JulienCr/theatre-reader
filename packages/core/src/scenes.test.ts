@@ -6,6 +6,7 @@ import {
   sceneMembers,
   sceneVisibility,
   filterScenesByRoles,
+  type EmbeddedSceneMember,
   type SceneVisibility,
 } from './scenes';
 import { buildToc } from './render';
@@ -168,9 +169,11 @@ describe('sceneVisibility', () => {
   });
 
   it('traite une donnée d\'export antérieure à `kind` comme des scènes', () => {
-    const legacy = sceneMembers(parseFountain(SRC))
+    // `EmbeddedSceneMember` rend `kind` optionnel : la forme d'un vieil export
+    // se construit sans tricher avec le typage.
+    const legacy: EmbeddedSceneMember[] = sceneMembers(parseFountain(SRC))
       .filter((m) => m.kind === 'scene')
-      .map(({ id, characterIds }) => ({ id, characterIds }) as never);
+      .map(({ id, characterIds }) => ({ id, characterIds }));
     const v = sceneVisibility(legacy, [MICHEL]);
     expect(v.headings.has('h-2')).toBe(true); // SCENE I (GERALD/BENJI)
     expect(v.headings.has('h-5')).toBe(false); // SCENE II (MICHEL)

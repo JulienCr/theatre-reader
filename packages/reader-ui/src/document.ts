@@ -20,8 +20,8 @@ import {
   renderCSS,
   sceneMembers,
   type Character,
+  type EmbeddedSceneMember,
   type Note,
-  type SceneMember,
   type Template,
 } from '@theatre/core';
 
@@ -45,8 +45,11 @@ export interface ReaderData {
    * Personnages présents par plage — scènes, prologues d'acte et tête de pièce
    * (id = celui du sommaire pour les plages qui ont un en-tête). Alimente
    * `sceneVisibility` pour l'option « n'afficher que mes scènes ».
+   *
+   * Typé sur la forme LUE (`kind` optionnel) et non produite : ce bloc est
+   * sérialisé dans les .html exportés, dont certains sont antérieurs à `kind`.
    */
-  sceneMembers: SceneMember[];
+  sceneMembers: EmbeddedSceneMember[];
   highlightsDefault: { characterId: string; color: string }[];
   notes?: Note[];
   storageKey: string;

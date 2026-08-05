@@ -417,6 +417,9 @@ describe('@theatre/audio-player', () => {
     const hide = (cont: HTMLElement, ...nids: string[]): void => {
       for (const nid of nids) cont.querySelector(`[data-nid="${nid}"]`)!.classList.add('scene--hidden');
     };
+    const showAll = (cont: HTMLElement): void => {
+      cont.querySelectorAll('.scene--hidden').forEach((el) => el.classList.remove('scene--hidden'));
+    };
 
     it('se replace sur la première tirade SUIVANTE encore visible', async () => {
       const cont = five();
@@ -466,6 +469,27 @@ describe('@theatre/audio-player', () => {
       await flush();
       expect(last?.total).toBe(0);
       expect(last?.currentNodeId).toBeNull();
+      p.destroy();
+    });
+
+    it('redevient un démarrage quand tout disparaît puis revient', async () => {
+      const cont = five();
+      const p = buildPlayer(cont);
+      p.playFrom('n1#0');
+      await flush();
+
+      hide(cont, 'n1#0', 'n2#0', 'n3#0', 'n4#0', 'n5#0');
+      p.refresh(); // plus rien à jouer : la lecture s'arrête hors bornes
+      await flush();
+      expect(last?.total).toBe(0);
+
+      showAll(cont);
+      p.refresh();
+      await flush();
+      p.next();
+      await flush();
+      // Sans remise à zéro de `started`, on repartirait sur n2#0.
+      expect(last?.currentNodeId).toBe('n1#0');
       p.destroy();
     });
 

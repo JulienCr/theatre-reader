@@ -570,8 +570,14 @@ export function createPlayer(opts: PlayerOptions): Player {
       const prevId = prev[index]?.nodeId ?? null;
       tirades = collectTirades(opts.container);
       index = relocate(prev, index, tirades);
+      const nextId = tirades[index]?.nodeId ?? null;
 
-      if (prevId !== null && prevId !== (tirades[index]?.nodeId ?? null)) {
+      // Comparaison SANS garde sur `prevId` : le passage d'une liste vide à une
+      // liste peuplée est un déplacement, au même titre que l'inverse. Exiger
+      // `prevId !== null` laissait `started` à vrai quand le filtre avait tout
+      // masqué puis qu'on le relâchait — le ⏭ suivant sautait de nouveau la
+      // première réplique redevenue visible.
+      if (prevId !== nextId) {
         // La tirade courante vient d'être masquée. On coupe NET : laisser le clip
         // finir ferait entendre précisément ce qu'on vient de masquer. `token++`
         // invalide aussi les résolutions audio et sondes de durée encore en vol.
