@@ -14,6 +14,7 @@ import fastifyStatic from '@fastify/static';
 import {
   actorReadingTemplate,
   cloneTemplate,
+  parseStudyState,
   type AudioConfig,
   type Note,
   type VoiceSettings,
@@ -26,8 +27,10 @@ import {
   listPlays,
   loadNotes,
   loadPlay,
+  loadStudy,
   savePlay,
   saveNotes,
+  saveStudy,
   uniqueSlug,
   audioCacheKey,
   readAudioCache,
@@ -171,6 +174,22 @@ export async function buildServer(): Promise<FastifyInstance> {
       const { notes } = req.body;
       if (!Array.isArray(notes)) return reply.code(400).send({ error: 'notes (tableau) requis' });
       await saveNotes(req.params.slug, notes);
+      return { ok: true };
+    },
+  );
+
+  app.get<{ Params: { slug: string } }>('/api/plays/:slug/study', async (req) => ({
+    study: await loadStudy(req.params.slug),
+  }));
+
+  app.put<{ Params: { slug: string }; Body: { study?: unknown } }>(
+    '/api/plays/:slug/study',
+    async (req, reply) => {
+      // Validation de structure, là où les notes se contentent d'un Array.isArray :
+      // un corps malformé écraserait des semaines de progression.
+      const study = parseStudyState(req.body?.study);
+      if (!study) return reply.code(400).send({ error: 'study (StudyState valide) requis' });
+      await saveStudy(req.params.slug, study);
       return { ok: true };
     },
   );

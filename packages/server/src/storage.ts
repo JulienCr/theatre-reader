@@ -10,7 +10,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { AudioConfig, Character, Note, Template, slugify } from '@theatre/core';
+import { AudioConfig, Character, Note, StudyState, Template, slugify } from '@theatre/core';
 
 export interface PlayMeta {
   name: string;
@@ -83,6 +83,27 @@ export async function saveNotes(slug: string, notes: Note[]): Promise<void> {
   const dir = join(DATA_DIR, slug);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, 'notes.json'), JSON.stringify(notes, null, 2), 'utf8');
+}
+
+/** Charge le plan d'apprentissage d'une pièce (null s'il n'a jamais été configuré). */
+export async function loadStudy(slug: string): Promise<StudyState | null> {
+  try {
+    return JSON.parse(await readFile(join(DATA_DIR, slug, 'study.json'), 'utf8')) as StudyState;
+  } catch (e) {
+    // Fichier absent → pas encore de plan. Toute autre erreur (JSON corrompu,
+    // I/O) doit remonter, pour la même raison que loadNotes : sinon un
+    // saveStudy() ultérieur écraserait une progression bien réelle — ici des
+    // semaines de travail, pas une préférence d'affichage.
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
+/** Écrit le plan d'apprentissage dans data/<slug>/study.json. */
+export async function saveStudy(slug: string, study: StudyState): Promise<void> {
+  const dir = join(DATA_DIR, slug);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'study.json'), JSON.stringify(study, null, 2), 'utf8');
 }
 
 /**
