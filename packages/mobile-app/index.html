@@ -21,6 +21,14 @@
     <style>
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; }
+      /* Le double-tap ne zoome plus. Un lecteur se tapote sans arrêt — pause,
+         réplique suivante, note, validation vocale — et deux appuis un peu
+         rapprochés partaient en zoom, qu'il fallait ensuite défaire à la main.
+         `manipulation` ne retire que ce geste-là : le pinch reste disponible pour
+         qui veut grossir le texte. Posé sur `html` et `body` parce que le geste
+         est arbitré sur toute la chaîne d'ancêtres du point touché : la coquille
+         couvre donc aussi bien le texte de la pièce que la barre du lecteur. */
+      html, body { touch-action: manipulation; }
       body { -webkit-text-size-adjust: 100%; padding: 0 16px; }
       .play { max-width: none; }
     </style>

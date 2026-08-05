@@ -33,6 +33,8 @@ import {
   type Player,
   type PlayerState,
   type ReadingSettings,
+  type SpeechRecognizer,
+  type Tolerance,
 } from '@theatre/audio-player';
 import { sceneVisibility } from '@theatre/core';
 import { ContextBanner, TransportDock, type SearchController } from '@theatre/reader-ui';
@@ -42,12 +44,15 @@ import {
   FONT_MAX,
   FONT_MIN,
   loadRate,
+  loadVoice,
   RATES,
   saveRate,
   saveState,
+  saveVoice,
   type PersistedState,
 } from './state';
 import { applySceneVisibility, rangeIndex } from './visibility';
+import { VoiceFeedback } from './VoiceFeedback';
 import type { ReaderData } from './types';
 
 type SheetName = 'options' | 'chars' | 'scenes' | 'search' | 'mode' | 'note' | null;
@@ -87,6 +92,7 @@ export function Chrome({
   search,
   initial,
   onExit,
+  recognizer,
 }: {
   data: ReaderData;
   /** Le `.play` rendu par @theatre/core — jamais rendu par React, seulement muté. */
@@ -95,6 +101,8 @@ export function Chrome({
   initial: PersistedState;
   /** Fourni par l'app seule : le .html exporté n'a nulle part où sortir. */
   onExit?: () => void;
+  /** Fourni par l'app seule : sans lui, aucun réglage vocal n'est proposé. */
+  recognizer?: SpeechRecognizer;
 }) {
   const [selected, setSelected] = useState<string[]>(initial.selected);
   // Borné dès la lecture : un localStorage abîmé ne doit pas rendre la pièce illisible.
@@ -116,9 +124,18 @@ export function Chrome({
   const [query, setQuery] = useState('');
   const [pstate, setPstate] = useState<PlayerState | null>(null);
   const [sceneId, setSceneId] = useState<string | null>(null);
+  // Répétition vocale : réglage global (toutes pièces), d'où sa propre clé.
+  const [voice, setVoice] = useState(loadVoice);
+  // Autorisation micro refusée : la case reste décochée, et il faut le dire —
+  // sinon on croit avoir activé un mode qui n'écoutera jamais.
+  const [voiceDenied, setVoiceDenied] = useState(false);
 
   const playerRef = useRef<Player | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // Le moteur est créé une seule fois, au montage : il lui faut la valeur restaurée,
+  // pas celle du premier rendu figée dans la closure.
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
   const hasClips = Boolean(data.audio && Object.keys(data.audio.clips).length);
 
   // Le moteur pilote le masquage « répétition » (réglages + rôles), même sans clips :
@@ -138,6 +155,11 @@ export function Chrome({
       onState: setPstate,
       speakingClass: 'line--speaking',
       rangeOf: (t) => ranges.get(t.nodeId) ?? null,
+      // Sans reconnaissance (le .html exporté), le moteur ignore tout du mode vocal
+      // et la pause de répétition reste celle d'avant.
+      voice: recognizer
+        ? { recognizer, enabled: voiceRef.current.enabled, tolerance: voiceRef.current.tolerance }
+        : undefined,
     });
     player.setRate(rate);
     playerRef.current = player;
@@ -302,6 +324,37 @@ export function Chrome({
     playerRef.current?.setSettings(patch);
   };
 
+  const applyVoice = (patch: { enabled?: boolean; tolerance?: Tolerance }): void => {
+    setVoice((prev) => {
+      const next = { ...prev, ...patch };
+      saveVoice(next);
+      return next;
+    });
+    playerRef.current?.setVoice(patch);
+  };
+
+  const changeVoice = async (patch: { enabled?: boolean; tolerance?: Tolerance }): Promise<void> => {
+    // Cocher la case est le seul moment où demander l'autorisation a du sens : iOS
+    // affiche alors sa demande sur un geste qu'on vient de faire, et non au milieu
+    // d'une réplique. Sans cet appel, `available()` — donc la demande système —
+    // n'arrive jamais, et le micro échoue à s'ouvrir sans que rien ne l'explique.
+    if (patch.enabled && recognizer) {
+      setVoiceDenied(false);
+      const granted = await recognizer.available().catch(() => false);
+      if (!granted) {
+        // On ne coche pas : un réglage actif qui n'écoute rien est pire que refusé.
+        setVoiceDenied(true);
+        return;
+      }
+    }
+    applyVoice(patch);
+    // Deux réglages deviennent contradictoires dès que l'écoute décide de la reprise :
+    // « Me faire répéter » rejouerait la tirade qu'on vient de dire, et l'avancement
+    // automatique couperait la parole au bout de son minuteur. On les éteint plutôt
+    // que de les laisser cochés sans effet.
+    if (patch.enabled) changeSettings({ playMine: false, autoAdvance: false });
+  };
+
   const cycleRate = (): void => {
     const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length] ?? 1;
     setRate(next);
@@ -324,11 +377,19 @@ export function Chrome({
   };
 
   const playing = Boolean(pstate?.playing && !pstate.waitingForUser);
+  /** Le mode vocal ne s'applique que dans la répétition, comme le moteur l'entend. */
+  const voiceOn = Boolean(recognizer) && voice.enabled && reading.rehearsal;
 
   return (
     <>
       <div className="reader-dock">
-        <ContextBanner scene={sceneLabel} waiting={Boolean(pstate?.waitingForUser)} />
+        <VoiceFeedback status={pstate?.voice ?? null} />
+        {/* Le « à toi » du bandeau s'efface quand la validation vocale est en place :
+            elle le dit mieux, et en disant aussi ce qui se passe ensuite. */}
+        <ContextBanner
+          scene={sceneLabel}
+          waiting={Boolean(pstate?.waitingForUser) && !pstate?.voice}
+        />
 
         <Toolbar className="reader-bar" aria-label="Commandes du lecteur">
           <ToolbarGroup className="reader-bar-side" label={hasClips ? 'Menu et boucle' : 'Menu'}>
@@ -552,20 +613,65 @@ export function Chrome({
         </div>
 
         {/* Options de répétition (indépendantes). */}
-        {REHEARSAL_OPTIONS.map((o) => (
-          <label className="row" key={o.key}>
-            <input
-              type="checkbox"
-              checked={reading[o.key]}
-              disabled={!reading.rehearsal}
-              onChange={(ev) =>
-                changeSettings({ [o.key]: ev.currentTarget.checked } as Partial<ReadingSettings>)
-              }
-            />
-            {o.label}
-            {o.hint && <span className="mode-hint">{o.hint}</span>}
-          </label>
-        ))}
+        {REHEARSAL_OPTIONS.map((o) => {
+          // Grisées, et pas seulement ignorées : cochées sans effet, elles feraient
+          // croire à un réglage qui ne s'applique pas (cf. `changeVoice`).
+          const mutedByVoice = voiceOn && (o.key === 'playMine' || o.key === 'autoAdvance');
+          return (
+            <label className="row" key={o.key}>
+              <input
+                type="checkbox"
+                checked={reading[o.key] && !mutedByVoice}
+                disabled={!reading.rehearsal || mutedByVoice}
+                onChange={(ev) =>
+                  changeSettings({ [o.key]: ev.currentTarget.checked } as Partial<ReadingSettings>)
+                }
+              />
+              {o.label}
+              <span className="mode-hint">
+                {mutedByVoice ? 'Remplacé par la validation vocale.' : o.hint}
+              </span>
+            </label>
+          );
+        })}
+
+        {/* Validation vocale — seulement là où il y a une reconnaissance à piloter. */}
+        {recognizer && (
+          <>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={voice.enabled}
+                disabled={!reading.rehearsal}
+                onChange={(ev) => void changeVoice({ enabled: ev.currentTarget.checked })}
+              />
+              Validation vocale
+              <span className="mode-hint">
+                {voiceDenied
+                  ? 'Micro refusé : autorise Theatre Reader dans Réglages, puis recoche.'
+                  : "Le micro s'ouvre sur mes répliques et attend que je les dise."}
+              </span>
+            </label>
+
+            {voiceOn && (
+              <div className="mode-seg mode-seg--sub" role="group" aria-label="Exigence de la validation">
+                {[
+                  { key: 'soft' as const, label: 'Souple' },
+                  { key: 'strict' as const, label: 'Strict' },
+                ].map((t) => (
+                  <Button
+                    key={t.key}
+                    size="touch"
+                    aria-pressed={voice.tolerance === t.key}
+                    onClick={() => void changeVoice({ tolerance: t.key })}
+                  >
+                    {t.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
         {/* N'afficher que mes scènes — indépendant du mode (toujours disponible),
             désactivé tant qu'aucun personnage n'est coché. La liste des personnages

@@ -5,7 +5,7 @@
  * le premier rendu, pour que le chrome monte déjà dans le bon état (pas de
  * clignotement « valeurs par défaut puis valeurs réelles »).
  */
-import type { ReadingSettings } from '@theatre/audio-player';
+import type { ReadingSettings, Tolerance } from '@theatre/audio-player';
 
 /**
  * Où la lecture en était, pour la reprendre depuis l'écran d'accueil de l'app.
@@ -65,6 +65,47 @@ export function loadRate(): number {
 export function saveRate(rate: number): void {
   try {
     localStorage.setItem(RATE_KEY, String(rate));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Répétition vocale : réglage GLOBAL, comme la vitesse et pour la même raison —
+ * c'est une façon de travailler, pas une propriété d'une pièce. L'issue le demande
+ * explicitement « global et persistant ».
+ */
+const VOICE_KEY = 'theatre-reader:voice';
+
+export interface VoicePrefs {
+  enabled: boolean;
+  tolerance: Tolerance;
+}
+
+/** Souple par défaut : c'est le comportement recommandé par l'issue. */
+export const DEFAULT_VOICE: VoicePrefs = { enabled: false, tolerance: 'soft' };
+
+export function loadVoice(): VoicePrefs {
+  try {
+    const raw = localStorage.getItem(VOICE_KEY);
+    if (raw) {
+      const v = JSON.parse(raw) as Partial<VoicePrefs>;
+      return {
+        enabled: boolOr(v.enabled, DEFAULT_VOICE.enabled),
+        // Une valeur inconnue retombe sur « souple » plutôt que d'imposer un mode
+        // sévère que personne n'a demandé.
+        tolerance: v.tolerance === 'strict' ? 'strict' : 'soft',
+      };
+    }
+  } catch {
+    /* localStorage indisponible ou JSON abîmé : on ignore */
+  }
+  return { ...DEFAULT_VOICE };
+}
+
+export function saveVoice(v: VoicePrefs): void {
+  try {
+    localStorage.setItem(VOICE_KEY, JSON.stringify(v));
   } catch {
     /* ignore */
   }

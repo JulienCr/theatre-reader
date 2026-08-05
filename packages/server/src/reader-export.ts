@@ -196,6 +196,11 @@ export async function exportReaderHtml(
 <style>
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Le double-tap ne zoome plus : un lecteur se tapote sans arrêt et deux appuis un
+   peu rapprochés partaient en zoom. La valeur 'manipulation' ne retire que ce
+   geste — le pinch reste. Même règle que la coquille de l'app
+   (mobile-app/index.html), dont ce bloc est le jumeau : même runtime au-dessus. */
+html, body { touch-action: manipulation; }
 body { -webkit-text-size-adjust: 100%; padding: 0 16px; }
 .play { max-width: none; }
 ${css}

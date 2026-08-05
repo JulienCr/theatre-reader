@@ -14,6 +14,7 @@
  */
 
 import { annotationCss } from '@theatre/annotations';
+import type { SpeechRecognizer } from '@theatre/audio-player';
 import { createRoot } from 'react-dom/client';
 import { createElement } from 'react';
 import { createSearch } from '@theatre/reader-ui';
@@ -35,6 +36,15 @@ export { loadResume, type ResumePoint } from './state';
  */
 export interface BootOptions {
   onExit?: () => void;
+  /**
+   * Reconnaissance vocale, pour la répétition qui valide les répliques (issue #40).
+   *
+   * Fournie par l'app seule, qui a le plugin natif. Le .html exporté tourne dans un
+   * navigateur sans micro autorisé ni moteur : son absence y est la bonne réponse,
+   * et le chrome n'affiche alors aucun réglage vocal — plutôt qu'une case cochable
+   * qui n'écouterait rien.
+   */
+  recognizer?: SpeechRecognizer;
 }
 
 function injectStyle(css: string): void {
@@ -76,7 +86,14 @@ function init(d: ReaderData, options: BootOptions): void {
   host.id = 'reader-chrome';
   document.body.appendChild(host);
   createRoot(host).render(
-    createElement(Chrome, { data: d, play, search, initial, onExit: options.onExit }),
+    createElement(Chrome, {
+      data: d,
+      play,
+      search,
+      initial,
+      onExit: options.onExit,
+      recognizer: options.recognizer,
+    }),
   );
 }
 

@@ -1,5 +1,5 @@
 {
-  "name": "@theatre/audio-player",
+  "name": "@theatre/voice-match",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,8 +8,5 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@theatre/voice-match": "workspace:*"
   }
 }

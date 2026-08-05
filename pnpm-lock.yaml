@@ -30,7 +30,11 @@ importers:
         specifier: workspace:*
         version: link:../core
 
-  packages/audio-player: {}
+  packages/audio-player:
+    dependencies:
+      '@theatre/voice-match':
+        specifier: workspace:*
+        version: link:../voice-match
 
   packages/core: {}
 
@@ -58,6 +62,9 @@ importers:
       '@capacitor/filesystem':
         specifier: ^8.1.2
         version: 8.1.2(@capacitor/core@8.4.2)
+      '@theatre/audio-player':
+        specifier: workspace:*
+        version: link:../audio-player
       '@theatre/core':
         specifier: workspace:*
         version: link:../core
@@ -203,6 +210,8 @@ importers:
       react:
         specifier: ^19.0.0
         version: 19.2.7
+
+  packages/voice-match: {}
 
   packages/web:
     dependencies:
