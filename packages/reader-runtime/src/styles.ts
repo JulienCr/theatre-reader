@@ -19,7 +19,7 @@ export const STYLE =
 .reader-dock {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
   background: var(--paper); border-top: 1px solid var(--rule);
-  box-shadow: 0 -2px 12px rgba(0,0,0,.06);
+  box-shadow: var(--sh-up);
   padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom));
 }
 /* Padding horizontal à --sp-2 et non --sp-3 : à sept contrôles, les 8 px gagnés sont

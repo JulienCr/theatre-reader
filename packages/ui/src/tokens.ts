@@ -82,10 +82,14 @@ export const tokensCss = `
   /* Focus — visible sur papier comme sur accent */
   --focus-ring: 0 0 0 2px var(--paper), 0 0 0 4px var(--accent);
 
-  /* Ombres — portées courtes, l'interface est posée à plat */
+  /* Ombres — portées courtes, l'interface est posée à plat.
+     \`--sh-up\` est la seule dont la lumière vient d'en bas : elle n'existe que
+     pour une barre ancrée au bas de l'écran, qui doit se détacher du texte
+     qui passe dessous. Ne pas l'employer ailleurs. */
   --sh-1: 0 1px 2px rgba(26, 22, 14, .07);
   --sh-2: 0 2px 8px rgba(26, 22, 14, .10);
   --sh-3: 0 12px 40px rgba(26, 22, 14, .22);
+  --sh-up: 0 -2px 12px rgba(26, 22, 14, .06);
 
   /* Espacement */
   --sp-1: 4px;
@@ -150,6 +154,7 @@ export const tokensCss = `
     --sh-1: 0 1px 2px rgba(0, 0, 0, .5);
     --sh-2: 0 2px 8px rgba(0, 0, 0, .55);
     --sh-3: 0 12px 40px rgba(0, 0, 0, .7);
+    --sh-up: 0 -2px 12px rgba(0, 0, 0, .5);
   }
 }
 
@@ -184,6 +189,7 @@ export const tokensCss = `
   --sh-1: 0 1px 2px rgba(26, 22, 14, .07);
   --sh-2: 0 2px 8px rgba(26, 22, 14, .10);
   --sh-3: 0 12px 40px rgba(26, 22, 14, .22);
+  --sh-up: 0 -2px 12px rgba(26, 22, 14, .06);
 }
 
 :root[data-theme='dark'] {
@@ -212,6 +218,7 @@ export const tokensCss = `
   --sh-1: 0 1px 2px rgba(0, 0, 0, .5);
   --sh-2: 0 2px 8px rgba(0, 0, 0, .55);
   --sh-3: 0 12px 40px rgba(0, 0, 0, .7);
+  --sh-up: 0 -2px 12px rgba(0, 0, 0, .5);
 }
 
 @media (prefers-reduced-motion: reduce) {
