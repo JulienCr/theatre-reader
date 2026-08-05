@@ -457,6 +457,15 @@ export function createPlayer(opts: PlayerOptions): Player {
    */
   const HINT_MS = 2000;
 
+  /**
+   * Délai laissé au clip de l'indice pour DÉMARRER avant qu'on renonce.
+   *
+   * Passé ce temps sans un seul son, mieux vaut rendre le micro que laisser la
+   * pause suspendue à un clip qui ne viendra pas. Large pour ne jamais couper un
+   * chargement réseau lent, court au regard des 15 s du filet de la référence.
+   */
+  const HINT_LOAD_GRACE_MS = 3000;
+
   // --- Pause automatique (avancement auto) : durée = celle du mp3, sans le jouer. ---
   const FALLBACK_MIN_MS = 1500;
   const FALLBACK_MAX_MS = 20000;
@@ -696,14 +705,31 @@ export function createPlayer(opts: PlayerOptions): Player {
             resolve();
           });
         }
-        setTimeout(
+        const cut = (): void => {
+          if (referenceDone !== resolve) return;
+          referenceDone = null;
+          stopAudio();
+          resolve();
+        };
+        if (limitMs == null) {
+          setTimeout(cut, Math.max(15000, estimateMs(t.text) * 2));
+          return;
+        }
+        // Indice : le compte à rebours part du SON, pas de l'appel. Entre les deux
+        // il y a la résolution du `play()`, le chargement du clip et l'installation
+        // du décodeur — sur deux secondes, ce délai se prend entièrement sur
+        // l'indice, et un clip lent n'en laisserait entendre que l'attaque. Le
+        // filet, lui, reste armé depuis l'appel : sans lui, un clip qui ne démarre
+        // jamais laisserait le coach suspendu et le micro fermé.
+        const net = setTimeout(cut, limitMs + HINT_LOAD_GRACE_MS);
+        audio.addEventListener(
+          'playing',
           () => {
             if (referenceDone !== resolve) return;
-            referenceDone = null;
-            stopAudio();
-            resolve();
+            clearTimeout(net);
+            setTimeout(cut, limitMs);
           },
-          limitMs ?? Math.max(15000, estimateMs(t.text) * 2),
+          { once: true },
         );
       });
     })();

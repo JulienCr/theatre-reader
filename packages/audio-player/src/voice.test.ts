@@ -589,13 +589,35 @@ describe('@theatre/audio-player — répétition vocale', () => {
       expect(rec.live).toBe(false);
       expect(audios[0]!.src).toContain('m#0');
 
+      // Le compte à rebours part du SON, pas de l'appel : ici le clip met 800 ms à
+      // démarrer, et l'indice doit quand même durer ses deux secondes pleines.
+      await tick(800);
+      audios[0]!.dispatchEvent(new Event('playing'));
+      await tick(1900);
+      expect(rec.live).toBe(false); // pas encore : la troncature court depuis 1,9 s
+
       // Le clip n'a NI `ended` ni erreur : c'est la troncature qui rend la main.
-      await tick(2000);
+      await tick(200);
       await tick(TO_MIC);
       expect(rec.live).toBe(true);
       expect(rec.starts).toBe(startsBefore + 1);
       expect(last?.voice?.phase).toBe('listening');
       expect(last?.currentNodeId).toBe('m#0'); // l'indice n'a pas fait avancer la lecture
+      p.destroy();
+    });
+
+    /* Le revers du départ au son : un clip qui ne démarre jamais laisserait la pause
+       suspendue et le micro fermé — l'état qu'on ne voit pas. */
+    it('rend le micro même si le clip de l’indice ne démarre jamais', async () => {
+      const p = build();
+      await upToMic(p);
+      rec.finalize('indice');
+      await flush();
+      expect(rec.live).toBe(false);
+      await tick(2000 + 3000);
+      await tick(TO_MIC);
+      expect(rec.live).toBe(true);
+      expect(last?.voice?.phase).toBe('listening');
       p.destroy();
     });
 
@@ -704,6 +726,14 @@ describe('@theatre/audio-player — répétition vocale', () => {
         await tick(900 + TO_MIC);
         expect(rec.live).toBe(true);
         expect(last?.voice?.message).toContain('Rien à cet endroit');
+
+        // Et cette phrase ne survit pas au verdict suivant : elle expliquait la
+        // réouverture du micro, elle n'explique rien de la tirade qu'on vient de
+        // dire. La validation anticipée ne repasse pas par `listen` — c'est le
+        // chemin par lequel elle restait affichée sous « validé ».
+        rec.say(TEXT.toLowerCase());
+        await flush();
+        expect(last?.voice?.message).toBeNull();
         p.destroy();
       });
 

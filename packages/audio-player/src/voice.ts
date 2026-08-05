@@ -455,6 +455,11 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   function conclude(r: Evaluation): void {
     stopListening(false);
     command = null;
+    // Un verdict périme la phrase qui expliquait la réouverture du micro (« Rien à
+    // cet endroit. »). Sans ça elle reste affichée SOUS le verdict suivant, où elle
+    // ne veut plus rien dire — et la validation anticipée d'`onPartial` arrive ici
+    // sans jamais repasser par `listen`, donc sans rien pour l'effacer.
+    message = null;
     if (r.verdict === 'no-speech') {
       noSpeech();
       return;
