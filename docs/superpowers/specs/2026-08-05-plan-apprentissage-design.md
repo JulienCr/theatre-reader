@@ -270,6 +270,37 @@ L'écran, servi par un nouveau `components/StudyMode.tsx` :
 Pas de test web (le projet n'en a pas ; vérification par script Playwright jetable,
 non commité).
 
+## Ajouts après le premier essai à l'usage
+
+Quatre manques signalés en manipulant l'écran, et un défaut qu'ils ont révélé.
+
+- **Annulation.** Une note passée par erreur envoyait la portion à +3 jours sans
+  recours. Un cran d'annulation (`undo`), plus les trois notes accessibles depuis la
+  liste d'avancement — ce qui couvre aussi le « je croyais la savoir » découvert
+  trois jours plus tard.
+- **Calendrier prévisionnel** (`projectSchedule`) : le moteur est rejoué jour par
+  jour sur un état simulé, en supposant qu'un passage sur trois demandera une reprise
+  (`PROJECTION_HARD_EVERY = 3`). Déterministe, rien n'est stocké. Les jours travaillés
+  suivent une convention explicite : les `daysPerWeek` premiers de chaque période de
+  sept.
+- **Export `.ics`** (`core/src/ics.ts`, pur) : un fichier plutôt que l'API Google —
+  ni OAuth, ni secret, ni serveur de callback. Heures « flottantes » pour que 19 h 30
+  reste 19 h 30 dans l'agenda qui importe, UID par jour pour qu'un ré-export remplace.
+  `startTime` entre dans `StudyConfig`, optionnel et rétro-compatible.
+- **Réinitialisation** : effacer la progression en gardant les réglages, ou supprimer
+  le plan (`DELETE /api/plays/:slug/study`). Confirmation en deux temps, en texte sur
+  `--danger` comme l'exigent les jetons.
+
+**Le défaut mis au jour** : les révisions affamaient le texte neuf. `planSession`
+plafonnait le neuf par la charge de la séance *en plus* de `maxFresh`, si bien qu'une
+fois les révisions à 25 min, plus aucune portion neuve n'était programmée — le plan de
+BENJI s'arrêtait à la tirade 117 sur 157 en annonçant pourtant « tendu ». Le neuf ne
+suit plus que `maxFresh`. Seule la projection pouvait le montrer : la séance du jour,
+prise isolément, paraissait normale.
+
+**Vocabulaire** : « portion » est un mot du moteur et n'atteint plus l'écran. Tout se
+compte en tirades, et chaque borne porte son numéro **et** son texte.
+
 ## Hors périmètre
 
 Écran mobile, notifications, statistiques historiques, synchronisation multi-appareils
