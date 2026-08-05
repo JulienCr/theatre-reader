@@ -141,6 +141,30 @@ function collectTirades(container: HTMLElement): AudioTirade[] {
   return out;
 }
 
+/**
+ * Où se replacer après un `refresh()` qui a reconstruit la liste des tirades.
+ *
+ * La tirade courante si elle a survécu — cas nominal (re-pagination Paged.js), la
+ * position ne bouge pas d'un pouce. Sinon la première encore présente qui la SUIT
+ * dans l'ordre du document : quand une plage vient d'être masquée, « la suite » est
+ * ce que l'utilisateur attend, alors qu'un clamp numérique sur la liste rétrécie
+ * atterrit à une position sans aucun rapport — typiquement au milieu d'un autre
+ * acte. Rien devant (fin de pièce masquée) → la dernière qui la précède.
+ */
+function relocate(prev: AudioTirade[], prevIndex: number, next: AudioTirade[]): number {
+  const at = new Map<string, number>();
+  next.forEach((t, i) => at.set(t.nodeId, i));
+  for (let k = prevIndex; k < prev.length; k++) {
+    const i = at.get(prev[k]!.nodeId);
+    if (i !== undefined) return i;
+  }
+  for (let k = Math.min(prevIndex, prev.length) - 1; k >= 0; k--) {
+    const i = at.get(prev[k]!.nodeId);
+    if (i !== undefined) return i;
+  }
+  return 0; // liste vide, ou plus rien de commun
+}
+
 export function createPlayer(opts: PlayerOptions): Player {
   const speakingClass = opts.speakingClass ?? 'line--speaking';
   const maskedClass = opts.maskedClass ?? 'line--masked';
@@ -150,6 +174,11 @@ export function createPlayer(opts: PlayerOptions): Player {
 
   let tirades = collectTirades(opts.container);
   let index = 0;
+  // Faux tant qu'aucune tirade n'a été atteinte DEPUIS la position courante. Sert
+  // au premier ⏭/⏮ : à l'ouverture, ou après un `refresh()` qui a déplacé la
+  // position, « suivant » doit JOUER là où on est plutôt que sauter la réplique —
+  // sinon le premier appui manque la première réplique de la scène.
+  let started = false;
   let playing = false;
   let waitingForUser = false;
   let settings: ReadingSettings = { ...DEFAULT_SETTINGS, ...opts.settings };
@@ -392,6 +421,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       return;
     }
     index = i;
+    started = true;
     const t = tirades[i]!;
     highlight(t.element);
 
@@ -505,12 +535,14 @@ export function createPlayer(opts: PlayerOptions): Player {
     next: () => {
       playing = true;
       cancelTimer();
-      void playIndex(index + 1);
+      void playIndex(started ? index + 1 : index);
     },
     prev: () => {
       playing = true;
       cancelTimer();
-      void playIndex(index - 1);
+      // Symétrique de `next` : sans ça, un premier ⏮ à l'index 0 sortirait des
+      // bornes et s'arrêterait en silence.
+      void playIndex(started ? index - 1 : index);
     },
     playFrom: (nodeId: string) => {
       const i = tirades.findIndex((t) => t.nodeId === nodeId);
@@ -534,16 +566,29 @@ export function createPlayer(opts: PlayerOptions): Player {
     },
     reveal: toggleReveal,
     refresh: () => {
-      const currentId = tirades[index]?.nodeId ?? null;
+      const prev = tirades;
+      const prevId = prev[index]?.nodeId ?? null;
       tirades = collectTirades(opts.container);
-      if (currentId) {
-        const i = tirades.findIndex((t) => t.nodeId === currentId);
-        index = i >= 0 ? i : Math.min(index, Math.max(0, tirades.length - 1));
-      } else {
-        index = 0;
-      }
-      // Ré-accroche la surbrillance à l'élément (re-paginé) courant.
-      if (playing || waitingForUser) {
+      index = relocate(prev, index, tirades);
+      const nextId = tirades[index]?.nodeId ?? null;
+
+      // Comparaison SANS garde sur `prevId` : le passage d'une liste vide à une
+      // liste peuplée est un déplacement, au même titre que l'inverse. Exiger
+      // `prevId !== null` laissait `started` à vrai quand le filtre avait tout
+      // masqué puis qu'on le relâchait — le ⏭ suivant sautait de nouveau la
+      // première réplique redevenue visible.
+      if (prevId !== nextId) {
+        // La tirade courante vient d'être masquée. On coupe NET : laisser le clip
+        // finir ferait entendre précisément ce qu'on vient de masquer. `token++`
+        // invalide aussi les résolutions audio et sondes de durée encore en vol.
+        token++;
+        stopAudio();
+        cancelTimer();
+        if (playing || waitingForUser) void playIndex(index);
+        // À l'arrêt : le prochain ⏭ doit démarrer ICI, pas un cran plus loin.
+        else started = false;
+      } else if (playing || waitingForUser) {
+        // Ré-accroche la surbrillance à l'élément (re-paginé) courant.
         const t = tirades[index];
         if (t) highlight(t.element);
       }

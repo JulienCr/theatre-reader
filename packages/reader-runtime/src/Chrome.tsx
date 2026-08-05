@@ -30,14 +30,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { decorate } from '@theatre/annotations';
 import {
   createPlayer,
-  HIDDEN_SCENE_CLASS,
   type Player,
   type PlayerState,
   type ReadingSettings,
 } from '@theatre/audio-player';
+import { sceneVisibility } from '@theatre/core';
 import { ContextBanner, TransportDock, type SearchController } from '@theatre/reader-ui';
 import { Button, Icon, IconButton, Sheet, Toolbar, ToolbarGroup } from '@theatre/ui';
 import { colorFor, FONT_MAX, FONT_MIN, saveState, type PersistedState } from './state';
+import { applySceneVisibility } from './visibility';
 import type { ReaderData } from './types';
 
 type SheetName = 'options' | 'chars' | 'scenes' | 'search' | 'mode' | 'note' | null;
@@ -216,45 +217,23 @@ export function Chrome({
     });
   }, [play, selected]);
 
-  // Option « n'afficher que mes scènes » : ids d'en-têtes à masquer — les scènes
-  // où aucun de mes rôles ne joue, plus les actes dont TOUTES les scènes tombent.
-  // Calculé depuis la présence embarquée à l'export (le runtime n'a pas l'AST).
-  const hiddenIds = useMemo(() => {
-    const hidden = new Set<string>();
-    if (!reading.onlyMyScenes || !myRoles.length) return hidden;
-    const roles = new Set(myRoles);
-    for (const s of data.sceneMembers) {
-      if (!s.characterIds.some((c) => roles.has(c))) hidden.add(s.id);
-    }
-    // Acte vidé : dans le sommaire (ordonné), aucune de ses scènes n'a survécu.
-    const toc = data.toc;
-    for (let i = 0; i < toc.length; i++) {
-      if (toc[i]!.scene) continue;
-      let j = i + 1;
-      let anyKept = false;
-      for (; j < toc.length && toc[j]!.scene; j++) if (!hidden.has(toc[j]!.id)) anyKept = true;
-      if (j > i + 1 && !anyKept) hidden.add(toc[i]!.id);
-    }
-    return hidden;
-  }, [reading.onlyMyScenes, myRoles, data.sceneMembers, data.toc]);
+  // Option « n'afficher que mes scènes ». La RÈGLE est dans @theatre/core, partagée
+  // avec le lecteur web : lui filtre l'AST, nous masquons le DOM, mais à partir du
+  // même verdict — une règle réécrite ici est ce qui avait laissé le contenu
+  // hors-scène (prologue d'acte, tête de pièce) échapper au filtre.
+  const visibility = useMemo(
+    () => sceneVisibility(data.sceneMembers, reading.onlyMyScenes ? myRoles : []),
+    [reading.onlyMyScenes, myRoles, data.sceneMembers],
+  );
 
-  // Masque les plages DOM des en-têtes exclus (l'en-tête + ses frères jusqu'au
-  // prochain en-tête), puis réindexe le player pour qu'il saute ces répliques.
-  // useLayoutEffect : pas de flash des scènes exclues au montage (état persisté).
+  // Applique le masquage, puis réindexe le player pour qu'il saute ces répliques.
+  // useLayoutEffect : pas de flash des scènes exclues au montage (état persisté),
+  // et il passe AVANT le useEffect qui crée le player — lequel indexe donc un DOM
+  // déjà masqué (`refresh()` est alors un no-op, `playerRef` étant encore nul).
   useLayoutEffect(() => {
-    const HEAD = 'h2.act, h3.scene';
-    play.querySelectorAll<HTMLElement>(HEAD).forEach((h) => {
-      const hide = hiddenIds.has(h.id);
-      let el: Element | null = h;
-      while (el) {
-        el.classList.toggle(HIDDEN_SCENE_CLASS, hide);
-        const next: Element | null = el.nextElementSibling;
-        if (!next || next.matches(HEAD)) break;
-        el = next;
-      }
-    });
+    applySceneVisibility(play, visibility);
     playerRef.current?.refresh();
-  }, [play, hiddenIds]);
+  }, [play, visibility]);
 
   // Après un changement de visibilité, re-marque la recherche : sinon des
   // occurrences dans des scènes désormais masquées resteraient comptées et
@@ -262,7 +241,7 @@ export function Chrome({
   useEffect(() => {
     if (query) search.run(query);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- déclenché par le filtre, pas la frappe (gérée par onInput)
-  }, [hiddenIds]);
+  }, [visibility]);
 
   // Persistance : un seul point d'écriture, sauté au montage pour ne pas
   // réécrire l'état qu'on vient tout juste de lire.
@@ -446,7 +425,9 @@ export function Chrome({
       </Sheet>
 
       <Sheet title="Aller à une scène" open={sheet === 'scenes'} onClose={closeSheet} onBack={backToParent}>
-        {data.toc.filter((e) => !hiddenIds.has(e.id)).map((e) => (
+        {/* `headings` et non `ranges` : un acte dont seul le prologue tombe garde
+            son en-tête dans le document, donc reste une destination valide. */}
+        {data.toc.filter((e) => !visibility.headings.has(e.id)).map((e) => (
           <div className="row" key={e.id}>
             <a
               className={`scene-link${e.scene ? ' is-scene' : ''}`}
