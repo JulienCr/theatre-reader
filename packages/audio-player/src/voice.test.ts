@@ -227,6 +227,28 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
+  // Quitter la répétition éteint le mode vocal tout autant que décocher sa case :
+  // garder la route laisserait la lecture continue en qualité d'enregistrement.
+  it('rend la route audio en repassant en lecture continue', async () => {
+    const calls: string[] = [];
+    const traced = {
+      ...rec.api,
+      prepare: () => (calls.push('prepare'), Promise.resolve()),
+      release: () => (calls.push('release'), Promise.resolve()),
+    };
+    const p = build({ voice: { recognizer: traced, enabled: true } });
+    p.play();
+    await flush();
+    expect(calls).toEqual(['prepare']);
+
+    p.setSettings({ rehearsal: false });
+    expect(calls).toEqual(['prepare', 'release']);
+
+    p.setSettings({ rehearsal: true }); // et la reprend en y revenant
+    expect(calls).toEqual(['prepare', 'release', 'prepare']);
+    p.destroy();
+  });
+
   it("retire de la transcription ce qui a été capté de l'autre réplique", async () => {
     const p = build();
     p.play();

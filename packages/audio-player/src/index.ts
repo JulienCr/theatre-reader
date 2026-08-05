@@ -960,7 +960,15 @@ export function createPlayer(opts: PlayerOptions): Player {
     },
     resume: resolveCue,
     setSettings: (patch: Partial<ReadingSettings>) => {
+      // La route audio suit l'activité du mode vocal, pas seulement sa case à
+      // cocher : quitter la répétition l'éteint tout autant. La garder prise
+      // laisserait la lecture continue en qualité d'enregistrement — Bluetooth
+      // mono — jusqu'à ce qu'on pense à décocher un réglage devenu sans effet.
+      const wasActive = voiceActive();
       settings = { ...settings, ...patch };
+      const nowActive = voiceActive();
+      if (wasActive && !nowActive) coach?.releaseRoute();
+      else if (!wasActive && nowActive) coach?.prepare();
       reevaluate();
     },
     setRoles: (cids: string[]) => {
