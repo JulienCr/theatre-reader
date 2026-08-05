@@ -309,9 +309,12 @@ export function Chrome({
   };
 
   const toggleLoop = (): void => {
-    const next = !loop;
-    setLoop(next);
-    playerRef.current?.setLoop(next);
+    const p = playerRef.current;
+    p?.setLoop(!loop);
+    // Relu du moteur plutôt que posé à l'aveugle : lui seul sait s'il a de quoi
+    // découper les plages, et un bouton allumé qui ne boucle pas serait pire que
+    // pas de bouton du tout.
+    setLoop(p?.getState().loop ?? false);
   };
 
   const goToEntry = (id: string): void => {

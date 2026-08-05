@@ -62,9 +62,15 @@ describe('@theatre/audio-player', () => {
       if (tag === 'audio') made.push(el as HTMLAudioElement);
       return el;
     }) as typeof document.createElement;
-    const p = buildPlayer(cont, extra);
-    document.createElement = real;
-    return { p, audio: made[0]! };
+    // `finally` : si `buildPlayer` lève, la restauration doit quand même avoir lieu.
+    // Sans ça, `document.createElement` reste détourné pour TOUT le reste du fichier
+    // et les échecs suivants ne ressemblent plus du tout à leur cause.
+    try {
+      const p = buildPlayer(cont, extra);
+      return { p, audio: made[0]! };
+    } finally {
+      document.createElement = real;
+    }
   };
 
   const buildPlayer = (cont: HTMLElement, extra: Partial<PlayerOptions> = {}) =>
@@ -621,6 +627,15 @@ describe('@theatre/audio-player', () => {
       endClip();
       await flush();
       expect(last?.currentNodeId).toBe('c#0'); // c'est la seconde scène qui boucle
+      p.destroy();
+    });
+
+    /* Sans `rangeOf`, le moteur n'a pas de quoi découper les plages : accepter l'état
+       donnerait un `getState().loop` à `true` sur un moteur qui n'a jamais bouclé. */
+    it('refuse de s\'activer quand l\'hôte n\'a pas fourni de plages', () => {
+      const p = buildPlayer(twoScenes()); // pas de rangeOf
+      p.setLoop(true);
+      expect(p.getState().loop).toBe(false);
       p.destroy();
     });
 

@@ -647,7 +647,10 @@ export function createPlayer(opts: PlayerOptions): Player {
       audio.playbackRate = t ? rateFor(t) : r;
     },
     setLoop: (on: boolean) => {
-      loop = on;
+      // Sans `rangeOf`, le moteur ne sait pas où finit une plage : accepter l'état
+      // allumerait un bouton qui ne boucle rien, et `getState().loop` mentirait à
+      // l'hôte. Refuser laisse au moins le désaccord visible du bon côté.
+      loop = on && Boolean(opts.rangeOf);
       emit();
     },
     reveal: toggleReveal,
