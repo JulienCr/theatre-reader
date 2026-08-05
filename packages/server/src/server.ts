@@ -14,6 +14,7 @@ import fastifyStatic from '@fastify/static';
 import {
   actorReadingTemplate,
   cloneTemplate,
+  isValidSlug,
   parseStudyState,
   type AudioConfig,
   type Note,
@@ -122,6 +123,26 @@ export async function buildServer(): Promise<FastifyInstance> {
   // le rétablit ici pour garder la pile d'exception des routes qui échouent.
   app.addHook('onError', async (req, _reply, err) => {
     app.log.error({ err }, `${req.method} ${req.url}`);
+  });
+
+  /**
+   * Garde unique du paramètre `:slug`, pour TOUTES les routes `/api/plays/:slug…`.
+   *
+   * Fastify décode les paramètres d'URL avant le handler : un slug tel que
+   * `..%2F..%2Fetc` sortirait du dossier `data/` au premier `join` de storage.ts,
+   * en écriture comprise (pièce, notes, plan, cache audio). Un hook plutôt qu'une
+   * validation par route : c'est la seule forme qui couvre aussi les routes qui
+   * n'existent pas encore. `req.params` est déjà résolu ici — `onRequest` s'exécute
+   * après le routage (seul `req.body` y manque).
+   *
+   * storage.ts refuse les mêmes slugs de son côté : cette garde-ci n'existe que
+   * pour rendre un 400 explicite au lieu d'une erreur serveur.
+   */
+  app.addHook('onRequest', async (req, reply) => {
+    const slug = (req.params as { slug?: string } | undefined)?.slug;
+    if (slug !== undefined && !isValidSlug(slug)) {
+      return reply.code(400).send({ error: 'slug invalide' });
+    }
   });
 
   await app.register(cors, {

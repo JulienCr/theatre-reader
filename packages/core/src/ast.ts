@@ -80,6 +80,17 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, '') || 'perso';
 }
 
+/**
+ * Réciproque de `slugify` : vrai pour ce que celui-ci produit.
+ *
+ * Sert de garde aux chemins de fichiers, un slug de pièce nommant son dossier
+ * (`data/<slug>/`). D'où la sévérité : ni séparateur de chemin, ni point, ni
+ * caractère encodé — un `..%2F..%2F…` décodé par Fastify sortirait de `data/`.
+ */
+export function isValidSlug(s: string): boolean {
+  return /^[a-z0-9-]+$/.test(s);
+}
+
 /** Texte parlé concaténé d'une réplique (sans les didascalies). */
 export function speechText(line: LineNode): string {
   return line.segments
