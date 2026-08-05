@@ -5,7 +5,15 @@
  * incohérente rendue au chrome.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_READING, loadResume, loadState, saveState, type PersistedState } from './state';
+import {
+  DEFAULT_READING,
+  loadRate,
+  loadResume,
+  loadState,
+  saveRate,
+  saveState,
+  type PersistedState,
+} from './state';
 
 const KEY = 'theatre-reader:une-piece';
 
@@ -13,7 +21,6 @@ const FALLBACK: PersistedState = {
   selected: [],
   fontPct: 100,
   reading: { ...DEFAULT_READING },
-  myRoles: [],
 };
 
 /** localStorage minimal : `state.ts` n'en utilise que get et set. */
@@ -66,6 +73,67 @@ describe('loadState', () => {
   it('ne jette pas sur un JSON illisible', () => {
     store.set(KEY, '{ ceci n’est pas du JSON');
     expect(loadState(KEY, FALLBACK)).toEqual(FALLBACK);
+  });
+
+  /**
+   * `selected` (surlignage) et `myRoles` (rôles joués) étaient deux listes distinctes.
+   * Fusionnées, elles doivent l'être par l'union : perdre un rôle casserait la
+   * répétition sans un mot, alors qu'un surlignage en trop se décoche.
+   */
+  describe('fusion des anciennes listes', () => {
+    it('unit les rôles aux surlignés, sans doublon et en gardant l’ordre des couleurs', () => {
+      store.set(KEY, JSON.stringify({ selected: ['benji', 'michel'], myRoles: ['michel', 'anna'] }));
+      expect(loadState(KEY, FALLBACK).selected).toEqual(['benji', 'michel', 'anna']);
+    });
+
+    it('rend les rôles seuls quand rien n’était surligné', () => {
+      store.set(KEY, JSON.stringify({ selected: [], myRoles: ['michel'] }));
+      expect(loadState(KEY, FALLBACK).selected).toEqual(['michel']);
+    });
+
+    /* La migration ne doit jouer qu'UNE fois : sinon décocher un personnage le verrait
+       revenir au prochain démarrage, ressuscité par un `myRoles` resté en place. */
+    it('efface l’ancienne clé dès la première écriture', () => {
+      store.set(KEY, JSON.stringify({ selected: ['benji'], myRoles: ['michel'] }));
+      const migrated = loadState(KEY, FALLBACK);
+      saveState(KEY, { ...migrated, selected: ['benji'] });
+      expect(JSON.parse(store.get(KEY)!)).not.toHaveProperty('myRoles');
+      expect(loadState(KEY, FALLBACK).selected).toEqual(['benji']);
+    });
+
+    it('ignore un myRoles qui n’est pas une liste de textes', () => {
+      store.set(KEY, JSON.stringify({ selected: ['benji'], myRoles: 'michel' }));
+      expect(loadState(KEY, FALLBACK).selected).toEqual(['benji']);
+    });
+  });
+});
+
+/**
+ * La vitesse vit hors de `PersistedState` : elle est globale à toutes les pièces.
+ * Une valeur hors cycle rendrait le libellé du bouton incohérent avec ce qu'on entend.
+ */
+describe('loadRate', () => {
+  beforeEach(() => {
+    installStorage();
+  });
+
+  it('vaut 1 tant que rien n’a été choisi', () => {
+    expect(loadRate()).toBe(1);
+  });
+
+  it('relit la vitesse enregistrée', () => {
+    saveRate(1.5);
+    expect(loadRate()).toBe(1.5);
+  });
+
+  it('retombe sur 1 pour une valeur hors du cycle', () => {
+    saveRate(3);
+    expect(loadRate()).toBe(1);
+  });
+
+  it('ne jette pas sur une valeur illisible', () => {
+    saveRate(Number.NaN);
+    expect(loadRate()).toBe(1);
   });
 });
 

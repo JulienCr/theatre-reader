@@ -1,5 +1,5 @@
 /**
- * Dock de transport audio du lecteur : ⏮ ▶/⏸ ⏭ et la bascule « Répétition ».
+ * Dock de transport audio du lecteur : ⏮ ▶/⏸ ⏭, la vitesse et la bascule « Répétition ».
  *
  * Purement présentationnel — il ne connaît ni le `Player` ni son état interne,
  * tout passe par des props. C'est ce qui permet aux deux lecteurs de le composer
@@ -7,8 +7,8 @@
  * barre fixe, le lecteur web l'insère dans sa propre barre du bas.
  *
  * Il rend deux groupes de barre d'outils frères plutôt qu'un seul bloc : la
- * grappe de transport doit pouvoir être centrée dans la barre pendant que la
- * bascule est poussée au bord. Un conteneur unique interdirait ce placement.
+ * grappe de transport doit pouvoir être centrée dans la barre pendant que les
+ * modificateurs sont poussés au bord. Un conteneur unique interdirait ce placement.
  */
 import { Button, IconButton, ToolbarGroup } from '@theatre/ui';
 
@@ -23,7 +23,18 @@ export interface TransportDockProps {
   /** État de la bascule Répétition. La bascule n'est rendue qu'avec `onRehearsalChange`. */
   rehearsal?: boolean;
   onRehearsalChange?: (on: boolean) => void;
+  /** Vitesse courante. Le bouton n'est rendu qu'avec `onRateCycle`. */
+  rate?: number;
+  /** Passe à la vitesse suivante du cycle — l'hôte possède la liste et l'ordre. */
+  onRateCycle?: () => void;
 }
+
+/**
+ * `1,5×` et non `1.5x` : virgule décimale française, et le vrai signe multiplié.
+ * Formaté à la main plutôt que par `toLocaleString` — trois valeurs connues ne
+ * justifient pas de dépendre de l'ICU de la WebView.
+ */
+const rateLabel = (rate: number): string => `${String(rate).replace('.', ',')}×`;
 
 export function TransportDock({
   playing,
@@ -33,6 +44,8 @@ export function TransportDock({
   onNext,
   rehearsal = false,
   onRehearsalChange,
+  rate = 1,
+  onRateCycle,
 }: TransportDockProps) {
   return (
     <>
@@ -50,17 +63,31 @@ export function TransportDock({
         <IconButton icon="skip-forward" label="Réplique suivante" size="touch" onClick={onNext} />
       </ToolbarGroup>
 
-      {onRehearsalChange && (
+      {(onRateCycle || onRehearsalChange) && (
         <ToolbarGroup className="transport-mode" label="Mode de lecture">
-          <Button
-            size="touch"
-            aria-pressed={rehearsal}
-            aria-label="Mode répétition"
-            title="Mode répétition"
-            onClick={() => onRehearsalChange(!rehearsal)}
-          >
-            Répét.
-          </Button>
+          {onRateCycle && (
+            <Button
+              size="touch"
+              className="btn--rate"
+              aria-label={`Vitesse de lecture : ${rateLabel(rate)}`}
+              title="Vitesse de lecture"
+              onClick={onRateCycle}
+            >
+              {rateLabel(rate)}
+            </Button>
+          )}
+          {/* Un micro plutôt que « Répét. » : le libellé coûtait 24 px de plus que la
+              cible carrée, et à sept contrôles la barre déborde sur un écran de 375 px.
+              L'aplat d'accent (aria-pressed) porte l'état, comme partout ailleurs. */}
+          {onRehearsalChange && (
+            <IconButton
+              icon="mic"
+              label="Mode répétition"
+              size="touch"
+              pressed={rehearsal}
+              onClick={() => onRehearsalChange(!rehearsal)}
+            />
+          )}
         </ToolbarGroup>
       )}
     </>

@@ -37,8 +37,17 @@ import {
 import { sceneVisibility } from '@theatre/core';
 import { ContextBanner, TransportDock, type SearchController } from '@theatre/reader-ui';
 import { Button, Icon, IconButton, Sheet, Toolbar, ToolbarGroup } from '@theatre/ui';
-import { colorFor, FONT_MAX, FONT_MIN, saveState, type PersistedState } from './state';
-import { applySceneVisibility } from './visibility';
+import {
+  colorFor,
+  FONT_MAX,
+  FONT_MIN,
+  loadRate,
+  RATES,
+  saveRate,
+  saveState,
+  type PersistedState,
+} from './state';
+import { applySceneVisibility, rangeIndex } from './visibility';
 import type { ReaderData } from './types';
 
 type SheetName = 'options' | 'chars' | 'scenes' | 'search' | 'mode' | 'note' | null;
@@ -91,7 +100,11 @@ export function Chrome({
   // Borné dès la lecture : un localStorage abîmé ne doit pas rendre la pièce illisible.
   const [fontPct, setFontPct] = useState(clampFont(initial.fontPct));
   const [reading, setReading] = useState<ReadingSettings>(initial.reading);
-  const [myRoles, setMyRoles] = useState<string[]>(initial.myRoles);
+  // Vitesse : globale à toutes les pièces, d'où sa propre clé (cf. state.ts).
+  const [rate, setRate] = useState(loadRate);
+  // Boucle : volontairement NON persistée. Rouvrir l'app enfermé dans une scène
+  // sans se rappeler l'avoir demandé est pire que de ré-appuyer sur le bouton.
+  const [loop, setLoop] = useState(false);
   const [sheet, setSheet] = useState<SheetName>(null);
   // Sheet d'où vient la sheet courante, pour offrir le retour. Volontairement
   // NON remise à zéro à la fermeture : sinon le bouton « Retour » disparaîtrait
@@ -113,14 +126,19 @@ export function Chrome({
   // Créé une seule fois : `.play` ne change jamais d'identité dans le lecteur mobile
   // (pas de re-pagination, contrairement au lecteur web).
   useEffect(() => {
+    // Plage de chaque tirade, pour la boucle. Calculée sur le DOM complet, masquage
+    // compris : une scène remise en visibilité doit retrouver la sienne.
+    const ranges = rangeIndex(play);
     const player = createPlayer({
       container: play,
       resolveAudio: (t) => Promise.resolve(data.audio?.clips[t.nodeId] ?? null),
-      roles: initial.myRoles,
+      roles: initial.selected,
       settings: initial.reading,
       onState: setPstate,
       speakingClass: 'line--speaking',
+      rangeOf: (t) => ranges.get(t.nodeId) ?? null,
     });
+    player.setRate(rate);
     playerRef.current = player;
 
     const onClick = (e: MouseEvent) => {
@@ -222,8 +240,8 @@ export function Chrome({
   // même verdict — une règle réécrite ici est ce qui avait laissé le contenu
   // hors-scène (prologue d'acte, tête de pièce) échapper au filtre.
   const visibility = useMemo(
-    () => sceneVisibility(data.sceneMembers, reading.onlyMyScenes ? myRoles : []),
-    [reading.onlyMyScenes, myRoles, data.sceneMembers],
+    () => sceneVisibility(data.sceneMembers, reading.onlyMyScenes ? selected : []),
+    [reading.onlyMyScenes, selected, data.sceneMembers],
   );
 
   // Applique le masquage, puis réindexe le player pour qu'il saute ces répliques.
@@ -251,8 +269,8 @@ export function Chrome({
       mounted.current = true;
       return;
     }
-    saveState(data.storageKey, { selected, fontPct, reading, myRoles, resume });
-  }, [data.storageKey, selected, fontPct, reading, myRoles, resume]);
+    saveState(data.storageKey, { selected, fontPct, reading, resume });
+  }, [data.storageKey, selected, fontPct, reading, resume]);
 
   // Le champ de recherche n'est focalisé qu'à l'ouverture de sa sheet.
   useEffect(() => {
@@ -270,17 +288,33 @@ export function Chrome({
   // « Options » (avec retour) : c'est `parent` qui tranche, pas la sheet.
   const backToParent = parent ? () => setSheet(parent) : undefined;
 
-  const toggleCharacter = (cid: string): void =>
-    setSelected((prev) => (prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]));
+  // Une seule liste : cocher un personnage le surligne ET en fait un de mes rôles,
+  // d'où la propagation au moteur — c'est elle qui pilote masquage et pauses.
+  const toggleCharacter = (cid: string): void => {
+    const next = selected.includes(cid) ? selected.filter((x) => x !== cid) : [...selected, cid];
+    setSelected(next);
+    playerRef.current?.setRoles(next);
+  };
 
   const changeSettings = (patch: Partial<ReadingSettings>): void => {
     setReading((prev) => ({ ...prev, ...patch }));
     playerRef.current?.setSettings(patch);
   };
 
-  const changeRoles = (cids: string[]): void => {
-    setMyRoles(cids);
-    playerRef.current?.setRoles(cids);
+  const cycleRate = (): void => {
+    const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length] ?? 1;
+    setRate(next);
+    saveRate(next);
+    playerRef.current?.setRate(next);
+  };
+
+  const toggleLoop = (): void => {
+    const p = playerRef.current;
+    p?.setLoop(!loop);
+    // Relu du moteur plutôt que posé à l'aveugle : lui seul sait s'il a de quoi
+    // découper les plages, et un bouton allumé qui ne boucle pas serait pire que
+    // pas de bouton du tout.
+    setLoop(p?.getState().loop ?? false);
   };
 
   const goToEntry = (id: string): void => {
@@ -296,7 +330,7 @@ export function Chrome({
         <ContextBanner scene={sceneLabel} waiting={Boolean(pstate?.waitingForUser)} />
 
         <Toolbar className="reader-bar" aria-label="Commandes du lecteur">
-          <ToolbarGroup className="reader-bar-side" label="Menu">
+          <ToolbarGroup className="reader-bar-side" label={hasClips ? 'Menu et boucle' : 'Menu'}>
             <IconButton
               icon="menu"
               label="Options"
@@ -304,6 +338,18 @@ export function Chrome({
               aria-haspopup="dialog"
               onClick={() => openSheet('options')}
             />
+            {/* Contrepoids exact de la vitesse + Répétition à droite : les deux zones
+                latérales font alors la même largeur, et le transport est réellement
+                centré et non simplement flexé. */}
+            {hasClips && (
+              <IconButton
+                icon="repeat"
+                label="Boucler la scène"
+                size="touch"
+                pressed={loop}
+                onClick={toggleLoop}
+              />
+            )}
           </ToolbarGroup>
 
           {hasClips ? (
@@ -320,13 +366,15 @@ export function Chrome({
               onNext={() => playerRef.current?.next()}
               rehearsal={reading.rehearsal}
               onRehearsalChange={(on) => changeSettings({ rehearsal: on })}
+              rate={rate}
+              onRateCycle={cycleRate}
             />
           ) : (
             <>
               <ToolbarGroup label="Navigation">
                 <IconButton
                   icon="users"
-                  label="Personnages"
+                  label="Mes personnages"
                   size="touch"
                   aria-haspopup="dialog"
                   onClick={() => openSheet('chars')}
@@ -370,7 +418,11 @@ export function Chrome({
         )}
 
         <div className="sheet-nav">
-          <NavItem icon="users" label="Personnages" onClick={() => openSheet('chars', 'options')} />
+          <NavItem
+            icon="users"
+            label="Mes personnages"
+            onClick={() => openSheet('chars', 'options')}
+          />
           <NavItem icon="list" label="Scènes" onClick={() => openSheet('scenes', 'options')} />
           <NavItem icon="search" label="Recherche" onClick={() => openSheet('search', 'options')} />
           <NavItem
@@ -403,7 +455,11 @@ export function Chrome({
         </div>
       </Sheet>
 
-      <Sheet title="Personnages à surligner" open={sheet === 'chars'} onClose={closeSheet} onBack={backToParent}>
+      <Sheet title="Mes personnages" open={sheet === 'chars'} onClose={closeSheet} onBack={backToParent}>
+        <p className="sheet-intro">
+          Leurs répliques sont surlignées, et ce sont elles que la répétition masque et
+          attend de vous.
+        </p>
         {data.characters.map((c) => {
           const idx = selected.indexOf(c.id);
           return (
@@ -511,39 +567,31 @@ export function Chrome({
         ))}
 
         {/* N'afficher que mes scènes — indépendant du mode (toujours disponible),
-            désactivé tant qu'aucun rôle n'est choisi. */}
+            désactivé tant qu'aucun personnage n'est coché. La liste des personnages
+            vit dans sa propre sheet : la dupliquer ici était le doublon qu'on a retiré. */}
         <label className="row">
           <input
             type="checkbox"
             checked={reading.onlyMyScenes}
-            disabled={myRoles.length === 0}
+            disabled={selected.length === 0}
             onChange={(ev) => changeSettings({ onlyMyScenes: ev.currentTarget.checked })}
           />
           N'afficher que mes scènes
           <span className="mode-hint">
-            {myRoles.length === 0 ? 'Choisir un rôle ci-dessous.' : 'Masque les scènes où je ne joue pas.'}
+            {selected.length === 0
+              ? 'Cocher un personnage dans Options › Mes personnages.'
+              : 'Masque les scènes où je ne joue pas.'}
           </span>
         </label>
 
-        {/* Mes rôles (multi-sélection). */}
-        <div className="mode-subhead">Mes rôles</div>
-        {data.characters.map((ch) => (
-          <label className="row" key={ch.id}>
-            <input
-              type="checkbox"
-              value={ch.id}
-              checked={myRoles.includes(ch.id)}
-              onChange={(ev) =>
-                changeRoles(
-                  ev.currentTarget.checked
-                    ? [...myRoles, ch.id]
-                    : myRoles.filter((r) => r !== ch.id),
-                )
-              }
-            />
-            {ch.name}
-          </label>
-        ))}
+        <div className="sheet-nav">
+          <NavItem
+            icon="users"
+            label="Mes personnages"
+            hint={selected.length ? String(selected.length) : 'aucun'}
+            onClick={() => openSheet('chars', 'mode')}
+          />
+        </div>
       </Sheet>
 
       {noteBody !== null && (

@@ -55,18 +55,22 @@ function init(d: ReaderData, options: BootOptions): void {
   // DOM de la pièce, et seulement pilotée depuis le chrome.
   const search = createSearch(play);
 
+  // Les surlignages du template et le rôle de l'export alimentent la MÊME liste
+  // depuis leur fusion : ce sont deux façons de désigner « les personnages de la
+  // personne qui lit ».
+  const mine = d.highlightsDefault.map((h) => h.characterId);
+  const role = d.audio?.myCharacterId;
   const defaults: PersistedState = {
-    selected: d.highlightsDefault.map((h) => h.characterId),
+    selected: role && !mine.includes(role) ? [...mine, role] : mine,
     fontPct: 100,
     reading: { ...DEFAULT_READING },
-    myRoles: d.audio?.myCharacterId ? [d.audio.myCharacterId] : [],
   };
   const initial = loadState(d.storageKey, defaults);
-  // Un rôle persisté qui n'existe plus dans la pièce (personnage renommé, autre
-  // pièce sous la même clé) n'appartiendrait à aucune plage : « mes scènes » les
-  // masquerait TOUTES et la pièce s'ouvrirait vide, sans rien pour l'expliquer.
+  // Un personnage persisté qui n'existe plus dans la pièce (renommé, ou autre pièce
+  // sous la même clé) n'appartient à aucune plage : « mes scènes » les masquerait
+  // TOUTES et la pièce s'ouvrirait vide, sans rien pour l'expliquer.
   const known = new Set(d.characters.map((c) => c.id));
-  initial.myRoles = initial.myRoles.filter((id) => known.has(id));
+  initial.selected = initial.selected.filter((id) => known.has(id));
 
   const host = document.createElement('div');
   host.id = 'reader-chrome';

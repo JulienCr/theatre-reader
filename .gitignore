@@ -4,6 +4,10 @@ dist/
 .env
 .env.local
 data/
+# Le lien que l'outillage de worktree pose vers le data/ du dépôt principal.
+# « data/ » ne couvre QUE les répertoires : sans cette ligne, un `git add -A`
+# depuis un worktree versionne un symlink qui pend dans tout autre clone.
+/data
 .DS_Store
 packages/web/dist/
 # Textes sources (œuvres tierces sous droits) — non publiés

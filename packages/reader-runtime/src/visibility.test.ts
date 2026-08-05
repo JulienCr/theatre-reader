@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
-import { applySceneVisibility } from './visibility';
+import { applySceneVisibility, rangeIndex } from './visibility';
 
 /**
  * Imite la sortie de `renderBody` : préambule sans `data-nid`, puis les nœuds de
@@ -81,5 +81,38 @@ describe('applySceneVisibility', () => {
   it('ignore un id absent du DOM (en-tête d\'acte supprimé en mode showAct)', () => {
     applySceneVisibility(play, visibility(['h-99'], ['h-99']));
     expect(play.querySelectorAll('.scene--hidden')).toHaveLength(0);
+  });
+});
+
+/**
+ * Même parcours que le masquage, exposé au moteur audio pour la boucle : lui ne voit
+ * qu'une liste plate de tirades et n'a aucun autre moyen de savoir où finit une scène.
+ * Le vérifier séparément est ce qui empêche les deux usages de diverger.
+ */
+describe('rangeIndex', () => {
+  it('rattache chaque nœud à sa plage, l\'en-tête compris', () => {
+    expect(Object.fromEntries(rangeIndex(play))).toEqual({
+      'lead#0': LEAD_RANGE_ID, // avant tout en-tête
+      'a1#0': 'h-1', // l'en-tête d'acte ouvre sa propre plage
+      'p1#0': 'h-1', // prologue de l'acte : il en hérite
+      'p2#0': 'h-1',
+      's1#0': 'h-4',
+      'b1#0': 'h-4',
+      's2#0': 'h-6',
+      'm1#0': 'h-6',
+    });
+  });
+
+  it('n\'indexe pas le préambule (il n\'appartient à aucune plage)', () => {
+    const nids = [...rangeIndex(play).keys()];
+    expect(nids).toHaveLength(play.querySelectorAll('[data-nid]').length);
+    expect(nids.some((n) => n.includes('header'))).toBe(false);
+  });
+
+  /* Une scène masquée reste dans l'index : la remettre en visibilité ne doit pas lui
+     faire perdre sa plage, sinon la boucle cesserait de la reconnaître. */
+  it('garde les plages masquées', () => {
+    applySceneVisibility(play, visibility(['h-6'], ['h-6']));
+    expect(rangeIndex(play).get('m1#0')).toBe('h-6');
   });
 });

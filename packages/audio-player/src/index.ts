@@ -69,6 +69,8 @@ export interface PlayerState {
   /** Durée totale de la pause automatique en ms (pour un compte à rebours UI), sinon null. */
   timedMs: number | null;
   settings: ReadingSettings;
+  /** Boucle sur la plage courante (cf. `setLoop`). */
+  loop: boolean;
 }
 
 export interface PlayerOptions {
@@ -93,6 +95,14 @@ export interface PlayerOptions {
   maskedClass?: string;
   /** Classe ajoutée quand une réplique masquée est révélée. Défaut 'line--revealed'. */
   revealedClass?: string;
+  /**
+   * Plage (scène, acte, tête de pièce) d'une tirade — ce que `setLoop` rejoue.
+   *
+   * Le moteur ne voit qu'une liste plate : sans cette fonction il n'a aucun moyen
+   * de savoir où une scène finit, et la boucle reste sans effet. L'hôte la dérive
+   * du découpage de @theatre/core, qui reste seul propriétaire de la règle.
+   */
+  rangeOf?: (t: AudioTirade) => string | null;
 }
 
 export interface Player {
@@ -110,6 +120,8 @@ export interface Player {
   /** Change mes rôles à la lecture ; re-masque et ré-évalue la position. */
   setRoles(characterIds: string[]): void;
   setRate(rate: number): void;
+  /** Rejoue la plage courante au lieu d'enchaîner sur la suivante. Exige `rangeOf`. */
+  setLoop(on: boolean): void;
   /** Bascule l'état révélé (peek) d'une réplique masquée — pour le tap-to-peek. */
   reveal(nodeId: string): void;
   /** Reconstruit la liste des tirades (après re-pagination), en gardant la position. */
@@ -185,6 +197,12 @@ export function createPlayer(opts: PlayerOptions): Player {
   let mineFn: (cid: string) => boolean =
     opts.isMine ?? (opts.roles ? rolesPredicate(opts.roles) : () => false);
   let rate = 1;
+  let loop = false;
+  // Enchaînements consécutifs sans qu'aucun clip n'ait démarré. Hors boucle, la fin
+  // de liste borne la chaîne ; avec la boucle, une plage entièrement dépourvue d'audio
+  // (export partiel, personnages sans voix) tournerait sans fin — et sans rien à
+  // entendre pour s'en apercevoir. Voir le `!url` de `playIndex`.
+  let silentSkips = 0;
   let destroyed = false;
   let token = 0; // invalide les résolutions asynchrones dépassées
   let highlighted: HTMLElement | null = null;
@@ -201,6 +219,19 @@ export function createPlayer(opts: PlayerOptions): Player {
   const isMine = (cid: string): boolean => mineFn(cid);
   const shouldMask = (): boolean => settings.rehearsal && settings.mask;
 
+  /**
+   * Vitesse à appliquer à une tirade — `rate`, sauf sur MES répliques en répétition.
+   *
+   * L'accélération sert à traverser plus vite le texte des autres ; mes répliques,
+   * elles, sont l'objet même de la répétition : c'est mon débit à moi qu'il s'agit de
+   * caler, et l'accélérer me ferait travailler sur un rythme que je ne tiendrai pas
+   * en scène. Vrai que la réplique soit muette (sautée, je la dis) ou jouée par le TTS
+   * (`playMine`) : dans les deux cas la référence est le débit humain. Même raison
+   * pour laquelle la pause de l'avancement automatique n'est pas raccourcie non plus.
+   */
+  const rateFor = (t: AudioTirade): number =>
+    settings.rehearsal && isMine(t.characterId) ? 1 : rate;
+
   function snapshot(): PlayerState {
     const t = tirades[index];
     return {
@@ -213,6 +244,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       timed,
       timedMs,
       settings: { ...settings }, // copie : l'état émis ne doit pas être mutable de l'extérieur
+      loop,
     };
   }
   function emit(): void {
@@ -366,6 +398,9 @@ export function createPlayer(opts: PlayerOptions): Player {
       }
     }
     if (secs != null && Number.isFinite(secs) && secs > 0) ms = secs * 1000;
+    // Volontairement PAS divisé par `rate` : cette pause vaut le temps qu'il faut à
+    // un humain pour dire la réplique, et personne ne parle 1,5× plus vite parce que
+    // les autres voix ont été accélérées. Cf. `rateFor`.
     timed = true;
     timedMs = ms;
     emit();
@@ -389,6 +424,29 @@ export function createPlayer(opts: PlayerOptions): Player {
     }
   }
 
+  /**
+   * Index de la tirade qui suit `from` dans un enchaînement automatique.
+   *
+   * Hors boucle, `from + 1`. Avec la boucle, atteindre le bout de la plage renvoie à
+   * sa PREMIÈRE tirade. La plage est celle de la tirade qu'on vient de jouer, jamais
+   * une plage figée à l'activation : après un ⏭ manuel qui change de scène, c'est la
+   * nouvelle qui boucle — sinon le bouton mentirait sur « la scène en cours ».
+   */
+  function nextIndex(from: number): number {
+    const rangeOf = opts.rangeOf;
+    if (!loop || !rangeOf) return from + 1;
+    const cur = tirades[from];
+    if (!cur) return from + 1;
+    const range = rangeOf(cur);
+    if (range == null) return from + 1; // tirade hors découpage : on enchaîne
+    const next = tirades[from + 1];
+    if (next && rangeOf(next) === range) return from + 1;
+    // Bout de la plage (ou de la pièce) : retour à sa première tirade.
+    let start = from;
+    while (start > 0 && rangeOf(tirades[start - 1]!) === range) start--;
+    return start;
+  }
+
   /** Termine la pause courante : révèle ma réplique puis la joue (playMine) ou la saute. */
   function resolveCue(): void {
     const t = tirades[index];
@@ -397,7 +455,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     saidReveal(t.nodeId);
     playing = true;
     if (settings.playMine) void playIndex(index, true); // lit ma réplique, puis enchaîne
-    else void playIndex(index + 1); // saute ma réplique
+    else void playIndex(nextIndex(index)); // saute ma réplique
   }
 
   function stopAudio(): void {
@@ -450,13 +508,22 @@ export function createPlayer(opts: PlayerOptions): Player {
       return;
     }
     if (!url) {
-      // Pas d'audio (perso sans voix) : on enchaîne.
-      if (playing) void playIndex(i + 1);
+      // Pas d'audio (perso sans voix) : on enchaîne. Le compteur est le seul garde-fou
+      // de la boucle — voir sa déclaration.
+      if (!playing) return;
+      if (++silentSkips > tirades.length) {
+        silentSkips = 0;
+        playing = false;
+        emit();
+        return;
+      }
+      void playIndex(nextIndex(i));
       return;
     }
 
+    silentSkips = 0;
     audio.src = url;
-    audio.playbackRate = rate;
+    audio.playbackRate = rateFor(t);
     const p = audio.play();
     if (p && typeof p.catch === 'function') {
       p.catch((e: unknown) => {
@@ -464,7 +531,7 @@ export function createPlayer(opts: PlayerOptions): Player {
         opts.onError?.(e instanceof Error ? e.message : String(e));
       });
     }
-    prefetch(i + 1);
+    prefetch(nextIndex(i));
   }
 
   function prefetch(i: number): void {
@@ -480,13 +547,14 @@ export function createPlayer(opts: PlayerOptions): Player {
 
   function onEnded(): void {
     if (destroyed || !playing) return;
-    void playIndex(index + 1);
+    void playIndex(nextIndex(index));
   }
   audio.addEventListener('ended', onEnded);
 
   function play(): void {
     if (playing) return;
     playing = true;
+    silentSkips = 0; // geste de l'utilisateur : la chaîne de sauts repart de zéro
     // Reprise en cours de réplique si l'audio est en pause au milieu.
     if (audio.src && !audio.ended && audio.currentTime > 0 && !waitingForUser) {
       const p = audio.play();
@@ -510,6 +578,9 @@ export function createPlayer(opts: PlayerOptions): Player {
   function reevaluate(): void {
     applyMask();
     const t = tirades[index];
+    // Basculer en répétition (ou s'attribuer un rôle) pendant une réplique qui joue
+    // change sa vitesse de référence : sans ça, elle finirait accélérée.
+    if (t) audio.playbackRate = rateFor(t);
     const stillMine = Boolean(t && settings.rehearsal && isMine(t.characterId));
     if (waitingForUser && !stillMine) {
       // La pause n'a plus lieu d'être (continu, ou ce n'est plus mon rôle) → on reprend.
@@ -532,13 +603,17 @@ export function createPlayer(opts: PlayerOptions): Player {
     play,
     pause,
     toggle: () => (playing ? pause() : play()),
+    // ⏭/⏮ ne passent PAS par `nextIndex` : un saut explicite doit pouvoir quitter la
+    // plage, c'est le seul moyen d'aller répéter la scène d'à côté sans couper la boucle.
     next: () => {
       playing = true;
+      silentSkips = 0;
       cancelTimer();
       void playIndex(started ? index + 1 : index);
     },
     prev: () => {
       playing = true;
+      silentSkips = 0;
       cancelTimer();
       // Symétrique de `next` : sans ça, un premier ⏮ à l'index 0 sortirait des
       // bornes et s'arrêterait en silence.
@@ -548,6 +623,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       const i = tirades.findIndex((t) => t.nodeId === nodeId);
       if (i < 0) return;
       playing = true;
+      silentSkips = 0;
       void playIndex(i);
     },
     resume: resolveCue,
@@ -561,8 +637,21 @@ export function createPlayer(opts: PlayerOptions): Player {
       reevaluate();
     },
     setRate: (r: number) => {
+      // Zéro fige la lecture sans rien pour l'expliquer, et une valeur négative fait
+      // lever `playbackRate` : on refuse plutôt que d'entrer dans cet état.
+      if (!Number.isFinite(r) || r <= 0) return;
       rate = r;
-      audio.playbackRate = r;
+      // Par `rateFor` et non `r` : changer la vitesse pendant MA réplique ne doit pas
+      // l'accélérer d'un coup au milieu.
+      const t = tirades[index];
+      audio.playbackRate = t ? rateFor(t) : r;
+    },
+    setLoop: (on: boolean) => {
+      // Sans `rangeOf`, le moteur ne sait pas où finit une plage : accepter l'état
+      // allumerait un bouton qui ne boucle rien, et `getState().loop` mentirait à
+      // l'hôte. Refuser laisse au moins le désaccord visible du bon côté.
+      loop = on && Boolean(opts.rangeOf);
+      emit();
     },
     reveal: toggleReveal,
     refresh: () => {

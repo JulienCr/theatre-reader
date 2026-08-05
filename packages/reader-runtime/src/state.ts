@@ -22,17 +22,53 @@ export interface ResumePoint {
   at: number;
 }
 
+/**
+ * `selected` est la liste UNIQUE des personnages de l'utilisateur : elle surligne
+ * ses répliques *et* définit ses rôles (masquage, pause « c'est à toi », « mes
+ * scènes »). Elle a remplacé un couple `selected` / `myRoles` que rien ne reliait —
+ * deux listes des mêmes personnages, à cocher deux fois pour un seul propos.
+ */
 export interface PersistedState {
   selected: string[]; // characterId[], l'ordre fixe les couleurs
   fontPct: number; // 100 = base
   reading: ReadingSettings; // réglages de répétition
-  myRoles: string[]; // rôles joués (surcharge myCharacterId de l'export)
   resume?: ResumePoint; // absent tant qu'aucune scène n'a été franchie
 }
 
 const PALETTE = ['#ffe08a', '#a8e6cf', '#b5d8ff', '#ffc9de', '#d6c8ff', '#ffd6a5'];
 export const FONT_MIN = 70;
 export const FONT_MAX = 220;
+
+/** Vitesses de lecture, dans l'ordre du cycle du bouton. */
+export const RATES: readonly number[] = [1, 1.5, 2];
+
+/**
+ * La vitesse est le rythme de travail de la personne, pas une propriété de la pièce :
+ * elle vit donc sous sa propre clé, partagée par toutes les pièces — contrairement à
+ * `PersistedState`, indexé par `storageKey`. Cette clé fonctionne aussi dans le .html
+ * exporté, qui n'a aucun accès aux réglages de l'app.
+ */
+const RATE_KEY = 'theatre-reader:rate';
+
+export function loadRate(): number {
+  try {
+    const r = Number(localStorage.getItem(RATE_KEY));
+    // Une valeur hors cycle rendrait le libellé du bouton incohérent avec ce qu'on
+    // entend, et le premier appui la remplacerait sans qu'on sache par quoi.
+    if (RATES.some((x) => x === r)) return r;
+  } catch {
+    /* localStorage indisponible (mode privé, file://) : on ignore */
+  }
+  return 1;
+}
+
+export function saveRate(rate: number): void {
+  try {
+    localStorage.setItem(RATE_KEY, String(rate));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function colorFor(index: number): string {
   return PALETTE[index % PALETTE.length]!;
@@ -87,14 +123,31 @@ export function loadResume(key: string): ResumePoint | undefined {
   }
 }
 
+/**
+ * Reprise d'un état écrit avant la fusion des listes : `myRoles` y vivait à côté de
+ * `selected`. On prend l'union — perdre un rôle casserait silencieusement la
+ * répétition de quelqu'un, alors qu'un personnage surligné en trop se décoche.
+ *
+ * Migration à un seul coup : `saveState` sérialise l'objet entier, donc dès la
+ * première écriture `myRoles` disparaît du JSON et ne peut plus ressusciter un
+ * personnage décoché depuis.
+ */
+function mergeLegacyRoles(selected: string[], legacy: unknown): string[] {
+  const roles = stringsOr(legacy, []);
+  return roles.length ? [...selected, ...roles.filter((r) => !selected.includes(r))] : selected;
+}
+
 export function loadState(key: string, fallback: PersistedState): PersistedState {
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<PersistedState>;
+      const parsed = JSON.parse(raw) as Partial<PersistedState> & { myRoles?: unknown };
       const r = (parsed.reading ?? {}) as Partial<ReadingSettings>;
       return {
-        selected: stringsOr(parsed.selected, fallback.selected),
+        selected: mergeLegacyRoles(
+          stringsOr(parsed.selected, fallback.selected),
+          parsed.myRoles,
+        ),
         fontPct: numOr(parsed.fontPct, fallback.fontPct),
         reading: {
           rehearsal: boolOr(r.rehearsal, fallback.reading.rehearsal),
@@ -104,7 +157,6 @@ export function loadState(key: string, fallback: PersistedState): PersistedState
           tick: boolOr(r.tick, fallback.reading.tick),
           onlyMyScenes: boolOr(r.onlyMyScenes, fallback.reading.onlyMyScenes),
         },
-        myRoles: stringsOr(parsed.myRoles, fallback.myRoles),
         resume: resumeOr(parsed.resume, fallback.resume),
       };
     }
