@@ -1195,6 +1195,24 @@ kbd {
   border-left-color: var(--rule-strong);
   color: var(--ink-muted);
 }
+/* Une écriture perdue : le seul toast qui ne s'efface pas tout seul. */
+.toast--error {
+  border-left-color: var(--danger);
+}
+.toast-action {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.toast-action:hover {
+  background: var(--paper-sunken);
+}
 .toast-text {
   flex: 1;
   margin: 0;

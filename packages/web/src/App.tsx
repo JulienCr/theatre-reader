@@ -22,7 +22,7 @@ import { ShortcutList } from './components/ShortcutList';
 import { StudyMode } from './components/StudyMode';
 import { Workspace, type DockPanel } from './components/Workspace';
 import { Modal } from './components/ui/Modal';
-import { Toasts, type FlashMessage } from './components/ui/Toasts';
+import { Toasts, type FlashMessage, type SaveFailure } from './components/ui/Toasts';
 import { applyTheme, loadTheme, type ThemePref } from './theme';
 import { loadSessionPrefs, saveSessionPrefs, type AppMode } from './sessionPrefs';
 import type { NavTarget } from './components/Reader';
@@ -72,9 +72,18 @@ export function App() {
   const [popover, setPopover] = useState<{ target: PopoverTarget } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [playsLoaded, setPlaysLoaded] = useState(false);
+  // Écritures perdues, en attente de reprise (cf. `reportFailure`).
+  const [failures, setFailures] = useState<SaveFailure[]>([]);
+  // Écritures de notes en vol : elles n'ont pas de témoin dans la barre, mais il
+  // y a bien quelque chose à perdre tant qu'elles ne sont pas revenues.
+  const [notesInFlight, setNotesInFlight] = useState(0);
   const pendingDraft = useRef<Note | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const flashId = useRef(0);
+  const failureId = useRef(0);
+  // Miroir synchrone de `failures` : ce que lit une reprise déjà en file pour
+  // savoir si elle a encore lieu d'être (cf. `publishFailures`).
+  const failuresRef = useRef<SaveFailure[]>([]);
   // Empreinte du dernier état réellement écrit sur disque, avec sa pièce. C'est
   // LA garde contre l'autosauvegarde parasite : au premier rendu d'une pièce on
   // adopte son contenu fraîchement lu comme référence, si bien que le `setPlay`
@@ -127,6 +136,86 @@ export function App() {
   // Déclarée avant les gestionnaires qui remplacent `play` (import, sélection) :
   // ils doivent pouvoir vider le débounce en attente avant de changer de pièce.
 
+  /**
+   * Publie la file de reprises. `failuresRef` est la **source de vérité**, le
+   * state n'en est que le reflet à l'écran.
+   *
+   * Ce n'est pas une commodité : un `retry` en attente dans `saveChain` doit
+   * savoir, au moment où il s'exécute, si son entrée est encore d'actualité —
+   * et il ne peut pas le lire dans le state, dont sa fermeture porte une version
+   * figée au moment du clic. Même patron que `playRef`, à la différence près que
+   * la ref est écrite ici, sans passer par un effet : la décision se prend dans
+   * une microtâche, elle ne peut pas attendre le rendu suivant.
+   */
+  const publishFailures = useCallback((next: SaveFailure[]) => {
+    failuresRef.current = next;
+    setFailures(next);
+  }, []);
+
+  /**
+   * Périme la reprise en attente sur une cible (pièce + nature d'écriture).
+   *
+   * Appelée après CHAQUE écriture réussie, y compris nominale. Les écritures
+   * étant sérialisées par `saveChain`, une réussite postérieure à un échec porte
+   * forcément un contenu plus récent : la reprise qui restait n'a plus rien à
+   * sauver, et la proposer reviendrait à offrir d'écraser le travail qui a suivi.
+   */
+  const clearFailure = useCallback(
+    (slug: string, kind: SaveFailure['kind']) => {
+      publishFailures(
+        failuresRef.current.filter((f) => f.slug !== slug || f.kind !== kind),
+      );
+    },
+    [publishFailures],
+  );
+
+  /**
+   * Met une écriture perdue en attente de reprise, avec son contenu.
+   *
+   * Le témoin de la barre ne parle que de la pièce courante : une écriture qui
+   * échoue après un changement de pièce n'y laisserait aucune trace, et son
+   * contenu — absent de l'écran comme du disque — ne serait plus récupérable
+   * nulle part. `write` le retient dans sa fermeture, ce qui rend la reprise
+   * possible même une fois la pièce quittée.
+   *
+   * Une seule entrée par cible, la nouvelle chassant l'ancienne : deux échecs
+   * successifs sur les mêmes notes portent deux instantanés dont seul le dernier
+   * vaut quelque chose. Empiler les deux offrirait de rejouer le plus ancien.
+   */
+  const reportFailure = useCallback(
+    (target: { slug: string; name: string }, kind: SaveFailure['kind'], write: () => Promise<void>) => {
+      const id = (failureId.current += 1);
+      const retry = () => {
+        // Par la même chaîne que le reste : une reprise doit s'ordonner avec les
+        // écritures en cours, pas se glisser à côté.
+        const run = saveChain.current.then(async () => {
+          // Le clic met la reprise en FILE ; ce qui la précédait dans la chaîne
+          // s'exécute d'abord. Si l'une de ces écritures a réussi entre-temps,
+          // l'entrée a été périmée — et rejouer ici écrirait par-dessus, alors
+          // même que le toast a déjà disparu de l'écran. Le contrôle porte donc
+          // sur la ref, à l'instant de l'exécution, jamais sur le state capturé
+          // au clic.
+          if (!failuresRef.current.some((f) => f.id === id)) return;
+          try {
+            await write();
+            clearFailure(target.slug, kind);
+            flash(`« ${target.name} » : enregistré.`);
+          } catch (e) {
+            // L'entrée reste : tant que l'écriture ne passe pas, il y a
+            // quelque chose à perdre.
+            flash(String(e));
+          }
+        });
+        saveChain.current = run.catch(() => undefined);
+      };
+      publishFailures([
+        ...failuresRef.current.filter((f) => f.slug !== target.slug || f.kind !== kind),
+        { id, slug: target.slug, kind, playName: target.name, retry },
+      ]);
+    },
+    [flash, clearFailure, publishFailures],
+  );
+
   /** Écrit la pièce sur disque. Toujours passer par ici : c'est le point de sérialisation. */
   const persistPlay = useCallback(
     (p: PlayState, opts?: { manual?: boolean }) => {
@@ -137,15 +226,20 @@ export function App() {
       // quittée, et la première frappe sur la nouvelle serait adoptée comme
       // base de comparaison au lieu d'être écrite — donc perdue.
       const current = () => (playRef.current?.slug === p.slug ? playRef.current : null);
+      const write = () =>
+        api.savePlay(p.slug, p.fountain, {
+          name: p.name,
+          characters: p.characters,
+          template: p.template,
+          audio: p.audio,
+        });
       const run = saveChain.current.then(async () => {
         if (current()) setSaveState('saving');
         try {
-          await api.savePlay(p.slug, p.fountain, {
-            name: p.name,
-            characters: p.characters,
-            template: p.template,
-            audio: p.audio,
-          });
+          await write();
+          // Cette écriture-ci est plus récente que tout échec en attente sur la
+          // même pièce : celui-ci n'a donc plus rien à rejouer.
+          clearFailure(p.slug, 'play');
           // Pas de toast à chaque sauvegarde automatique : ce serait un clignotant
           // permanent. Le témoin suffit ; seule la sauvegarde manuelle est bavarde.
           if (opts?.manual) flash('Sauvegardé.');
@@ -156,8 +250,11 @@ export function App() {
           // rester « modifié » — la prochaine écriture est déjà armée par le débounce.
           setSaveState(playSignature(latest) !== sig ? 'dirty' : 'saved');
         } catch (e) {
-          if (current()) setSaveState('error');
           flash(String(e));
+          // Sur la pièce courante, le témoin `error` et ⌘S offrent déjà la reprise.
+          // Une fois la pièce quittée, il ne reste que cette file.
+          if (current()) setSaveState('error');
+          else reportFailure(p, 'play', write);
         }
       });
       // La chaîne ne doit jamais rester rejetée, sinon toute écriture ultérieure
@@ -165,7 +262,7 @@ export function App() {
       saveChain.current = run.catch(() => undefined);
       return run;
     },
-    [flash],
+    [flash, reportFailure, clearFailure],
   );
 
   /**
@@ -281,16 +378,19 @@ export function App() {
   // modifications ne sont pas encore parties. L'écouteur n'est posé que quand il
   // y a quelque chose à perdre — présent en permanence, il gênerait chaque
   // rechargement pour rien. `error` en fait partie : une écriture qui a échoué
-  // laisse justement des modifications sur le carreau.
+  // laisse justement des modifications sur le carreau. Les échecs en attente de
+  // reprise et les écritures de notes en vol aussi, et ceux-là ne se lisent pas
+  // dans `saveState`, qui ne parle que de la pièce courante.
   useEffect(() => {
-    if (saveState !== 'dirty' && saveState !== 'saving' && saveState !== 'error') return;
+    const pending = saveState === 'dirty' || saveState === 'saving' || saveState === 'error';
+    if (!pending && failures.length === 0 && notesInFlight === 0) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [saveState]);
+  }, [saveState, failures.length, notesInFlight]);
 
   // ---- Session : pièce ouverte + mode, restaurés au chargement ----
   useEffect(() => {
@@ -311,10 +411,40 @@ export function App() {
     saveSessionPrefs({ slug: play?.slug ?? null, mode });
   }, [play?.slug, mode]);
 
-  const persistNotes = async (next: Note[]) => {
-    setNotes(next);
-    if (play) await api.saveNotes(play.slug, next).catch((e) => flash(String(e)));
-  };
+  /**
+   * Écrit les notes sur disque, par la même chaîne que la pièce.
+   *
+   * Hors de `saveChain`, une écriture de notes et une écriture de pièce
+   * pouvaient être en vol simultanément, sans ordre garanti entre elles.
+   *
+   * Tout échec alimente la file de reprise, y compris sur la pièce courante :
+   * les notes n'ont ni témoin dans la barre, ni débounce, ni ⌘S — sans cette
+   * file, il n'existe aucun moyen de rejouer l'écriture.
+   */
+  const persistNotes = useCallback(
+    (next: Note[]) => {
+      setNotes(next);
+      const p = playRef.current;
+      if (!p) return;
+      setNotesInFlight((n) => n + 1);
+      const write = () => api.saveNotes(p.slug, next);
+      const run = saveChain.current.then(async () => {
+        try {
+          await write();
+          // Ces notes-ci sont plus récentes que tout échec en attente : rejouer
+          // l'instantané d'alors reviendrait à revenir en arrière.
+          clearFailure(p.slug, 'notes');
+        } catch (e) {
+          flash(String(e));
+          reportFailure(p, 'notes', write);
+        } finally {
+          setNotesInFlight((n) => n - 1);
+        }
+      });
+      saveChain.current = run.catch(() => undefined);
+    },
+    [flash, reportFailure, clearFailure],
+  );
 
   const onActivateNote = useCallback(
     (id: string, rect: DOMRect) => {
@@ -344,13 +474,13 @@ export function App() {
     if (!target) return;
     const existing = target.note && notes.some((n) => n.id === target.note!.id);
     if (existing) {
-      void persistNotes(
+      persistNotes(
         notes.map((n) =>
           n.id === target.note!.id ? { ...n, body, updatedAt: new Date().toISOString() } : n,
         ),
       );
     } else if (pendingDraft.current) {
-      void persistNotes([...notes, { ...pendingDraft.current, body }]);
+      persistNotes([...notes, { ...pendingDraft.current, body }]);
       pendingDraft.current = null;
     }
     setPopover(null);
@@ -358,18 +488,22 @@ export function App() {
 
   const onPopoverDelete = () => {
     const id = popover?.target.note?.id;
-    if (id) void persistNotes(notes.filter((n) => n.id !== id));
+    if (id) persistNotes(notes.filter((n) => n.id !== id));
     setPopover(null);
   };
 
-  const onJumpNote = (note: Note) => {
+  // Les rappels passés aux mémos (`commands`, `dockPanels`) sont tous stabilisés :
+  // sans ça, leur identité changerait à chaque rendu et le mémo se recalculerait
+  // à chaque frappe — les déclarer en dépendances n'aurait servi qu'à annuler la
+  // mémoïsation. C'est ce qui justifiait les `eslint-disable` d'origine.
+  const onJumpNote = useCallback((note: Note) => {
     const el =
       document.querySelector<HTMLElement>(`[data-note-id="${note.id}"]`) ??
       document.querySelector<HTMLElement>(`[data-nid="${note.nodeId}"]`);
     if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  };
+  }, []);
 
-  const onExport = async () => {
+  const onExport = useCallback(async () => {
     if (!play) return;
     setBusy('Export PDF…');
     try {
@@ -382,9 +516,9 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  };
+  }, [play, flash]);
 
-  const onExportReader = async () => {
+  const onExportReader = useCallback(async () => {
     if (!play) return;
     setBusy(exportWithAudio ? 'Export lecteur mobile (audio)…' : 'Export lecteur mobile…');
     try {
@@ -414,12 +548,19 @@ export function App() {
     } finally {
       setBusy(null);
     }
-  };
+  }, [play, notes, exportWithAudio, flash]);
 
-  const setTemplate = (template: Template) => setPlay((p) => (p ? { ...p, template } : p));
-  const setCharacters = (characters: Character[]) =>
-    setPlay((p) => (p ? { ...p, characters } : p));
-  const setAudio = (audio: AudioConfig) => setPlay((p) => (p ? { ...p, audio } : p));
+  // Forme fonctionnelle de `setPlay` : ces trois-là ne lisent jamais l'état, donc
+  // ils n'ont aucune dépendance et gardent la même identité toute la session.
+  const setTemplate = useCallback(
+    (template: Template) => setPlay((p) => (p ? { ...p, template } : p)),
+    [],
+  );
+  const setCharacters = useCallback(
+    (characters: Character[]) => setPlay((p) => (p ? { ...p, characters } : p)),
+    [],
+  );
+  const setAudio = useCallback((audio: AudioConfig) => setPlay((p) => (p ? { ...p, audio } : p)), []);
 
   // ---- Plein écran (toute l'app) ----
   useEffect(() => {
@@ -427,16 +568,16 @@ export function App() {
     document.addEventListener('fullscreenchange', sync);
     return () => document.removeEventListener('fullscreenchange', sync);
   }, []);
-  const toggleFullscreen = () => {
+  const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void document.documentElement.requestFullscreen?.();
-  };
+  }, []);
 
   // Navigation pilotée par la palette (ouvre le lecteur puis cible l'ancre/page).
-  const navTo = (kind: NavTarget['kind'], value: string | number) => {
+  const navTo = useCallback((kind: NavTarget['kind'], value: string | number) => {
     setMode('read');
     setNavTarget((p) => ({ kind, value, nonce: (p?.nonce ?? 0) + 1 }));
-  };
+  }, []);
 
   // ---- Registre de commandes (palette ⌘K / Ctrl+K) ----
   // AST partagé : parseFountain est coûteux (split + re-parse complet). On le mémoïse une seule
@@ -580,8 +721,18 @@ export function App() {
       }
     }
     return cmds;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [play, mode, showEditor, isFullscreen, toc, notes, exportWithAudio]);
+  }, [
+    play,
+    mode,
+    showEditor,
+    isFullscreen,
+    toc,
+    onSave,
+    onExport,
+    onExportReader,
+    toggleFullscreen,
+    navTo,
+  ]);
 
   // Raccourci global d'ouverture de la palette.
   useEffect(() => {
@@ -631,8 +782,7 @@ export function App() {
         content: <NotesPanel notes={notes} orphans={orphans} onJump={onJumpNote} />,
       },
     ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [play, voices, notes, orphans]);
+  }, [play, voices, notes, orphans, setTemplate, setCharacters, setAudio, onJumpNote]);
 
   return (
     <div className={`app${isFullscreen ? ' fullscreen' : ''}`}>
@@ -776,7 +926,17 @@ export function App() {
         <ShortcutList />
       </Modal>
 
-      <Toasts busy={busy} message={message} onDismissMessage={() => setMessage(null)} />
+      <Toasts
+        busy={busy}
+        message={message}
+        failures={failures}
+        onDismissMessage={() => setMessage(null)}
+        /* Par `publishFailures` comme le reste : ignorer un échec doit aussi
+           désamorcer la reprise qui serait déjà partie en file. */
+        onDismissFailure={(id) =>
+          publishFailures(failuresRef.current.filter((f) => f.id !== id))
+        }
+      />
     </div>
   );
 }

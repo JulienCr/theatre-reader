@@ -474,6 +474,12 @@ function merge(local: Row[], served: { slug: string; name: string }[]): Row[] {
  * n'ajoute ici que les encoches du mode paysage.
  */
 export const pickerCss = `
+/* Cette feuille n'est injectée que par \`mountPicker()\` : la règle de fond ne
+   touche donc jamais le lecteur, dont la page reste la feuille blanche de
+   @theatre/core. Sans elle, l'écran de choix en thème sombre laisserait
+   apparaître le canevas par défaut du navigateur au lieu de la teinte du chrome. */
+body { background: var(--paper); }
+
 .picker {
   max-width: 560px;
   margin: 0 auto;

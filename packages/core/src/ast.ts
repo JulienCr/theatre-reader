@@ -80,6 +80,25 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, '') || 'perso';
 }
 
+/**
+ * Réciproque de `slugify` : vrai pour ce que celui-ci produit.
+ *
+ * Sert de garde aux chemins de fichiers, un slug de pièce nommant son dossier
+ * (`data/<slug>/`). Le contrôle porte sur la valeur **déjà décodée** — c'est
+ * celle que Fastify remet au handler, et donc celle que `join` recevra : un
+ * `..%2F..%2F…` s'y présente comme `../../…` et tombe sur l'absence de `/` et
+ * de `.` dans l'alphabet autorisé. Un `%` survivant d'un double encodage est
+ * rejeté par le même alphabet.
+ */
+export function isValidSlug(s: unknown): s is string {
+  // Le `typeof` n'est pas décoratif : `RegExp.test` convertit son argument en
+  // chaîne, si bien que `test(null)` interroge `"null"` — qui appartient à
+  // l'alphabet et rendait donc **vrai**. Une garde de chemin qui valide `null`
+  // est pire que pas de garde du tout, et rien ne garantit le type quand la
+  // valeur vient d'un corps JSON (cf. le slug de `/api/export/reader`).
+  return typeof s === 'string' && /^[a-z0-9-]+$/.test(s);
+}
+
 /** Texte parlé concaténé d'une réplique (sans les didascalies). */
 export function speechText(line: LineNode): string {
   return line.segments
