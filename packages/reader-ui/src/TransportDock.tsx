@@ -33,8 +33,12 @@ export interface TransportDockProps {
  * `1,5×` et non `1.5x` : virgule décimale française, et le vrai signe multiplié.
  * Formaté à la main plutôt que par `toLocaleString` — trois valeurs connues ne
  * justifient pas de dépendre de l'ICU de la WebView.
+ *
+ * Exporté parce que la barre du lecteur web ne compose pas ce dock (son agencement
+ * n'a rien à voir) mais affiche le même bouton : deux formatages, c'est un jour un
+ * lecteur qui dit `1.5x` et l'autre `1,5×`.
  */
-const rateLabel = (rate: number): string => `${String(rate).replace('.', ',')}×`;
+export const rateLabel = (rate: number): string => `${String(rate).replace('.', ',')}×`;
 
 export function TransportDock({
   playing,
