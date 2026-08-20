@@ -20,7 +20,7 @@ export {
 } from './search';
 export { createPeek, PEEK_DELAY_MS, type PeekController, type PeekOptions } from './peek';
 export { ContextBanner, type ContextBannerProps } from './ContextBanner';
-export { TransportDock, type TransportDockProps } from './TransportDock';
+export { rateLabel, TransportDock, type TransportDockProps } from './TransportDock';
 export { readerChromeCss } from './chrome-css';
 export {
   buildReaderDocument,
