@@ -12,3 +12,5 @@ data/
 packages/web/dist/
 # Textes sources (œuvres tierces sous droits) — non publiés
 textes/
+# Exports générés (scripts/export-role, etc.) — non publiés
+output/
