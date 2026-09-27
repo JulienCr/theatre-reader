@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPlayer, type AudioTirade, type PlayerOptions, type PlayerState } from './index';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -349,6 +349,125 @@ describe('@theatre/audio-player', () => {
     await hint(350);
     p.destroy();
     vi.useRealTimers();
+  });
+
+  describe('⏭ hors de mes scènes (répétition)', () => {
+    // Scène 1 : cinq tirades des autres puis la mienne ; scène 2 : que des autres ;
+    // scène 3 : une des autres puis la mienne.
+    const scenes: Record<string, string> = {};
+    const build = (rehearsal = true) => {
+      const rows: [string, string, string][] = [
+        ['x', 'x0', 's1'], ['x', 'x1', 's1'], ['x', 'x2', 's1'], ['x', 'x3', 's1'], ['x', 'x4', 's1'],
+        ['me', 'm0', 's1'],
+        ['x', 'y0', 's2'], ['x', 'y1', 's2'],
+        ['x', 'z0', 's3'], ['me', 'm1', 's3'],
+      ];
+      rows.forEach(([, nid, sc]) => (scenes[nid] = sc));
+      const c = mount(rows.map(([cid, nid]) => line(cid, nid, nid)).join(''));
+      return buildPlayer(c, {
+        roles: ['me'],
+        settings: { rehearsal },
+        rangeOf: (t) => scenes[t.nodeId] ?? null,
+      });
+    };
+    const step = async (p: ReturnType<typeof buildPlayer>): Promise<string | null | undefined> => {
+      p.next();
+      await flush();
+      return last?.currentNodeId;
+    };
+
+    it('saute à deux tirades avant la mienne, puis avance pas à pas', async () => {
+      const p = build();
+      p.playFrom('x0');
+      await flush();
+      expect(await step(p)).toBe('x3'); // ma tirade est la 6e : deux avant, x3 et x4
+      expect(await step(p)).toBe('x4');
+      expect(await step(p)).toBe('m0');
+      p.destroy();
+    });
+
+    it("passé ma dernière tirade de la scène : début de la prochaine scène où je joue", async () => {
+      const p = build();
+      p.playFrom('y0'); // scène 2, où je n'ai rien
+      await flush();
+      expect(await step(p)).toBe('z0');
+      p.destroy();
+    });
+
+    describe('⏮', () => {
+      afterEach(() => vi.useRealTimers());
+      // Scène 1 : huit tirades des autres, la mienne (9e), une autre ; scène 2 : je parle 2e.
+      const rows: [string, string, string][] = [
+        ...[0, 1, 2, 3, 4, 5, 6, 7].map((i): [string, string, string] => ['x', `x${i}`, 's1']),
+        ['me', 'm0', 's1'], ['x', 'x8', 's1'],
+        ['x', 'y0', 's2'], ['me', 'm1', 's2'], ['x', 'y1', 's2'],
+      ];
+      const buildBack = (rehearsal = true) => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        rows.forEach(([, nid, sc]) => (scenes[nid] = sc));
+        const c = mount(rows.map(([cid, nid]) => line(cid, nid, nid)).join(''));
+        return buildPlayer(c, { roles: ['me'], settings: { rehearsal }, rangeOf: (t) => scenes[t.nodeId] ?? null });
+      };
+      // `gap` : le temps écoulé depuis l'appui précédent (au-delà de 400 ms, ce n'est plus un double).
+      const back = async (p: ReturnType<typeof buildPlayer>, gap = 1000): Promise<string | null | undefined> => {
+        vi.setSystemTime(Date.now() + gap);
+        p.prev();
+        await flush();
+        return last?.currentNodeId;
+      };
+
+      it("je n'interviens qu'après la 5e tirade : deux avant la mienne, puis début, puis scène précédente", async () => {
+        const p = buildBack();
+        p.playFrom('x8');
+        await flush();
+        expect(await back(p)).toBe('x6'); // ma tirade est la 9e : deux avant
+        expect(await back(p)).toBe('x0'); // le vrai début de la scène
+        p.destroy();
+      });
+
+      it("j'interviens dans les 5 premières : retour au début de la scène", async () => {
+        const p = buildBack();
+        p.playFrom('y1');
+        await flush();
+        expect(await back(p)).toBe('y0');
+        expect(await back(p)).toBe('x6'); // déjà au début : point d'entrée de la scène d'avant
+        p.destroy();
+      });
+
+      it('un double appui force le vrai début de la scène', async () => {
+        const p = buildBack();
+        p.playFrom('x8');
+        await flush();
+        expect(await back(p)).toBe('x6');
+        expect(await back(p, 200)).toBe('x0'); // rapide : début, pas d'escalade lente
+        p.destroy();
+      });
+
+      it("un double appui depuis le début d'une scène va au début de la précédente", async () => {
+        const p = buildBack();
+        p.playFrom('y0');
+        await flush();
+        expect(await back(p)).toBe('x6'); // entrée de la scène d'avant
+        expect(await back(p, 200)).toBe('x0');
+        p.destroy();
+      });
+
+      it('sans répétition, le pas reste ordinaire', async () => {
+        const p = buildBack(false);
+        p.playFrom('y1');
+        await flush();
+        expect(await back(p)).toBe('m1');
+        p.destroy();
+      });
+    });
+
+    it('sans répétition, le pas reste ordinaire', async () => {
+      const p = build(false);
+      p.playFrom('x0');
+      await flush();
+      expect(await step(p)).toBe('x1');
+      p.destroy();
+    });
   });
 
   it('avancement auto : fallback estimation si durée indisponible (bornée)', async () => {

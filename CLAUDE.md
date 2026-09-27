@@ -102,6 +102,7 @@ comparison, no DOM) → `createVoiceCoach` (state machine) → the host, which i
   each longer (350/700/1050 ms, the same counter as the *indice* command and button), and
   only then plays the full reference clip. Without that floor a truly forgotten tirade
   would loop on hints that never give enough.
+- **⏭ skips the stretches where I'm silent** (rehearsal + `rangeOf` only, `skipTarget`): mid-scene it lands two tirades before my next one, past my last one it goes to the start of the next scene where I have a tirade. Presence = "at least one tirade in the range", same as `sceneMembers`. **⏮** (`backTarget`, same scope) goes back to the scene entry — its start, unless my first tirade is beyond the 5th (`SCENE_LEAD_IN`), then two before it — each further press climbs (real start, then the previous scene's entry), and a double press (< 400 ms) jumps straight to the real start of the scene the first press reached. The web reader passes no `rangeOf`, so both stay ±1 there.
 - **Nothing is kept**: the transcript is cleared the moment a verdict is reached, and a
   clean `ok` keeps no result at all — otherwise the validated line stays pinned under
   the bar for the rest of the scene.
