@@ -98,6 +98,9 @@ comparison, no DOM) → `createVoiceCoach` (state machine) → the host, which i
 - **Free start, bounded** (`align.ts`): the head of the utterance can be dropped at no
   cost, which is exactly an immediate self-correction. The bound (`minSkip` floor +
   ratio) is what stops "recite anything, then the line" from passing.
+- **A mid-tirade pause is judged apart from a genuine miss** (`evaluatePrefix`,
+  `PAUSE_MS_SOFT`/`PAUSE_MS_STRICT` in `voice.ts`): a clean, incomplete prefix earns a long
+  silence instead of `SILENCE_MS`; an engine reset mid-attempt is carried forward, not treated as its end.
 - **After two failures the coach whispers a hint, not the whole tirade** — three times,
   each longer (350/700/1050 ms, the same counter as the *indice* command and button), and
   only then plays the full reference clip. Without that floor a truly forgotten tirade
