@@ -60,7 +60,7 @@ export type VoicePhase =
   | 'borderline'
   | 'failed'
   | 'no-speech'
-  /** Lecture du clip de référence, après deux échecs. */
+  /** Lecture du clip de référence, une fois les indices épuisés. */
   | 'reference'
   /** Un ordre vient d'être dit à la place de la tirade (cf. `commands.ts`). */
   | 'command'
@@ -157,8 +157,15 @@ const FEEDBACK_MS = 900;
 /** Idem pour une validation limite, plus court : on enchaîne, le son doit juste passer. */
 const BORDERLINE_MS = 500;
 
-/** Échecs consécutifs après lesquels le clip de référence est joué (issue : exactement 2). */
+/** Échecs consécutifs après lesquels le coach souffle un indice (issue : exactement 2). */
 const MAX_FAILURES = 2;
+
+/**
+ * Indices soufflés d'eux-mêmes, de plus en plus longs (cf. `nextHintMs` du lecteur),
+ * avant de retomber sur le clip entier : sans ce plancher, une tirade vraiment
+ * oubliée tournerait sur des indices sans jamais rien donner.
+ */
+const MAX_AUTO_HINTS = 3;
 
 /** Tentatives muettes après lesquelles on rend la main plutôt que de tourner micro ouvert. */
 const MAX_SILENT = 2;
@@ -176,6 +183,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   let heard = '';
   let result: Evaluation | null = null;
   let failures = 0;
+  let autoHints = 0;
   let silent = 0;
   let expected = '';
   let message: string | null = null;
@@ -435,14 +443,21 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   /**
    * Souffle le début de la tirade, puis rend la parole.
    *
-   * Même forme que `reference()`, à deux détails près qui font tout le sens du
-   * geste : le clip est tronqué (c'est un indice, pas un modèle), et `failures`
-   * n'est PAS remis à zéro — demander un coup de pouce n'est ni une faute ni un
-   * pardon, la référence complète reste due au deuxième échec.
+   * Même forme que `reference()`, mais le clip est tronqué : un indice, pas un modèle.
+   * Demandé à la voix, il ne touche pas à `failures` — un coup de pouce n'est ni une
+   * faute ni un pardon. Soufflé après deux échecs (`auto`), il remet le compteur à
+   * zéro et consomme l'un des `MAX_AUTO_HINTS`.
    */
-  async function hint(): Promise<void> {
+  async function hint(auto = false): Promise<void> {
     const my = gen;
     stopListening(true); // le micro ne doit rien entendre du clip
+    if (auto) {
+      autoHints++;
+      failures = 0;
+      phase = 'command';
+      command = 'hint';
+      emit();
+    }
     try {
       await o.playHint();
     } catch {
@@ -501,7 +516,9 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     o.sound('reject');
     // Le micro se rouvre pendant que le son de refus joue et que les écarts
     // s'affichent : la nouvelle tentative n'attend pas que le moteur redémarre.
-    if (failures >= MAX_FAILURES) at(FEEDBACK_MS, () => void reference());
+    if (failures >= MAX_FAILURES) {
+      at(FEEDBACK_MS, () => void (autoHints < MAX_AUTO_HINTS ? hint(true) : reference()));
+    }
     else void listen(FEEDBACK_MS, false);
   }
 
@@ -613,6 +630,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       warm = false; // à partir d'ici, ce qui est dit compte
       expected = text;
       failures = 0;
+      autoHints = 0;
       silent = 0;
       result = null;
       heard = '';

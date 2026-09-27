@@ -743,6 +743,26 @@ mark.reader-hit--current {
   background: var(--accent);
   border-radius: 2px;
 }
+.line-hint {
+  display: flex;
+  justify-content: flex-end;
+  margin: 4px 0 8px;
+}
+.line-hint-btn {
+  font: inherit;
+  font-size: 0.8em;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.line-hint-btn:hover,
+.line-hint-btn:active {
+  background: var(--accent);
+  color: #fff;
+}
 .reader-speaker {
   font-size: 13px;
   color: var(--muted);

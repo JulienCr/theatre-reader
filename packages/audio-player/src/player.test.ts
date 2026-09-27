@@ -316,6 +316,41 @@ describe('@theatre/audio-player', () => {
     vi.useRealTimers();
   });
 
+  it("indice : 350 ms, puis +350 ms à chaque appui ; le cumul repart avec la tirade", async () => {
+    vi.useFakeTimers();
+    const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'));
+    const { p, audio } = buildWithAudio(c, {
+      roles: ['benji'],
+      settings: { rehearsal: true, autoAdvance: false, playMine: false, mask: true },
+    });
+    let stops = 0;
+    HTMLMediaElement.prototype.pause = () => {
+      stops++;
+    };
+    // Un indice = un clic, le son qui démarre, puis la durée écoulée jusqu'à la coupure.
+    const hint = async (ms: number): Promise<void> => {
+      (c.querySelector('[data-nid="b#0"] + .line-hint .line-hint-btn') as HTMLElement).click();
+      await vi.advanceTimersByTimeAsync(0);
+      audio.dispatchEvent(new Event('playing'));
+      const before = stops;
+      await vi.advanceTimersByTimeAsync(ms - 1);
+      expect(stops).toBe(before); // pas encore coupé
+      await vi.advanceTimersByTimeAsync(1);
+      expect(stops).toBe(before + 1);
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    p.playFrom('b#0');
+    await vi.advanceTimersByTimeAsync(0);
+    await hint(350);
+    await hint(700);
+    await hint(1050);
+    p.playFrom('b#0'); // la tirade a été quittée puis revisitée : on repart de 350
+    await vi.advanceTimersByTimeAsync(0);
+    await hint(350);
+    p.destroy();
+    vi.useRealTimers();
+  });
+
   it('avancement auto : fallback estimation si durée indisponible (bornée)', async () => {
     vi.useFakeTimers();
     const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux mots ici') + line('michel', 'a#1', 'Trois'));

@@ -322,7 +322,7 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
-  it('rejoue le modèle après exactement deux échecs, puis réécoute compteur à zéro', async () => {
+  it('souffle un indice après exactement deux échecs, puis réécoute compteur à zéro', async () => {
     const p = build();
     await upToMic(p);
 
@@ -338,16 +338,50 @@ describe('@theatre/audio-player — répétition vocale', () => {
     expect(last?.voice?.failures).toBe(2);
 
     await tick(900);
-    expect(last?.voice?.phase).toBe('reference');
-    expect(rec.live).toBe(false); // le micro ne doit rien entendre du modèle
+    expect(last?.voice?.phase).toBe('command');
+    expect(last?.voice?.command).toBe('hint');
+    expect(rec.live).toBe(false); // le micro ne doit rien entendre du clip
     const audio = audios[0]!;
     expect(audio.src).toContain('m#0');
 
-    audio.dispatchEvent(new Event('ended'));
-    await flush();
+    audio.dispatchEvent(new Event('playing'));
+    await tick(350); // le clip est coupé : ni `ended` ni erreur
+    await tick(TO_MIC);
     expect(last?.voice?.failures).toBe(0);
     expect(rec.starts).toBe(startsBefore + 1);
-    expect(last?.currentNodeId).toBe('m#0'); // le modèle n'a pas fait avancer la lecture
+    expect(last?.currentNodeId).toBe('m#0'); // l'indice n'a pas fait avancer la lecture
+    p.destroy();
+  });
+
+  it("souffle trois indices de plus en plus longs, puis retombe sur le clip entier", async () => {
+    const paused: number[] = [];
+    HTMLMediaElement.prototype.pause = () => {
+      paused.push(paused.length);
+    };
+    const p = build();
+    await upToMic(p);
+    const failTwice = async (): Promise<void> => {
+      rec.finalize('je reviendrai');
+      await flush();
+      await tick(900);
+      rec.finalize('je reviendrai');
+      await flush();
+      await tick(900);
+    };
+    for (const ms of [350, 700, 1050]) {
+      await failTwice();
+      expect(last?.voice?.command).toBe('hint');
+      audios[0]!.dispatchEvent(new Event('playing'));
+      const before = paused.length;
+      await tick(ms - 1);
+      expect(paused.length).toBe(before); // pas encore coupé : l'indice dure bien `ms`
+      await tick(1);
+      expect(paused.length).toBe(before + 1);
+      await tick(TO_MIC);
+      expect(rec.live).toBe(true);
+    }
+    await failTwice();
+    expect(last?.voice?.phase).toBe('reference');
     p.destroy();
   });
 
@@ -508,7 +542,7 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
-  it('coupe le clip de référence quand le mode est désactivé en pleine lecture', async () => {
+  it("coupe le clip de l'indice quand le mode est désactivé en pleine lecture", async () => {
     const paused: string[] = [];
     HTMLMediaElement.prototype.pause = function pause(this: HTMLMediaElement) {
       paused.push(this.src);
@@ -521,7 +555,7 @@ describe('@theatre/audio-player — répétition vocale', () => {
     rec.finalize('je reviendrai');
     await flush();
     await tick(900);
-    expect(last?.voice?.phase).toBe('reference');
+    expect(last?.voice?.command).toBe('hint');
     paused.length = 0;
 
     p.setVoice({ enabled: false });
@@ -590,14 +624,14 @@ describe('@theatre/audio-player — répétition vocale', () => {
       expect(audios[0]!.src).toContain('m#0');
 
       // Le compte à rebours part du SON, pas de l'appel : ici le clip met 800 ms à
-      // démarrer, et l'indice doit quand même durer ses deux secondes pleines.
+      // démarrer, et l'indice doit quand même durer ses 350 ms pleines.
       await tick(800);
       audios[0]!.dispatchEvent(new Event('playing'));
-      await tick(1900);
-      expect(rec.live).toBe(false); // pas encore : la troncature court depuis 1,9 s
+      await tick(300);
+      expect(rec.live).toBe(false); // pas encore : la troncature court depuis 0,3 s
 
       // Le clip n'a NI `ended` ni erreur : c'est la troncature qui rend la main.
-      await tick(200);
+      await tick(100);
       await tick(TO_MIC);
       expect(rec.live).toBe(true);
       expect(rec.starts).toBe(startsBefore + 1);
