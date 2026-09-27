@@ -83,6 +83,11 @@ describe('verdicts', () => {
     expect(verdict("Je ne sais pas ce qu'il veut.", "je sais pas ce qu'il veut")).toBe('ok');
   });
 
+  it('tolère le « n\' » élidé devant voyelle, dans les deux sens', () => {
+    expect(verdict("On n'a rien fait.", 'on a rien fait')).toBe('ok');
+    expect(verdict('On a rien fait.', "on n'a rien fait")).toBe('ok');
+  });
+
   it('absorbe une approximation de transcription sur un mot plein', () => {
     expect(verdict('Il reviendrait demain matin.', 'il reviendrais demain matin')).toBe('ok');
   });
