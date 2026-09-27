@@ -94,6 +94,8 @@ export interface PlayerState {
   timed: boolean;
   /** Durée totale de la pause automatique en ms (pour un compte à rebours UI), sinon null. */
   timedMs: number | null;
+  /** Vrai quand le minuteur de la pause automatique est suspendu par l'utilisateur. */
+  timerPaused: boolean;
   settings: ReadingSettings;
   /** Boucle sur la plage courante (cf. `setLoop`). */
   loop: boolean;
@@ -147,6 +149,8 @@ export interface Player {
    * or c'est elle qui décide de ce qui est flouté.
    */
   seek(nodeId: string): void;
+  /** Suspend / relance le minuteur de la pause automatique (sans effet hors pause chronométrée). */
+  toggleTimer(): void;
   /** Résout une pause de répétition : joue ou saute ma réplique (selon playMine) ; révèle toujours. */
   resume(): void;
   /** Modifie les réglages (fusion partielle) ; re-masque et ré-évalue la position. */
@@ -247,6 +251,10 @@ export function createPlayer(opts: PlayerOptions): Player {
   let timerId: ReturnType<typeof setTimeout> | null = null;
   let timed = false;
   let timedMs: number | null = null;
+  let timerPaused = false;
+  let hinting = false;
+  let timerLeftMs = 0;
+  let timerEndsAt = 0;
   // Mes répliques masquées et leurs fragments (Paged.js peut couper une réplique sur
   // deux pages), dans l'ordre de lecture. Mémoïsé par `applyMask` pour que `syncMask`
   // n'ait plus qu'à basculer des classes : il tourne à chaque émission d'état, et
@@ -299,6 +307,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       waitingForUser,
       timed,
       timedMs,
+      timerPaused,
       settings: { ...settings }, // copie : l'état émis ne doit pas être mutable de l'extérieur
       loop,
       voice: voiceActive() ? voiceStatus : null,
@@ -452,10 +461,13 @@ export function createPlayer(opts: PlayerOptions): Player {
   const PRE_ARM_MS = 1000;
 
   /**
-   * Durée de l'indice : de quoi entendre l'attaque de la réplique, pas de quoi
-   * s'en dispenser. Deux secondes, la valeur demandée à l'issue.
+   * Pas de l'indice : de quoi entendre l'attaque de la réplique, pas de quoi s'en
+   * dispenser. Chaque nouvel indice sur la même tirade rallonge de ce pas (350, 700,
+   * 1050…) ; la commande vocale et le bouton « Indice » partagent ce cumul.
    */
-  const HINT_MS = 2000;
+  const HINT_STEP_MS = 350;
+  let hintMs = 0;
+  const nextHintMs = (): number => (hintMs += HINT_STEP_MS);
 
   /**
    * Délai laissé au clip de l'indice pour DÉMARRER avant qu'on renonce.
@@ -490,6 +502,30 @@ export function createPlayer(opts: PlayerOptions): Player {
     fill.style.transition = `width ${ms}ms linear`;
     fill.style.width = '100%';
   }
+  // Bouton « Indice » : sous la tirade, à droite. Un frère du bloc et non un enfant,
+  // pour rester hors de `.line` (le geste d'appui maintenu et le clic de lecture y
+  // cherchent leur cible) ; sous le DERNIER fragment, Paged.js pouvant couper la réplique.
+  function clearHintButton(): void {
+    opts.container.querySelectorAll('.line-hint').forEach((e) => e.remove());
+  }
+  function showHintButton(nodeId: string): void {
+    clearHintButton();
+    const frags = fragmentsOf(nodeId);
+    const last = frags[frags.length - 1];
+    if (!last) return;
+    const row = document.createElement('div');
+    row.className = 'line-hint';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'line-hint-btn';
+    btn.textContent = 'Indice';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void hintDuringPause();
+    });
+    row.appendChild(btn);
+    last.insertAdjacentElement('afterend', row);
+  }
   function cancelTimer(): void {
     if (timerId != null) {
       clearTimeout(timerId);
@@ -497,7 +533,46 @@ export function createPlayer(opts: PlayerOptions): Player {
     }
     timed = false;
     timedMs = null;
+    timerPaused = false;
     clearTimerBar();
+    clearHintButton();
+  }
+
+  function timerFill(): HTMLElement | null {
+    return opts.container.querySelector<HTMLElement>('.line-timer-fill');
+  }
+  function armTimer(ms: number, my: number): void {
+    timerEndsAt = Date.now() + ms;
+    timerId = setTimeout(() => {
+      if (destroyed || my !== token) return;
+      resolveCue();
+    }, ms);
+  }
+  /** Fige le décompte de la pause chronométrée : la barre s'arrête là où elle en est. */
+  function pauseTimer(): void {
+    if (!timed || timerPaused || timerId == null || timedMs == null) return;
+    clearTimeout(timerId);
+    timerId = null;
+    timerLeftMs = Math.max(0, timerEndsAt - Date.now());
+    timerPaused = true;
+    const fill = timerFill();
+    if (fill) {
+      fill.style.transition = 'none';
+      fill.style.width = `${(1 - timerLeftMs / timedMs) * 100}%`;
+    }
+    emit();
+  }
+  function resumeTimer(): void {
+    if (!timerPaused) return;
+    timerPaused = false;
+    armTimer(timerLeftMs, token);
+    const fill = timerFill();
+    if (fill) {
+      void fill.offsetWidth; // le width figé doit être peint avant que la transition reparte
+      fill.style.transition = `width ${timerLeftMs}ms linear`;
+      fill.style.width = '100%';
+    }
+    emit();
   }
 
   /**
@@ -634,10 +709,7 @@ export function createPlayer(opts: PlayerOptions): Player {
     timedMs = ms;
     emit();
     showTimerBar(t.element, ms);
-    timerId = setTimeout(() => {
-      if (destroyed || my !== token) return;
-      resolveCue();
-    }, ms);
+    armTimer(ms, my);
   }
 
   /** Entre en pause sur ma réplique (index i) : bip éventuel + minuteur si avancement auto. */
@@ -658,6 +730,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       coach!.begin(tirades[i]!.text);
       return;
     }
+    showHintButton(tirades[i]!.nodeId);
     if (beep) playTick();
     if (settings.autoAdvance) {
       emit();
@@ -736,6 +809,27 @@ export function createPlayer(opts: PlayerOptions): Player {
   }
 
   /**
+   * Indice pendant la pause « à toi » : le début de ma tirade, puis on me rend la main.
+   *
+   * Le minuteur est figé le temps de l'écoute — sinon il pourrait expirer au milieu et
+   * lancer la lecture complète — puis repart là où il en était, sauf si je l'avais déjà
+   * suspendu moi-même. Sous la répétition vocale, l'indice est celui du coach.
+   */
+  async function hintDuringPause(): Promise<void> {
+    if (!waitingForUser || voiceActive() || hinting) return;
+    hinting = true;
+    const my = token;
+    const relaunch = timed && !timerPaused;
+    if (relaunch) pauseTimer();
+    try {
+      await playReference(nextHintMs());
+    } finally {
+      hinting = false;
+      if (relaunch && !destroyed && my === token) resumeTimer();
+    }
+  }
+
+  /**
    * Index de la tirade qui suit `from` dans un enchaînement automatique.
    *
    * Hors boucle, `from + 1`. Avec la boucle, atteindre le bout de la plage renvoie à
@@ -791,6 +885,74 @@ export function createPlayer(opts: PlayerOptions): Player {
   }
 
   /**
+   * Où ⏭ saute quand je suis au milieu d'un passage sans réplique pour moi, ou `null`
+   * pour le pas ordinaire (+1).
+   *
+   * Dans la scène : deux tirades avant ma prochaine, juste de quoi prendre la réplique
+   * qui me cue — jamais en arrière, donc à l'approche c'est le pas ordinaire. Passée ma
+   * dernière tirade de la scène : début de la prochaine scène où j'en ai une (la
+   * présence, telle que `sceneMembers`, c'est « au moins une réplique dans la plage »).
+   * Suppose la répétition et un découpage en plages : sans eux, aucune raison de sauter.
+   */
+  function skipTarget(): number | null {
+    const rangeOf = opts.rangeOf;
+    const cur = tirades[index];
+    if (!started || !settings.rehearsal || !rangeOf || !cur || isMine(cur.characterId)) return null;
+    if (rangeOf(cur) == null) return null;
+    const hasMine = (from: number, to: number): number => {
+      for (let i = from; i < to; i++) if (isMine(tirades[i]!.characterId)) return i;
+      return -1;
+    };
+    const sceneEnd = rangeNext(index);
+    const mine = hasMine(index + 1, sceneEnd);
+    if (mine >= 0) return Math.max(index + 1, mine - 2);
+    for (let from = sceneEnd; from < tirades.length; from = rangeNext(from)) {
+      if (hasMine(from, rangeNext(from)) >= 0) return from;
+    }
+    return null;
+  }
+
+  /** Deux ⏮ à moins de ce délai forcent le vrai début de la scène. */
+  const DOUBLE_PRESS_MS = 400;
+  let lastBackAt = 0;
+  let lastBackTo = -1;
+
+  /** Au-delà de ce rang dans la scène, ma première tirade n'est plus « au début ». */
+  const SCENE_LEAD_IN = 5;
+
+  /**
+   * Où ⏮ revient dans la scène qui commence en `start` : son début, sauf si je
+   * n'y interviens pas avant la 5e tirade — alors deux avant ma première, juste de
+   * quoi prendre le fil sans rejouer tout ce qui ne me concerne pas.
+   */
+  function sceneEntry(start: number): number {
+    const end = rangeNext(start);
+    for (let i = start; i < end; i++) {
+      if (isMine(tirades[i]!.characterId)) return i - start < SCENE_LEAD_IN ? start : i - 2;
+    }
+    return start;
+  }
+
+  /**
+   * Où ⏮ saute, ou `null` pour le pas ordinaire (-1). Même périmètre que `skipTarget` :
+   * répétition et découpage en plages.
+   *
+   * Trois crans, pour qu'un appui répété remonte au lieu de tourner en rond : le point
+   * d'entrée de la scène, son vrai début quand celui-ci est plus haut, puis le point
+   * d'entrée de la scène précédente.
+   */
+  function backTarget(): number | null {
+    const rangeOf = opts.rangeOf;
+    const cur = tirades[index];
+    if (!started || !settings.rehearsal || !rangeOf || !cur || rangeOf(cur) == null) return null;
+    const start = rangeStart(index);
+    const entry = sceneEntry(start);
+    if (index > entry) return entry;
+    if (index > start) return start;
+    return start > 0 ? sceneEntry(rangeStart(start - 1)) : null;
+  }
+
+  /**
    * Termine la pause courante : joue ma réplique (playMine) ou la saute.
    *
    * Dans les deux cas elle passe derrière la position — on ne l'attend plus si elle est
@@ -815,6 +977,7 @@ export function createPlayer(opts: PlayerOptions): Player {
   }
 
   async function playIndex(i: number, resumingCue = false): Promise<void> {
+    hintMs = 0; // le cumul de l'indice ne survit pas à un changement de tirade
     token++;
     const my = token;
     stopAudio();
@@ -916,7 +1079,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       tolerance: opts.voice.tolerance ?? 'soft',
       locale: opts.voice.locale,
       playReference,
-      playHint: () => playReference(HINT_MS),
+      playHint: () => playReference(nextHintMs()),
       command: (c) => {
         // Sans découpage en plages, « la scène » n'existe pas pour le moteur : il
         // vaut mieux le dire (le coach rouvre l'écoute) que sauter au hasard.
@@ -1010,7 +1173,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       cancelPending();
       // ⏭ pendant ma pause vaut « je l'ai dite, on passe » : la position franchit ma
       // réplique, qui se démasque du même coup.
-      void playIndex(started ? index + 1 : index);
+      void playIndex(skipTarget() ?? (started ? index + 1 : index));
     },
     prev: () => {
       playing = true;
@@ -1021,7 +1184,17 @@ export function createPlayer(opts: PlayerOptions): Player {
       // qu'on attendait — un ⏮ dirait « je l'ai dite » alors qu'il dit l'inverse.
       // Asymétrique avec ⏭ à la dernière tirade, et à raison : là, le geste veut bien
       // dire qu'on l'a dite.
-      void playIndex(started ? Math.max(0, index - 1) : index);
+      // Double appui : le vrai début de la scène ATTEINTE par le premier — et non
+      // celle où `index` se trouve, qu'un premier ⏮ encore en vol n'a pas déplacé.
+      const now = Date.now();
+      const double =
+        lastBackTo >= 0 && now - lastBackAt < DOUBLE_PRESS_MS && settings.rehearsal && Boolean(opts.rangeOf);
+      const to = double
+        ? rangeStart(lastBackTo)
+        : (backTarget() ?? (started ? Math.max(0, index - 1) : index));
+      lastBackAt = double ? 0 : now; // un troisième appui rapide n'est pas un « double » de plus
+      lastBackTo = to;
+      void playIndex(to);
     },
     playFrom: (nodeId: string) => {
       const i = tirades.findIndex((t) => t.nodeId === nodeId);
@@ -1047,6 +1220,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       emit();
     },
     resume: resolveCue,
+    toggleTimer: () => (timerPaused ? resumeTimer() : pauseTimer()),
     setSettings: (patch: Partial<ReadingSettings>) => {
       // La route audio suit l'activité du mode vocal, pas seulement sa case à
       // cocher : quitter la répétition l'éteint tout autant. La garder prise
