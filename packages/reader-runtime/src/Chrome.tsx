@@ -439,11 +439,19 @@ export function Chrome({
             <TransportDock
               playing={playing}
               waiting={Boolean(pstate?.waitingForUser)}
+              timer={
+                pstate?.waitingForUser && pstate.timed
+                  ? pstate.timerPaused
+                    ? 'paused'
+                    : 'running'
+                  : undefined
+              }
               onPrev={() => playerRef.current?.prev()}
               onToggle={() => {
                 const p = playerRef.current;
                 if (!p) return;
-                if (pstate?.waitingForUser) p.resume();
+                if (pstate?.waitingForUser && pstate.timed) p.toggleTimer();
+                else if (pstate?.waitingForUser) p.resume();
                 else p.toggle();
               }}
               onNext={() => playerRef.current?.next()}

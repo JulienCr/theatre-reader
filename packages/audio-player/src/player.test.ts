@@ -258,6 +258,64 @@ describe('@theatre/audio-player', () => {
     vi.useRealTimers();
   });
 
+  it('avancement auto : le minuteur se suspend puis reprend là où il en était', async () => {
+    vi.useFakeTimers();
+    const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'));
+    const p = buildPlayer(c, {
+      roles: ['benji'],
+      settings: { rehearsal: true, autoAdvance: true, playMine: false, mask: true },
+      resolveDuration: () => Promise.resolve(2),
+    });
+    p.playFrom('b#0');
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(500);
+    p.toggleTimer();
+    expect(last?.timerPaused).toBe(true);
+    const fill = c.querySelector('.line-timer-fill') as HTMLElement;
+    expect(fill.style.width).toBe('25%');
+    await vi.advanceTimersByTimeAsync(60_000); // suspendu : rien n'avance
+    expect(last?.currentNodeId).toBe('b#0');
+    expect(last?.waitingForUser).toBe(true);
+    p.toggleTimer();
+    expect(last?.timerPaused).toBe(false);
+    await vi.advanceTimersByTimeAsync(1400); // il restait 1500 ms
+    expect(last?.currentNodeId).toBe('b#0');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(last?.currentNodeId).toBe('a#1');
+    p.destroy();
+    vi.useRealTimers();
+  });
+
+  it("indice : fige le minuteur le temps de l'écoute puis le relance sans avancer", async () => {
+    vi.useFakeTimers();
+    const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux') + line('michel', 'a#1', 'Trois'));
+    const p = buildPlayer(c, {
+      roles: ['benji'],
+      settings: { rehearsal: true, autoAdvance: true, playMine: false, mask: true },
+      resolveDuration: () => Promise.resolve(2),
+    });
+    p.playFrom('b#0');
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(500);
+    const btn = c.querySelector('[data-nid="b#0"] + .line-hint .line-hint-btn') as HTMLElement;
+    expect(btn).not.toBeNull(); // sous la tirade, hors du bloc lui-même
+    btn.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(last?.timerPaused).toBe(true);
+    calls.length = 0;
+    await vi.advanceTimersByTimeAsync(3300); // plus long que le temps restant (1500 ms) : elle ne doit pas expirer
+    expect(last?.currentNodeId).toBe('b#0');
+    expect(last?.timerPaused).toBe(true);
+    await vi.advanceTimersByTimeAsync(100); // filet de l'indice à 3350 ms (le clip ne « joue » jamais ici)
+    expect(last?.timerPaused).toBe(false);
+    expect(last?.waitingForUser).toBe(true);
+    await vi.advanceTimersByTimeAsync(1500); // il restait 1500 ms
+    expect(last?.currentNodeId).toBe('a#1');
+    expect(c.querySelector('.line-hint')).toBeNull(); // le bouton part avec la pause
+    p.destroy();
+    vi.useRealTimers();
+  });
+
   it('avancement auto : fallback estimation si durée indisponible (bornée)', async () => {
     vi.useFakeTimers();
     const c = mount(line('michel', 'a#0', 'Un') + line('benji', 'b#0', 'Deux mots ici') + line('michel', 'a#1', 'Trois'));
