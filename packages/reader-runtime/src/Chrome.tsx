@@ -51,7 +51,13 @@ import {
   saveVoice,
   type PersistedState,
 } from './state';
-import { applyVisibility, rangeIndex } from './visibility';
+import {
+  applyVisibility,
+  lineFilterHidden,
+  rangeIndex,
+  visibleAnchor,
+  type LineFilter,
+} from './visibility';
 import { VoiceFeedback } from './VoiceFeedback';
 import type { ReaderData } from './types';
 
@@ -99,7 +105,12 @@ const VOICE_COMMANDS: { say: string; does: string }[] = [
  * vide après chaque saut.
  */
 const SCENE_ROOT_MARGIN = '1000000px 0px -88% 0px';
-const NO_LINES_HIDDEN: ReadonlySet<string> = new Set();
+
+const LINE_FILTER_HINTS: Record<LineFilter, string> = {
+  all: 'Toute la pièce.',
+  mine: 'Mes répliques seules, avec les didascalies qui les précèdent.',
+  mineWithCue: 'Chacune de mes répliques, précédée de celle qui me la donne.',
+};
 
 export function Chrome({
   data,
@@ -123,6 +134,7 @@ export function Chrome({
   // Borné dès la lecture : un localStorage abîmé ne doit pas rendre la pièce illisible.
   const [fontPct, setFontPct] = useState(clampFont(initial.fontPct));
   const [reading, setReading] = useState<ReadingSettings>(initial.reading);
+  const [lineFilter, setLineFilter] = useState<LineFilter>(initial.lineFilter);
   // Vitesse : globale à toutes les pièces, d'où sa propre clé (cf. state.ts).
   const [rate, setRate] = useState(loadRate);
   // Boucle : volontairement NON persistée. Rouvrir l'app enfermé dans une scène
@@ -261,6 +273,8 @@ export function Chrome({
   // événements du lecteur audio (lecture, pause, tap) — jamais au simple
   // défilement, qui est la façon la plus courante de lire sans le son.
   const [nodeId, setNodeId] = useState<string | null>(null);
+  const nodeIdRef = useRef<string | null>(null);
+  nodeIdRef.current = nodeId;
   useEffect(() => {
     const els = Array.from(play.querySelectorAll<HTMLElement>('.line[data-nid]'));
     if (!els.length) return;
@@ -323,15 +337,26 @@ export function Chrome({
     () => sceneVisibility(data.sceneMembers, reading.onlyMyScenes ? selected : []),
     [reading.onlyMyScenes, selected, data.sceneMembers],
   );
+  const lineHidden = useMemo(
+    () => lineFilterHidden(play, lineFilter, selected),
+    [play, lineFilter, selected],
+  );
 
   // Applique le masquage, puis réindexe le player pour qu'il saute ces répliques.
   // useLayoutEffect : pas de flash des scènes exclues au montage (état persisté),
   // et il passe AVANT le useEffect qui crée le player — lequel indexe donc un DOM
   // déjà masqué (`refresh()` est alors un no-op, `playerRef` étant encore nul).
+  const visibilityApplied = useRef(false);
   useLayoutEffect(() => {
-    applyVisibility(play, visibility, NO_LINES_HIDDEN);
+    const changed = applyVisibility(play, visibility, lineHidden);
     playerRef.current?.refresh();
-  }, [play, visibility]);
+    // Skipped on mount: the initial position is the resume logic's job.
+    if (!visibilityApplied.current) {
+      visibilityApplied.current = true;
+      return;
+    }
+    if (changed) visibleAnchor(play, nodeIdRef.current)?.scrollIntoView({ block: 'center' });
+  }, [play, visibility, lineHidden]);
 
   // Après un changement de visibilité, re-marque la recherche : sinon des
   // occurrences dans des scènes désormais masquées resteraient comptées et
@@ -339,7 +364,7 @@ export function Chrome({
   useEffect(() => {
     if (query) search.run(query);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- déclenché par le filtre, pas la frappe (gérée par onInput)
-  }, [visibility]);
+  }, [visibility, lineHidden]);
 
   // Persistance : un seul point d'écriture, sauté au montage pour ne pas
   // réécrire l'état qu'on vient tout juste de lire.
@@ -349,8 +374,8 @@ export function Chrome({
       mounted.current = true;
       return;
     }
-    saveState(data.storageKey, { selected, fontPct, reading, resume });
-  }, [data.storageKey, selected, fontPct, reading, resume]);
+    saveState(data.storageKey, { selected, fontPct, reading, lineFilter, resume });
+  }, [data.storageKey, selected, fontPct, reading, lineFilter, resume]);
 
   // Le champ de recherche n'est focalisé qu'à l'ouverture de sa sheet.
   useEffect(() => {
@@ -768,6 +793,38 @@ export function Chrome({
               : 'Masque les scènes où je ne joue pas.'}
           </span>
         </label>
+
+        <div className="sheet-field lines-filter">
+          <div className="sheet-field-head">
+            <span className="sheet-field-label">
+              <Icon name="list" size={18} /> Répliques affichées
+            </span>
+          </div>
+          <div className="mode-seg" role="group" aria-label="Répliques affichées">
+            {(
+              [
+                { value: 'all', label: 'Toutes' },
+                { value: 'mine', label: 'Les miennes' },
+                { value: 'mineWithCue', label: '+ précédente' },
+              ] as const
+            ).map((o) => (
+              <Button
+                key={o.value}
+                size="touch"
+                aria-pressed={lineFilter === o.value}
+                disabled={selected.length === 0}
+                onClick={() => setLineFilter(o.value)}
+              >
+                {o.label}
+              </Button>
+            ))}
+          </div>
+          <span className="mode-hint">
+            {selected.length === 0
+              ? 'Cocher un personnage dans Options › Mes personnages.'
+              : LINE_FILTER_HINTS[lineFilter]}
+          </span>
+        </div>
 
         <div className="sheet-nav">
           <NavItem

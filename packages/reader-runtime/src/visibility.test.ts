@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
-import { applyVisibility, lineFilterHidden, rangeIndex } from './visibility';
+import { applyVisibility, lineFilterHidden, rangeIndex, visibleAnchor } from './visibility';
 
 /**
  * Imite la sortie de `renderBody` : préambule sans `data-nid`, puis les nœuds de
@@ -200,7 +200,9 @@ describe('lineFilterHidden', () => {
   });
 
   it('applyVisibility fait l\'union avec le verdict de scène, et « all » ne lève que le filtre', () => {
-    applyVisibility(play, visibility(['h-2'], ['h-2']), lineFilterHidden(play, 'mine', ME));
+    expect(applyVisibility(play, visibility(['h-2'], ['h-2']), lineFilterHidden(play, 'mine', ME))).toBe(true);
+    // Same verdict through new objects: nothing moves, so nothing to re-anchor.
+    expect(applyVisibility(play, visibility(['h-2'], ['h-2']), lineFilterHidden(play, 'mine', ME))).toBe(false);
     expect(hidden('o1#0')).toBe(true); // filtre de répliques
     expect(hidden('b4#0')).toBe(true); // verdict de scène (h-2 masqué)
     expect(hidden('s2#0')).toBe(true);
@@ -209,5 +211,42 @@ describe('lineFilterHidden', () => {
     expect(hidden('o1#0')).toBe(false);
     expect(hidden('st3#0')).toBe(false);
     expect(hidden('b4#0')).toBe(true); // la scène reste masquée
+  });
+});
+
+describe('visibleAnchor', () => {
+  const hide = (...nids: string[]): void =>
+    nids.forEach((nid) =>
+      play.querySelector(`[data-nid="${nid}"]`)!.classList.add('scene--hidden'),
+    );
+
+  it('préfère la réplique en cours de lecture', () => {
+    play.querySelector('[data-nid="b1#0"]')!.classList.add('line--speaking');
+    expect(visibleAnchor(play, 'p1#0')?.getAttribute('data-nid')).toBe('b1#0');
+  });
+
+  it('ignore une réplique en cours de lecture masquée', () => {
+    play.querySelector('[data-nid="b1#0"]')!.classList.add('line--speaking');
+    hide('b1#0');
+    expect(visibleAnchor(play, 'p1#0')?.getAttribute('data-nid')).toBe('p1#0');
+  });
+
+  it('rend le nœud lui-même quand il est visible', () => {
+    expect(visibleAnchor(play, 'b1#0')?.getAttribute('data-nid')).toBe('b1#0');
+  });
+
+  it('rend le premier nœud visible qui suit quand l\'ancre est masquée', () => {
+    hide('p1#0', 'p2#0');
+    expect(visibleAnchor(play, 'p1#0')?.getAttribute('data-nid')).toBe('s1#0');
+  });
+
+  it('rend le nœud visible qui précède quand plus rien ne suit', () => {
+    hide('s2#0', 'm1#0');
+    expect(visibleAnchor(play, 'm1#0')?.getAttribute('data-nid')).toBe('b1#0');
+  });
+
+  it('rend null pour un nid inconnu ou absent', () => {
+    expect(visibleAnchor(play, 'nope#0')).toBeNull();
+    expect(visibleAnchor(play, null)).toBeNull();
   });
 });
