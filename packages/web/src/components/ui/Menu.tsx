@@ -17,14 +17,16 @@ import type { ReactElement, ReactNode } from 'react';
 export function Menu({
   trigger,
   align = 'start',
+  onOpenChange,
   children,
 }: {
   trigger: ReactElement;
   align?: 'start' | 'center' | 'end';
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
   return (
-    <DM.Root>
+    <DM.Root onOpenChange={onOpenChange}>
       <DM.Trigger asChild>{trigger}</DM.Trigger>
       <DM.Portal>
         <DM.Content
