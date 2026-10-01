@@ -83,7 +83,21 @@ function mountReader(doc: ReaderDocument): void {
   // juste au-dessus), donc l'ancre ne menait nulle part. C'est ici, et seulement
   // ici, qu'elle est atteignable.
   const anchor = decodeAnchor(location.hash.slice(1));
-  if (anchor) document.getElementById(anchor)?.scrollIntoView({ block: 'start' });
+  if (anchor) resolveAnchor(anchor)?.scrollIntoView({ block: 'start' });
+}
+
+/**
+ * Le point de reprise écrit par Picker porte un préfixe (`n:`/`h:`) disant
+ * s'il vise une tirade (`data-nid`, pas un `id`) ou un en-tête de scène (`id`,
+ * posé par `buildToc`) — les deux se cherchent différemment dans le DOM.
+ */
+function resolveAnchor(anchor: string): HTMLElement | null {
+  const sep = anchor.indexOf(':');
+  if (sep < 0) return document.getElementById(anchor);
+  const kind = anchor.slice(0, sep);
+  const value = anchor.slice(sep + 1);
+  if (kind === 'n') return document.querySelector<HTMLElement>(`.line[data-nid="${value}"]`);
+  return document.getElementById(value);
 }
 
 /**

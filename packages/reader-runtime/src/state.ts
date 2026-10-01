@@ -20,6 +20,8 @@ export interface ResumePoint {
   label: string;
   /** Date du passage, en ms — l'accueil en fait un « il y a 2 j ». */
   at: number;
+  /** Dernière tirade franchie (attribut `data-nid`) : ancre plus précise que `sceneId`, absente tant qu'aucune n'a été franchie. */
+  nodeId?: string;
 }
 
 /**
@@ -146,7 +148,12 @@ function resumeOr(v: unknown, d: ResumePoint | undefined): ResumePoint | undefin
   if (typeof v !== 'object' || v === null) return d;
   const r = v as Partial<ResumePoint>;
   if (typeof r.sceneId !== 'string' || typeof r.label !== 'string') return d;
-  return { sceneId: r.sceneId, label: r.label, at: numOr(r.at, 0) };
+  return {
+    sceneId: r.sceneId,
+    label: r.label,
+    at: numOr(r.at, 0),
+    nodeId: typeof r.nodeId === 'string' ? r.nodeId : undefined,
+  };
 }
 
 /**

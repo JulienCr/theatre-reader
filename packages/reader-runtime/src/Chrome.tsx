@@ -253,14 +253,49 @@ export function Chrome({
     [data.toc, sceneId],
   );
 
+  // Même principe que l'observateur de scène ci-dessus, mais sur chaque tirade
+  // (`data-nid`) : c'est ce qui permet de rouvrir exactement là où on avait
+  // arrêté de lire, pas seulement au début de la scène. Un observateur séparé,
+  // et non `pstate.currentNodeId`, parce que ce dernier ne bouge qu'aux
+  // événements du lecteur audio (lecture, pause, tap) — jamais au simple
+  // défilement, qui est la façon la plus courante de lire sans le son.
+  const [nodeId, setNodeId] = useState<string | null>(null);
+  useEffect(() => {
+    const els = Array.from(play.querySelectorAll<HTMLElement>('.line[data-nid]'));
+    if (!els.length) return;
+    const crossed = new Set<string>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const nid = e.target.getAttribute('data-nid');
+          if (!nid) continue;
+          if (e.isIntersecting) crossed.add(nid);
+          else crossed.delete(nid);
+        }
+        let current: string | null = null;
+        for (const el of els) {
+          const nid = el.getAttribute('data-nid')!;
+          if (crossed.has(nid)) current = nid;
+        }
+        if (current) setNodeId(current);
+      },
+      { rootMargin: SCENE_ROOT_MARGIN },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `play` ne change jamais d'identité
+  }, []);
+
   // Point de reprise offert à l'écran d'accueil de l'app. Il ne s'efface JAMAIS
   // de lui-même : avant le premier en-tête — page de titre, distribution — la
   // scène courante est nulle, et remonter là-haut une seconde n'est pas une
   // demande d'oublier où on en était.
   const [resume, setResume] = useState(initial.resume);
   useEffect(() => {
-    if (sceneId && sceneLabel) setResume({ sceneId, label: sceneLabel, at: Date.now() });
-  }, [sceneId, sceneLabel]);
+    if (sceneId && sceneLabel) {
+      setResume({ sceneId, label: sceneLabel, at: Date.now(), nodeId: nodeId ?? undefined });
+    }
+  }, [sceneId, sceneLabel, nodeId]);
 
   // Taille du texte : posée en inline sur `.play`. useLayoutEffect (et non
   // useEffect) pour que la valeur restaurée soit appliquée avant la peinture,
