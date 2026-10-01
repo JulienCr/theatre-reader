@@ -298,6 +298,25 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
+  // Régression : une révision normale du moteur sur ses premiers mots (il ne
+  // prolonge pas forcément son propre partiel précédent) a été prise pour un reset
+  // silencieux et empilée au lieu d'être remplacée — « je ai je l'ai in je l'ai
+  // inversé » à l'écran au lieu de « je l'ai inversé ».
+  it('remplace le partiel plutôt que de l’empiler quand le moteur révise sa première hypothèse', async () => {
+    const p = build();
+    await upToMic(p);
+    rec.say('je le reviendrai');
+    await flush();
+    expect(last?.voice?.heard).toBe('je le reviendrai');
+    rec.say('je ne reviendrai'); // révision : ne prolonge pas le partiel précédent
+    await flush();
+    expect(last?.voice?.heard).toBe('je ne reviendrai'); // remplacé, pas empilé
+    rec.say(TEXT.toLowerCase());
+    await flush();
+    expect(last?.currentNodeId).toBe('b#1'); // valide normalement, sans résidu
+    p.destroy();
+  });
+
   // Un préfixe propre et encore incomplet gagne la pause de jeu (4 s en souple) —
   // 900 ms n'y suffit plus, c'est justement ce que ce test vérifiait avant l'issue.
   it('tolère un silence de plusieurs secondes au milieu d’une tirade propre', async () => {

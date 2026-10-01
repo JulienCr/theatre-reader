@@ -210,13 +210,16 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   let prefix = '';
   /**
    * Ce que le moteur a déjà confirmé AVANT que lui-même clôture sa requête de
-   * reconnaissance en cours d'attente (silence détecté par son moteur, ou reset
-   * silencieux du transcript) — jamais l'acteur qui a fini. Porté sur la requête
-   * suivante, qui repart toujours d'un transcript vide (cf. `resumeAfterAutoFinal`).
+   * reconnaissance en cours d'attente (silence détecté par SON moteur) — jamais
+   * l'acteur qui a fini. Porté sur la requête suivante, qui repart toujours d'un
+   * transcript vide (cf. `resumeAfterAutoFinal`). Ne se pose QU'à cette clôture,
+   * décidée par `onFinal` — jamais déduit d'un partiel : un partiel qui ne prolonge
+   * plus le précédent est le plus souvent une révision normale du moteur (« je ai »
+   * → « je l'ai in » → « je l'ai inversé », la même tirade en train de se préciser),
+   * pas une preuve de reset. Le confondre avec un reset a empilé les révisions au
+   * lieu de les remplacer — régression mesurée sur iPhone, corrigée ici.
    */
   let carried = '';
-  /** Transcript brut de la requête de reconnaissance EN COURS, pour détecter ce reset. */
-  let sessionText = '';
   let timers: ReturnType<typeof setTimeout>[] = [];
   let idleId: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -365,7 +368,6 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     const dueAt = Date.now() + delay;
     heard = '';
     carried = '';
-    sessionText = '';
     message = note;
     command = null;
     emit();
@@ -384,21 +386,6 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     });
   }
 
-  /**
-   * Le moteur clôt parfois sa requête de lui-même en pleine attente (silence détecté
-   * par SON moteur, jamais le nôtre) ; la suivante repart toujours d'un transcript
-   * vide. Un texte qui n'étend plus `sessionText` en est la preuve : ce qu'elle avait
-   * déjà rendu est CONFIRMÉ (`carried`), pas perdu, et la nouvelle requête reprend
-   * depuis zéro sur `sessionText`.
-   */
-  function absorbReset(t: string): void {
-    if (sessionText && !t.startsWith(sessionText)) {
-      carried = carried ? `${carried} ${sessionText}` : sessionText;
-      sessionText = '';
-    }
-    sessionText = t;
-  }
-
   function onPartial(text: string): void {
     if (!listening) return;
     const t = text.trim();
@@ -409,7 +396,6 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       prefix = t;
       return;
     }
-    absorbReset(t);
     // Le moteur rend toujours l'énoncé complet depuis l'ouverture de SA requête : ce
     // qui vient de la réplique précédente se retire par la tête. Si le moteur a
     // révisé son texte au point que le préfixe ne colle plus, on garde tout — l'amorce
@@ -443,7 +429,6 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       prefix = t;
       return;
     }
-    absorbReset(t);
     const mine = prefix && t.startsWith(prefix) ? t.slice(prefix.length).trim() : t;
     if (mine || carried) heard = carried ? (mine ? `${carried} ${mine}` : carried) : mine;
     // Le moteur a fini SA requête, mais rien ne dit que la tirade l'est : un préfixe
@@ -453,7 +438,6 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       const p = evaluatePrefix(expected, heard, { tolerance });
       if (p.verdict !== 'fail' && p.reached < p.total) {
         carried = heard;
-        sessionText = '';
         void resumeAfterAutoFinal();
         return;
       }
@@ -658,7 +642,6 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     phase = 'idle';
     heard = '';
     carried = '';
-    sessionText = '';
     message = null;
     command = null;
     // `result` est délibérément conservé : après une validation limite, les écarts
@@ -718,7 +701,6 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       result = null;
       heard = '';
       carried = '';
-      sessionText = '';
       message = null;
       command = null;
       phase = 'waiting';
