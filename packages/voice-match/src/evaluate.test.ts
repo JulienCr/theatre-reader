@@ -93,6 +93,20 @@ describe('verdicts', () => {
     expect(verdict('Il reste en virant deux minutes.', 'il reste environ deux minutes')).toBe('ok');
   });
 
+  it("assimile « plutôt » et « plus tôt », dans les deux sens et en strict", () => {
+    expect(verdict('Il vient plutôt demain.', 'il vient plus tôt demain')).toBe('ok');
+    expect(verdict('Il vient plus tôt demain.', 'il vient plutôt demain')).toBe('ok');
+    expect(verdict('Il vient plutôt demain.', 'il vient plus tôt demain', 'strict')).toBe('ok');
+    expect(verdict('Il vient plus tôt demain.', 'il vient plutôt demain', 'strict')).toBe('ok');
+  });
+
+  it("assimile « tant » et « tente », dans les deux sens et en strict", () => {
+    expect(verdict('Il a tant et si bien insisté.', 'il a tente et si bien insisté')).toBe('ok');
+    expect(verdict('Il a tente et si bien insisté.', 'il a tant et si bien insisté')).toBe('ok');
+    expect(verdict('Il a tant et si bien insisté.', 'il a tente et si bien insisté', 'strict')).toBe('ok');
+    expect(verdict('Il a tente et si bien insisté.', 'il a tant et si bien insisté', 'strict')).toBe('ok');
+  });
+
   it('absorbe une approximation de transcription sur un mot plein', () => {
     expect(verdict('Il reviendrait demain matin.', 'il reviendrais demain matin')).toBe('ok');
   });
