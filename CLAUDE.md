@@ -56,6 +56,7 @@ pnpm monorepo, TypeScript everywhere, **"internal packages" pattern**: each pack
 - **Highlights** are rendered as inline `style="background-color:…"` (dynamic per character), not CSS classes. `template.highlights` is the only source; `Character` has no rendered color.
 - **Template option back-compat**: newer boolean template fields are read defensively (`x !== false` for default-on, `x === false` to disable) so older `meta.json` lacking the field still renders correctly. Follow this pattern when adding template flags, and add the field to `actorReadingTemplate` in `template.ts`.
 - **Range iteration**: everything that needs to walk the play by heading derives from `sceneRanges` in `scenes.ts` — `sceneMembers` (presence), `sceneVisibility` (the shared hide rule), `sceneSpans` (labels, for the study plan). Never re-walk headings by hand: that duplication is exactly what let out-of-scene content escape the "my scenes" filter.
+- **Mobile display filters** (`reader-runtime/src/visibility.ts`): "my scenes" and the line filter (my lines / + their cue) share `scene--hidden` and merge in ONE `applyVisibility` pass, which sets *and clears* the class. A second pass would wipe the first; a new class would escape `collectTirades` and search.
 
 ### Learning plan (`study.ts` + `data/<slug>/study.json`)
 

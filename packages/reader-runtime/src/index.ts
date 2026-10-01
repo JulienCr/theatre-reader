@@ -74,6 +74,7 @@ function init(d: ReaderData, options: BootOptions): void {
     selected: role && !mine.includes(role) ? [...mine, role] : mine,
     fontPct: 100,
     reading: { ...DEFAULT_READING },
+    lineFilter: 'all',
   };
   const initial = loadState(d.storageKey, defaults);
   // Un personnage persisté qui n'existe plus dans la pièce (renommé, ou autre pièce

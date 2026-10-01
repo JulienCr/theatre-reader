@@ -46,16 +46,91 @@ function walkRanges(
   }
 }
 
+export type LineFilter = 'all' | 'mine' | 'mineWithCue';
+
 /**
- * Pose (et retire) `.scene--hidden` sur les plages masquées de `.play`.
+ * Pose (et retire) `.scene--hidden` sur `.play` : plages masquées par le verdict de
+ * scène OU nœuds (`data-nid`) masqués par le filtre de répliques.
  *
  * La classe est posée ET retirée à chaque passage : c'est le seul chemin de
- * démasquage quand l'utilisateur décoche l'option.
+ * démasquage quand l'utilisateur décoche une option, et c'est pour cela que les deux
+ * verdicts doivent être fusionnés ici plutôt qu'appliqués par deux passes.
+ *
+ * @returns whether any node changed state — a new verdict object can hide exactly the same nodes.
  */
-export function applySceneVisibility(play: HTMLElement, v: SceneVisibility): void {
+export function applyVisibility(
+  play: HTMLElement,
+  v: SceneVisibility,
+  lineHidden: ReadonlySet<string>,
+): boolean {
+  let changed = false;
   walkRanges(play, (el, range, isHead) => {
-    el.classList.toggle(HIDDEN_SCENE_CLASS, isHead ? v.headings.has(range) : v.ranges.has(range));
+    const byScene = isHead ? v.headings.has(range) : v.ranges.has(range);
+    const hide = byScene || lineHidden.has(el.getAttribute('data-nid')!);
+    if (el.classList.contains(HIDDEN_SCENE_CLASS) !== hide) {
+      el.classList.toggle(HIDDEN_SCENE_CLASS, hide);
+      changed = true;
+    }
   });
+  return changed;
+}
+
+/** `data-nid` of the nodes the line filter hides. Empty for 'all' or when `roles` is empty. */
+export function lineFilterHidden(
+  play: HTMLElement,
+  filter: LineFilter,
+  roles: readonly string[],
+): Set<string> {
+  const out = new Set<string>();
+  if (filter === 'all' || roles.length === 0) return out;
+  const mine = new Set(roles);
+  let pending: string[] = [];
+  let prevLine: { nid: string; mine: boolean } | null = null;
+  const flushPending = () => {
+    for (const nid of pending) out.add(nid);
+    pending = [];
+  };
+  walkRanges(play, (el, _range, isHead) => {
+    const nid = el.getAttribute('data-nid')!;
+    if (isHead) {
+      flushPending();
+      prevLine = null;
+    } else if (el.matches('p.line')) {
+      const isMine = mine.has(el.getAttribute('data-cid') ?? '');
+      if (isMine) {
+        pending = [];
+        if (filter === 'mineWithCue' && prevLine && !prevLine.mine) out.delete(prevLine.nid);
+      } else {
+        flushPending();
+        out.add(nid);
+      }
+      prevLine = { nid, mine: isMine };
+    } else {
+      pending.push(nid);
+    }
+  });
+  flushPending();
+  return out;
+}
+
+/** Element to keep in view after a visibility change: the speaking line, else `nid`, else the nearest visible node after it, else before it. */
+export function visibleAnchor(play: HTMLElement, nid: string | null): HTMLElement | null {
+  const speaking = play.querySelector<HTMLElement>('.line--speaking');
+  if (speaking && !speaking.classList.contains(HIDDEN_SCENE_CLASS)) return speaking;
+  if (nid === null) return null;
+  const from = (Array.from(play.children) as HTMLElement[]).find(
+    (el) => el.getAttribute('data-nid') === nid,
+  );
+  if (!from) return null;
+  if (!from.classList.contains(HIDDEN_SCENE_CLASS)) return from;
+  const isVisible = (el: Element): boolean =>
+    el.hasAttribute('data-nid') && !el.classList.contains(HIDDEN_SCENE_CLASS);
+  for (const step of ['nextElementSibling', 'previousElementSibling'] as const) {
+    for (let el = from[step]; el; el = el[step]) {
+      if (isVisible(el)) return el as HTMLElement;
+    }
+  }
+  return null;
 }
 
 /**

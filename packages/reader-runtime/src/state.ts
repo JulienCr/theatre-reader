@@ -6,6 +6,7 @@
  * clignotement « valeurs par défaut puis valeurs réelles »).
  */
 import type { ReadingSettings, Tolerance } from '@theatre/audio-player';
+import type { LineFilter } from './visibility';
 
 /**
  * Où la lecture en était, pour la reprendre depuis l'écran d'accueil de l'app.
@@ -34,6 +35,7 @@ export interface PersistedState {
   selected: string[]; // characterId[], l'ordre fixe les couleurs
   fontPct: number; // 100 = base
   reading: ReadingSettings; // réglages de répétition
+  lineFilter: LineFilter; // which lines the reader shows
   resume?: ResumePoint; // absent tant qu'aucune scène n'a été franchie
 }
 
@@ -205,6 +207,10 @@ export function loadState(key: string, fallback: PersistedState): PersistedState
           tick: boolOr(r.tick, fallback.reading.tick),
           onlyMyScenes: boolOr(r.onlyMyScenes, fallback.reading.onlyMyScenes),
         },
+        lineFilter:
+          parsed.lineFilter === 'mine' || parsed.lineFilter === 'mineWithCue'
+            ? parsed.lineFilter
+            : fallback.lineFilter,
         resume: resumeOr(parsed.resume, fallback.resume),
       };
     }
