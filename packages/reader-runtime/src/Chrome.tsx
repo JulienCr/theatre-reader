@@ -30,6 +30,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { decorate } from '@theatre/annotations';
 import {
   createPlayer,
+  loadRate,
+  nextRate,
+  saveRate,
   type Player,
   type PlayerState,
   type ReadingSettings,
@@ -43,10 +46,7 @@ import {
   colorFor,
   FONT_MAX,
   FONT_MIN,
-  loadRate,
   loadVoice,
-  RATES,
-  saveRate,
   saveState,
   saveVoice,
   type PersistedState,
@@ -377,7 +377,7 @@ export function Chrome({
   };
 
   const cycleRate = (): void => {
-    const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length] ?? 1;
+    const next = nextRate(rate);
     setRate(next);
     saveRate(next);
     playerRef.current?.setRate(next);

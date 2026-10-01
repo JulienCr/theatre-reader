@@ -7,10 +7,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_READING,
-  loadRate,
   loadResume,
   loadState,
-  saveRate,
   saveState,
   type PersistedState,
 } from './state';
@@ -105,35 +103,6 @@ describe('loadState', () => {
       store.set(KEY, JSON.stringify({ selected: ['benji'], myRoles: 'michel' }));
       expect(loadState(KEY, FALLBACK).selected).toEqual(['benji']);
     });
-  });
-});
-
-/**
- * La vitesse vit hors de `PersistedState` : elle est globale à toutes les pièces.
- * Une valeur hors cycle rendrait le libellé du bouton incohérent avec ce qu'on entend.
- */
-describe('loadRate', () => {
-  beforeEach(() => {
-    installStorage();
-  });
-
-  it('vaut 1 tant que rien n’a été choisi', () => {
-    expect(loadRate()).toBe(1);
-  });
-
-  it('relit la vitesse enregistrée', () => {
-    saveRate(1.5);
-    expect(loadRate()).toBe(1.5);
-  });
-
-  it('retombe sur 1 pour une valeur hors du cycle', () => {
-    saveRate(3);
-    expect(loadRate()).toBe(1);
-  });
-
-  it('ne jette pas sur une valeur illisible', () => {
-    saveRate(Number.NaN);
-    expect(loadRate()).toBe(1);
   });
 });
 

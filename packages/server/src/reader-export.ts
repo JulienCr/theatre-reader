@@ -9,7 +9,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import * as esbuild from 'esbuild';
 import {
   buildNodeIds,
@@ -134,6 +134,13 @@ async function readerRuntime(): Promise<string> {
       // lancé depuis @theatre/server, qui ne dépend pas de preact. On se place donc
       // dans @theatre/reader-runtime, seul paquet qui le déclare.
       absWorkingDir: dirname(entry),
+      // `jsxImportSource` fait importer `preact/jsx-runtime` par CHAQUE fichier .tsx
+      // bundlé — y compris ceux de @theatre/reader-ui et @theatre/ui, qui ne déclarent
+      // pas preact (ils sont aussi consommés en React par le lecteur web). esbuild
+      // résout cet import-là depuis le fichier importateur, pas depuis `absWorkingDir` :
+      // sur l'agencement pnpm par défaut, la remontée s'arrête à la racine et échoue.
+      // Ça ne se voyait pas tant que preact se trouvait hoisté à la racine.
+      nodePaths: [join(dirname(entry), '..', 'node_modules')],
     });
     runtimeCache = out.outputFiles[0]!.text;
   }

@@ -39,37 +39,6 @@ const PALETTE = ['#ffe08a', '#a8e6cf', '#b5d8ff', '#ffc9de', '#d6c8ff', '#ffd6a5
 export const FONT_MIN = 70;
 export const FONT_MAX = 220;
 
-/** Vitesses de lecture, dans l'ordre du cycle du bouton. */
-export const RATES: readonly number[] = [1, 1.5, 2];
-
-/**
- * La vitesse est le rythme de travail de la personne, pas une propriété de la pièce :
- * elle vit donc sous sa propre clé, partagée par toutes les pièces — contrairement à
- * `PersistedState`, indexé par `storageKey`. Cette clé fonctionne aussi dans le .html
- * exporté, qui n'a aucun accès aux réglages de l'app.
- */
-const RATE_KEY = 'theatre-reader:rate';
-
-export function loadRate(): number {
-  try {
-    const r = Number(localStorage.getItem(RATE_KEY));
-    // Une valeur hors cycle rendrait le libellé du bouton incohérent avec ce qu'on
-    // entend, et le premier appui la remplacerait sans qu'on sache par quoi.
-    if (RATES.some((x) => x === r)) return r;
-  } catch {
-    /* localStorage indisponible (mode privé, file://) : on ignore */
-  }
-  return 1;
-}
-
-export function saveRate(rate: number): void {
-  try {
-    localStorage.setItem(RATE_KEY, String(rate));
-  } catch {
-    /* ignore */
-  }
-}
-
 /**
  * Répétition vocale : réglage GLOBAL, comme la vitesse et pour la même raison —
  * c'est une façon de travailler, pas une propriété d'une pièce. L'issue le demande

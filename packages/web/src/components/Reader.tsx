@@ -23,9 +23,18 @@ import {
   type Template,
 } from '@theatre/core';
 import { annotationCss, type AnchorDraft } from '@theatre/annotations';
-import { createPeek, createSearch, MIN_QUERY_LENGTH, type SearchController } from '@theatre/reader-ui';
+import {
+  createPeek,
+  createSearch,
+  MIN_QUERY_LENGTH,
+  rateLabel,
+  type SearchController,
+} from '@theatre/reader-ui';
 import {
   createPlayer,
+  loadRate,
+  nextRate,
+  saveRate,
   type AudioTirade,
   type Player,
   type PlayerState,
@@ -129,6 +138,10 @@ export function Reader({
   const toc = useMemo(() => buildToc(displayPlay, template), [displayPlay, template]);
 
   // ---- Lecture audio (ElevenLabs) ----
+  // La vitesse n'est PAS dans `ReadingPrefs` : c'est le rythme de travail de la
+  // personne, pas une propriété de la pièce. Elle a donc sa propre clé, globale à
+  // toutes les pièces — la même que le lecteur mobile (cf. @theatre/audio-player).
+  const [rate, setRate] = useState(loadRate);
   const playerRef = useRef<Player | null>(null);
   const pstateRef = useRef<PlayerState | null>(null);
   const urlCacheRef = useRef<Map<string, string>>(new Map());
@@ -137,11 +150,13 @@ export function Reader({
   const slugRef = useRef<string>(slug);
   const settingsRef = useRef<ReadingSettings>(settings);
   const myRolesRef = useRef<string[]>(myRoles);
+  const rateRef = useRef<number>(rate);
   audioCfgRef.current = audio;
   slugRef.current = slug;
   pstateRef.current = pstate;
   settingsRef.current = settings;
   myRolesRef.current = myRoles;
+  rateRef.current = rate;
 
   // Recharge les préférences par appareil quand on change de pièce.
   useEffect(() => {
@@ -173,6 +188,17 @@ export function Reader({
     },
     [slug],
   );
+
+  // Passe à la vitesse suivante : état + ref + moteur + persistance, comme au-dessus.
+  // Le moteur garde MES répliques à 1× en répétition (cf. `rateFor`) — accélérer sert
+  // à traverser le texte des autres, pas à répéter le sien plus vite que la scène.
+  const cycleRate = useCallback(() => {
+    const next = nextRate(rateRef.current);
+    rateRef.current = next;
+    setRate(next);
+    playerRef.current?.setRate(next);
+    saveRate(next);
+  }, []);
 
   const nameOf = useCallback(
     (cid: string | null) => (cid ? play.characters.find((c) => c.id === cid)?.canonicalName ?? cid : ''),
@@ -323,6 +349,10 @@ export function Reader({
       speakingClass: 'line--speaking',
     });
     playerRef.current = player;
+    // `createPlayer` démarre toujours à 1× et cet effet rejoue à chaque pagination :
+    // sans ce rappel, la vitesse choisie retomberait sans un mot au premier re-rendu
+    // du texte. Par la ref, pour ne pas recréer le player à chaque changement.
+    player.setRate(rateRef.current);
     return () => {
       player.destroy();
       playerRef.current = null;
@@ -466,11 +496,14 @@ export function Reader({
         case 'm':
           if (hasVoices) setShowModeModal((v) => !v);
           break;
+        case 'v':
+          if (hasVoices) cycleRate();
+          break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showHelp, showModeModal, hasVoices, step, onClose, onToggleFullscreen]);
+  }, [showHelp, showModeModal, hasVoices, step, cycleRate, onClose, onToggleFullscreen]);
 
   return (
     <div className="reader">
@@ -572,6 +605,14 @@ export function Reader({
               onClick={() => playerRef.current?.next()}
             >
               ⏭
+            </button>
+            <button
+              className="reader-rate-btn"
+              aria-label={`Vitesse de lecture : ${rateLabel(rate)}`}
+              title="Vitesse de lecture (v)"
+              onClick={cycleRate}
+            >
+              {rateLabel(rate)}
             </button>
             <button
               className={`reader-mode-btn${settings.rehearsal ? ' on' : ''}`}
