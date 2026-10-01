@@ -315,4 +315,8 @@ describe('robustesse', () => {
   it('canonicalise une liste de jetons déjà découpée', () => {
     expect(canonicalizeNumbers(splitWords('trente-deux')).map((t) => t.raw)).toEqual(['trente deux']);
   });
+
+  it("ne plante pas quand un seul mot attendu se découpe en trois côté dictée", () => {
+    expect(() => evaluate('Chevelure.', 'ché vé lourd')).not.toThrow();
+  });
 });

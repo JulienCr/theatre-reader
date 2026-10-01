@@ -193,7 +193,7 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
       ops.push({ type: 'merge', e: i - 1, h: j - 2 });
       i--;
       j -= 2;
-    } else if (near(cost[i]![j]!, cost[i - 2]![j - 1]! + splitCost(i, j))) {
+    } else if (i >= 2 && near(cost[i]![j]!, cost[i - 2]![j - 1]! + splitCost(i, j))) {
       ops.push({ type: 'split', e: i - 2, h: j - 1 });
       i -= 2;
       j--;
