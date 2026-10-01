@@ -46,16 +46,63 @@ function walkRanges(
   }
 }
 
+export type LineFilter = 'all' | 'mine' | 'mineWithCue';
+
 /**
- * Pose (et retire) `.scene--hidden` sur les plages masquées de `.play`.
+ * Pose (et retire) `.scene--hidden` sur `.play` : plages masquées par le verdict de
+ * scène OU nœuds (`data-nid`) masqués par le filtre de répliques.
  *
  * La classe est posée ET retirée à chaque passage : c'est le seul chemin de
- * démasquage quand l'utilisateur décoche l'option.
+ * démasquage quand l'utilisateur décoche une option, et c'est pour cela que les deux
+ * verdicts doivent être fusionnés ici plutôt qu'appliqués par deux passes.
  */
-export function applySceneVisibility(play: HTMLElement, v: SceneVisibility): void {
+export function applyVisibility(
+  play: HTMLElement,
+  v: SceneVisibility,
+  lineHidden: ReadonlySet<string>,
+): void {
   walkRanges(play, (el, range, isHead) => {
-    el.classList.toggle(HIDDEN_SCENE_CLASS, isHead ? v.headings.has(range) : v.ranges.has(range));
+    const byScene = isHead ? v.headings.has(range) : v.ranges.has(range);
+    el.classList.toggle(HIDDEN_SCENE_CLASS, byScene || lineHidden.has(el.getAttribute('data-nid')!));
   });
+}
+
+/** `data-nid` of the nodes the line filter hides. Empty for 'all' or when `roles` is empty. */
+export function lineFilterHidden(
+  play: HTMLElement,
+  filter: LineFilter,
+  roles: readonly string[],
+): Set<string> {
+  const out = new Set<string>();
+  if (filter === 'all' || roles.length === 0) return out;
+  const mine = new Set(roles);
+  let pending: string[] = [];
+  let prevLine: { nid: string; mine: boolean } | null = null;
+  const flushPending = () => {
+    for (const nid of pending) out.add(nid);
+    pending = [];
+  };
+  walkRanges(play, (el, _range, isHead) => {
+    const nid = el.getAttribute('data-nid')!;
+    if (isHead) {
+      flushPending();
+      prevLine = null;
+    } else if (el.matches('p.line')) {
+      const isMine = mine.has(el.getAttribute('data-cid') ?? '');
+      if (isMine) {
+        pending = [];
+        if (filter === 'mineWithCue' && prevLine && !prevLine.mine) out.delete(prevLine.nid);
+      } else {
+        flushPending();
+        out.add(nid);
+      }
+      prevLine = { nid, mine: isMine };
+    } else {
+      pending.push(nid);
+    }
+  });
+  flushPending();
+  return out;
 }
 
 /**

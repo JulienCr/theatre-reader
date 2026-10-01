@@ -51,7 +51,7 @@ import {
   saveVoice,
   type PersistedState,
 } from './state';
-import { applySceneVisibility, rangeIndex } from './visibility';
+import { applyVisibility, rangeIndex } from './visibility';
 import { VoiceFeedback } from './VoiceFeedback';
 import type { ReaderData } from './types';
 
@@ -99,6 +99,7 @@ const VOICE_COMMANDS: { say: string; does: string }[] = [
  * vide après chaque saut.
  */
 const SCENE_ROOT_MARGIN = '1000000px 0px -88% 0px';
+const NO_LINES_HIDDEN: ReadonlySet<string> = new Set();
 
 export function Chrome({
   data,
@@ -328,7 +329,7 @@ export function Chrome({
   // et il passe AVANT le useEffect qui crée le player — lequel indexe donc un DOM
   // déjà masqué (`refresh()` est alors un no-op, `playerRef` étant encore nul).
   useLayoutEffect(() => {
-    applySceneVisibility(play, visibility);
+    applyVisibility(play, visibility, NO_LINES_HIDDEN);
     playerRef.current?.refresh();
   }, [play, visibility]);
 
