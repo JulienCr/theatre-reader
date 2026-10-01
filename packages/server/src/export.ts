@@ -11,7 +11,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
-import { Character, Template, parseFountain, renderDocument } from '@theatre/core';
+import { Character, Play, Template, parseFountain, renderDocument } from '@theatre/core';
 
 const require = createRequire(import.meta.url);
 // Le champ `exports` de pagedjs n'expose pas le polyfill en sous-chemin standard ;
@@ -36,6 +36,11 @@ export async function exportPdf(
   template: Template,
 ): Promise<Buffer> {
   const play = parseFountain(fountain, characters);
+  return exportPlayPdf(play, template);
+}
+
+/** Variante de `exportPdf` pour un `Play` déjà construit (p. ex. filtré par personnage). */
+export async function exportPlayPdf(play: Play, template: Template): Promise<Buffer> {
   const html = renderDocument(play, template);
 
   const browser = await chromium.launch();
