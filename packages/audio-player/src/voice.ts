@@ -163,9 +163,6 @@ const NO_SPEECH_MS = 6000;
 /** Temps laissé au son de refus et aux écarts avant de rouvrir le micro. */
 const FEEDBACK_MS = 900;
 
-/** Idem pour une validation limite, plus court : on enchaîne, le son doit juste passer. */
-const BORDERLINE_MS = 500;
-
 /** Échecs consécutifs après lesquels le coach souffle un indice (issue : exactement 2). */
 const MAX_FAILURES = 2;
 
@@ -532,6 +529,23 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     void listen(BREATH_MS, true);
   }
 
+  /**
+   * Une validation limite est corrigée, pas seulement signalée : le clip de
+   * référence est rejoué en entier avant d'enchaîner, pour que l'imperfection
+   * entendue reparte avec la bonne version en tête plutôt qu'un simple bip.
+   */
+  async function correctBorderline(): Promise<void> {
+    const my = gen;
+    stopListening(true); // le micro ne doit rien entendre du clip
+    try {
+      await o.playReference();
+    } catch {
+      /* pas de clip : on avance quand même */
+    }
+    if (destroyed || my !== gen) return;
+    o.advance();
+  }
+
   function conclude(r: Evaluation): void {
     stopListening(false);
     command = null;
@@ -571,7 +585,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       phase = 'borderline';
       emit();
       o.sound('borderline');
-      at(BORDERLINE_MS, () => o.advance());
+      void correctBorderline();
       return;
     }
 

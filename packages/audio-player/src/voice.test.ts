@@ -501,14 +501,20 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
-  it('valide de justesse une réplique brodée, et enchaîne', async () => {
+  it('valide de justesse une réplique brodée, rejoue la bonne version, puis enchaîne', async () => {
     const p = build();
     await upToMic(p);
     rec.finalize(`${TEXT.toLowerCase()} tu sais`);
     await flush();
     expect(last?.voice?.phase).toBe('borderline');
     expect(last?.voice?.result?.added.map((a) => a.text)).toEqual(['tu', 'sais']);
+    expect(rec.live).toBe(false); // le micro ne doit rien entendre du clip
+    const audio = audios[0]!;
+    expect(audio.src).toContain('m#0');
     await tick(600);
+    expect(last?.currentNodeId).toBe('m#0'); // pas d'enchaînement avant la fin du clip
+    audio.dispatchEvent(new Event('ended'));
+    await flush();
     expect(last?.currentNodeId).toBe('b#1');
     p.destroy();
   });
