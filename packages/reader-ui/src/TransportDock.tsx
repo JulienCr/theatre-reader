@@ -17,6 +17,8 @@ export interface TransportDockProps {
   playing: boolean;
   /** En pause « c'est à toi » : le bouton central reprend au lieu de démarrer. */
   waiting?: boolean;
+  /** Minuteur de la pause de répétition : le bouton central le suspend / le relance. */
+  timer?: 'running' | 'paused';
   onPrev: () => void;
   onToggle: () => void;
   onNext: () => void;
@@ -39,6 +41,7 @@ const rateLabel = (rate: number): string => `${String(rate).replace('.', ',')}×
 export function TransportDock({
   playing,
   waiting,
+  timer,
   onPrev,
   onToggle,
   onNext,
@@ -53,8 +56,18 @@ export function TransportDock({
         <IconButton icon="skip-back" label="Réplique précédente" size="touch" onClick={onPrev} />
         {/* Unique aplat d'accent de la barre : l'action centrale en répétition. */}
         <IconButton
-          icon={playing ? 'pause' : 'play'}
-          label={playing ? 'Pause' : waiting ? 'Reprendre' : 'Lecture'}
+          icon={playing || timer === 'running' ? 'pause' : 'play'}
+          label={
+            timer === 'running'
+              ? 'Suspendre le minuteur'
+              : timer === 'paused'
+                ? 'Relancer le minuteur'
+                : playing
+                  ? 'Pause'
+                  : waiting
+                    ? 'Reprendre'
+                    : 'Lecture'
+          }
           size="hero"
           variant="primary"
           className="transport-play"

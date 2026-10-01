@@ -155,6 +155,9 @@ export const STYLE =
 .line--masked.line--revealed .speech, .line--masked.line--peek .speech { filter: none; }
 .line-timer { display: block; height: 4px; margin: 0 0 6px; border-radius: 2px; background: color-mix(in srgb, var(--ink) 12%, transparent); overflow: hidden; }
 .line-timer-fill { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
+.line-hint { display: flex; justify-content: flex-end; margin: 4px 0 8px; }
+.line-hint-btn { font: inherit; font-size: .8em; padding: 6px 14px; min-height: 36px; border-radius: 999px; border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer; }
+.line-hint-btn:active { background: var(--accent); color: #fff; }
 mark.reader-hit { background: var(--hit); color: var(--hit-ink); }
 mark.reader-hit--current { background: var(--hit-current); }
 /* Contour en encre sourde et non en accent : la réplique en cours est un repère

@@ -13,6 +13,7 @@
  */
 import {
   evaluate,
+  evaluatePrefix,
   matchCommand,
   type Evaluation,
   type Tolerance,
@@ -60,7 +61,7 @@ export type VoicePhase =
   | 'borderline'
   | 'failed'
   | 'no-speech'
-  /** Lecture du clip de référence, après deux échecs. */
+  /** Lecture du clip de référence, une fois les indices épuisés. */
   | 'reference'
   /** Un ordre vient d'être dit à la place de la tirade (cf. `commands.ts`). */
   | 'command'
@@ -148,17 +149,29 @@ const BREATH_MS = 700;
 /** Silence qui clôt une tentative, faute de validation anticipée (issue : ~800 ms). */
 const SILENCE_MS = 800;
 
+/**
+ * Silence toléré au milieu d'une tirade encore propre — une pause de jeu, pas un
+ * trou de mémoire. Deux valeurs : `strict` est déjà plus exigeant sur la fidélité
+ * et les noms propres (cf. `weight.ts`/`evaluate.ts`), pas la peine de le redire ici.
+ */
+const PAUSE_MS_SOFT = 4000;
+const PAUSE_MS_STRICT = 2000;
+
 /** Sans un seul mot pendant ce temps, la tentative est « aucune parole », pas une erreur. */
 const NO_SPEECH_MS = 6000;
 
 /** Temps laissé au son de refus et aux écarts avant de rouvrir le micro. */
 const FEEDBACK_MS = 900;
 
-/** Idem pour une validation limite, plus court : on enchaîne, le son doit juste passer. */
-const BORDERLINE_MS = 500;
-
-/** Échecs consécutifs après lesquels le clip de référence est joué (issue : exactement 2). */
+/** Échecs consécutifs après lesquels le coach souffle un indice (issue : exactement 2). */
 const MAX_FAILURES = 2;
+
+/**
+ * Indices soufflés d'eux-mêmes, de plus en plus longs (cf. `nextHintMs` du lecteur),
+ * avant de retomber sur le clip entier : sans ce plancher, une tirade vraiment
+ * oubliée tournerait sur des indices sans jamais rien donner.
+ */
+const MAX_AUTO_HINTS = 3;
 
 /** Tentatives muettes après lesquelles on rend la main plutôt que de tourner micro ouvert. */
 const MAX_SILENT = 2;
@@ -176,6 +189,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   let heard = '';
   let result: Evaluation | null = null;
   let failures = 0;
+  let autoHints = 0;
   let silent = 0;
   let expected = '';
   let message: string | null = null;
@@ -191,6 +205,18 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
    * l'autre compterait comme mon amorce et mangerait le budget d'autocorrection.
    */
   let prefix = '';
+  /**
+   * Ce que le moteur a déjà confirmé AVANT que lui-même clôture sa requête de
+   * reconnaissance en cours d'attente (silence détecté par SON moteur) — jamais
+   * l'acteur qui a fini. Porté sur la requête suivante, qui repart toujours d'un
+   * transcript vide (cf. `resumeAfterAutoFinal`). Ne se pose QU'à cette clôture,
+   * décidée par `onFinal` — jamais déduit d'un partiel : un partiel qui ne prolonge
+   * plus le précédent est le plus souvent une révision normale du moteur (« je ai »
+   * → « je l'ai in » → « je l'ai inversé », la même tirade en train de se préciser),
+   * pas une preuve de reset. Le confondre avec un reset a empilé les révisions au
+   * lieu de les remplacer — régression mesurée sur iPhone, corrigée ici.
+   */
+  let carried = '';
   let timers: ReturnType<typeof setTimeout>[] = [];
   let idleId: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -228,21 +254,29 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   /**
    * (Ré)arme le minuteur d'inactivité.
    *
-   * Un seul minuteur pour deux rôles, parce que c'est la même question posée à deux
-   * moments : tant que rien n'a été dit, on attend longtemps qu'on se lance ; dès
-   * qu'un mot est tombé, un court silence signe la fin de la tirade.
+   * Trois durées pour trois questions : tant que rien n'a été dit, on attend
+   * longtemps qu'on se lance (`NO_SPEECH_MS`) ; dès qu'un mot est tombé, on rejuge
+   * `heard` en préfixe — un début propre et encore incomplet gagne la pause de jeu
+   * (`PAUSE_MS_*`), tout le reste (fini, ou déjà faux) n'a droit qu'au court silence
+   * qui clôt une tentative (`SILENCE_MS`).
    */
   function armIdle(): void {
     if (idleId != null) clearTimeout(idleId);
     const my = gen;
     const spoken = heard.length > 0;
+    let delay = NO_SPEECH_MS;
+    if (spoken) {
+      const p = evaluatePrefix(expected, heard, { tolerance });
+      const stillGoing = p.verdict !== 'fail' && p.reached < p.total;
+      delay = stillGoing ? (tolerance === 'strict' ? PAUSE_MS_STRICT : PAUSE_MS_SOFT) : SILENCE_MS;
+    }
     idleId = setTimeout(
       () => {
         if (destroyed || my !== gen) return;
         if (spoken) finish();
         else noSpeech();
       },
-      spoken ? SILENCE_MS : NO_SPEECH_MS,
+      delay,
     );
   }
 
@@ -330,6 +364,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     const my = gen;
     const dueAt = Date.now() + delay;
     heard = '';
+    carried = '';
     message = note;
     command = null;
     emit();
@@ -358,25 +393,29 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       prefix = t;
       return;
     }
-    // Le moteur rend toujours l'énoncé complet depuis l'ouverture du micro : ce qui
-    // vient de la réplique précédente se retire par la tête. Si le moteur a révisé
-    // son texte au point que le préfixe ne colle plus, on garde tout — l'amorce
+    // Le moteur rend toujours l'énoncé complet depuis l'ouverture de SA requête : ce
+    // qui vient de la réplique précédente se retire par la tête. Si le moteur a
+    // révisé son texte au point que le préfixe ne colle plus, on garde tout — l'amorce
     // parasite tombera dans le départ libre de l'alignement.
     const mine = prefix && t.startsWith(prefix) ? t.slice(prefix.length).trim() : t;
-    if (!mine) return;
-    heard = mine;
+    if (!mine && !carried) return;
+    const combined = carried ? (mine ? `${carried} ${mine}` : carried) : mine;
+    // Un reset qui ne change rien au combiné (répétition ou révision triviale du même
+    // partiel) ne doit pas repousser l'échéance de `armIdle` indéfiniment.
+    if (combined === heard) return;
+    heard = combined;
     armIdle();
     emit();
     // Validation anticipée : la tirade est complète, inutile d'attendre le silence.
     // Seul un `ok` déclenche — un `borderline` sur un résultat partiel dirait
     // « tu as ajouté des mots » alors que la phrase n'est pas finie.
     //
-    // Sur `mine` et non sur `t` : juger la transcription complète y laisserait la
+    // Sur `combined` et non sur `t` : juger la transcription complète y laisserait la
     // fin de la réplique précédente, c'est-à-dire exactement ce que le préfixe vient
     // de retirer. Au-delà de quelques mots, elle épuise le départ libre de
     // l'alignement et empêche la validation anticipée — au moment même où la chauffe
     // sert à quelque chose.
-    const r = evaluate(expected, mine, { tolerance });
+    const r = evaluate(expected, combined, { tolerance });
     if (r.verdict === 'ok') conclude(r);
   }
 
@@ -388,8 +427,39 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       return;
     }
     const mine = prefix && t.startsWith(prefix) ? t.slice(prefix.length).trim() : t;
-    if (mine) heard = mine;
+    if (mine || carried) heard = carried ? (mine ? `${carried} ${mine}` : carried) : mine;
+    // Le moteur a fini SA requête, mais rien ne dit que la tirade l'est : un préfixe
+    // encore propre et incomplet n'est pas une fin de tentative, juste une requête à
+    // rouvrir en silence pour continuer d'écouter la même réplique.
+    if (heard) {
+      const p = evaluatePrefix(expected, heard, { tolerance });
+      if (p.verdict !== 'fail' && p.reached < p.total) {
+        carried = heard;
+        void resumeAfterAutoFinal();
+        return;
+      }
+    }
     finish();
+  }
+
+  /**
+   * Reprend l'écoute après une clôture décidée par le moteur lui-même, en pleine
+   * tirade. Ni `stopListening` (la tâche native est déjà terminée, rien à annuler)
+   * ni `gen++` (même tentative, pas un nouvel épisode) : `openMic` rouvre une requête
+   * native fraîche — `SpeechPlugin.swift` la referme et redémarre proprement, cf.
+   * `start()` — et `armIdle` reprend le fil sur le `heard` déjà porté par `carried`.
+   */
+  async function resumeAfterAutoFinal(): Promise<void> {
+    const my = gen;
+    if (idleId != null) {
+      clearTimeout(idleId);
+      idleId = null;
+    }
+    listening = false; // le moteur a déjà clos sa tâche de lui-même
+    if (!(await openMic(my))) return;
+    if (destroyed || my !== gen) return;
+    armIdle();
+    emit();
   }
 
   function finish(): void {
@@ -435,14 +505,21 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
   /**
    * Souffle le début de la tirade, puis rend la parole.
    *
-   * Même forme que `reference()`, à deux détails près qui font tout le sens du
-   * geste : le clip est tronqué (c'est un indice, pas un modèle), et `failures`
-   * n'est PAS remis à zéro — demander un coup de pouce n'est ni une faute ni un
-   * pardon, la référence complète reste due au deuxième échec.
+   * Même forme que `reference()`, mais le clip est tronqué : un indice, pas un modèle.
+   * Demandé à la voix, il ne touche pas à `failures` — un coup de pouce n'est ni une
+   * faute ni un pardon. Soufflé après deux échecs (`auto`), il remet le compteur à
+   * zéro et consomme l'un des `MAX_AUTO_HINTS`.
    */
-  async function hint(): Promise<void> {
+  async function hint(auto = false): Promise<void> {
     const my = gen;
     stopListening(true); // le micro ne doit rien entendre du clip
+    if (auto) {
+      autoHints++;
+      failures = 0;
+      phase = 'command';
+      command = 'hint';
+      emit();
+    }
     try {
       await o.playHint();
     } catch {
@@ -450,6 +527,23 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     }
     if (destroyed || my !== gen) return;
     void listen(BREATH_MS, true);
+  }
+
+  /**
+   * Une validation limite est corrigée, pas seulement signalée : le clip de
+   * référence est rejoué en entier avant d'enchaîner, pour que l'imperfection
+   * entendue reparte avec la bonne version en tête plutôt qu'un simple bip.
+   */
+  async function correctBorderline(): Promise<void> {
+    const my = gen;
+    stopListening(true); // le micro ne doit rien entendre du clip
+    try {
+      await o.playReference();
+    } catch {
+      /* pas de clip : on avance quand même */
+    }
+    if (destroyed || my !== gen) return;
+    o.advance();
   }
 
   function conclude(r: Evaluation): void {
@@ -491,7 +585,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       phase = 'borderline';
       emit();
       o.sound('borderline');
-      at(BORDERLINE_MS, () => o.advance());
+      void correctBorderline();
       return;
     }
 
@@ -501,7 +595,9 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     o.sound('reject');
     // Le micro se rouvre pendant que le son de refus joue et que les écarts
     // s'affichent : la nouvelle tentative n'attend pas que le moteur redémarre.
-    if (failures >= MAX_FAILURES) at(FEEDBACK_MS, () => void reference());
+    if (failures >= MAX_FAILURES) {
+      at(FEEDBACK_MS, () => void (autoHints < MAX_AUTO_HINTS ? hint(true) : reference()));
+    }
     else void listen(FEEDBACK_MS, false);
   }
 
@@ -559,6 +655,7 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     stopListening(true);
     phase = 'idle';
     heard = '';
+    carried = '';
     message = null;
     command = null;
     // `result` est délibérément conservé : après une validation limite, les écarts
@@ -613,9 +710,11 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
       warm = false; // à partir d'ici, ce qui est dit compte
       expected = text;
       failures = 0;
+      autoHints = 0;
       silent = 0;
       result = null;
       heard = '';
+      carried = '';
       message = null;
       command = null;
       phase = 'waiting';

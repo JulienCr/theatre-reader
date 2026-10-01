@@ -98,14 +98,22 @@ comparison, no DOM) → `createVoiceCoach` (state machine) → the host, which i
 - **Free start, bounded** (`align.ts`): the head of the utterance can be dropped at no
   cost, which is exactly an immediate self-correction. The bound (`minSkip` floor +
   ratio) is what stops "recite anything, then the line" from passing.
+- **A mid-tirade pause is judged apart from a genuine miss** (`evaluatePrefix`,
+  `PAUSE_MS_SOFT`/`PAUSE_MS_STRICT` in `voice.ts`): a clean, incomplete prefix earns a long
+  silence instead of `SILENCE_MS`; an engine reset mid-attempt is carried forward, not treated as its end.
+- **After two failures the coach whispers a hint, not the whole tirade** — three times,
+  each longer (350/700/1050 ms, the same counter as the *indice* command and button), and
+  only then plays the full reference clip. Without that floor a truly forgotten tirade
+  would loop on hints that never give enough.
+- **⏭ skips the stretches where I'm silent** (rehearsal + `rangeOf` only, `skipTarget`): mid-scene it lands two tirades before my next one, past my last one it goes to the start of the next scene where I have a tirade. Presence = "at least one tirade in the range", same as `sceneMembers`. **⏮** (`backTarget`, same scope) goes back to the scene entry — its start, unless my first tirade is beyond the 5th (`SCENE_LEAD_IN`), then two before it — each further press climbs (real start, then the previous scene's entry), and a double press (< 400 ms) jumps straight to the real start of the scene the first press reached. The web reader passes no `rangeOf`, so both stay ±1 there.
 - **Nothing is kept**: the transcript is cleared the moment a verdict is reached, and a
   clean `ok` keeps no result at all — otherwise the validated line stays pinned under
   the bar for the rest of the scene.
 - The mode forces `playMine`/`autoAdvance` off (they'd fight the listening), and the cue
   beep plays even when the `tick` setting is off — it announces the mic opening.
 - **Spoken commands** (`voice-match/commands.ts`, pure) turn the open mic into the only
-  hands-free control: *passe* (play my clip, then chain), *indice* (2 s of it, then
-  listen again), *début de la scène*, *scène suivante*. Two rules hold the whole thing
+  hands-free control: *passe* (play my clip, then chain), *indice* (350 ms of it, +350 ms per repeat on
+  the same tirade; also a button under the tirade, same counter; then listen again), *début de la scène*, *scène suivante*. Two rules hold the whole thing
   up, and both exist to protect the text: a command is only recognized on a **complete**
   utterance — hence the single dispatch point in `finish()`, never in `onPartial`, so a
   line starting with "Passe…" is never cut off — and a command whose words appear

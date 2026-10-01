@@ -298,16 +298,132 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
-  it('clôt la tentative après le silence quand rien ne valide plus tôt', async () => {
+  // Régression : une révision normale du moteur sur ses premiers mots (il ne
+  // prolonge pas forcément son propre partiel précédent) a été prise pour un reset
+  // silencieux et empilée au lieu d'être remplacée — « je ai je l'ai in je l'ai
+  // inversé » à l'écran au lieu de « je l'ai inversé ».
+  it('remplace le partiel plutôt que de l’empiler quand le moteur révise sa première hypothèse', async () => {
+    const p = build();
+    await upToMic(p);
+    rec.say('je le reviendrai');
+    await flush();
+    expect(last?.voice?.heard).toBe('je le reviendrai');
+    rec.say('je ne reviendrai'); // révision : ne prolonge pas le partiel précédent
+    await flush();
+    expect(last?.voice?.heard).toBe('je ne reviendrai'); // remplacé, pas empilé
+    rec.say(TEXT.toLowerCase());
+    await flush();
+    expect(last?.currentNodeId).toBe('b#1'); // valide normalement, sans résidu
+    p.destroy();
+  });
+
+  // Un préfixe propre et encore incomplet gagne la pause de jeu (4 s en souple) —
+  // 900 ms n'y suffit plus, c'est justement ce que ce test vérifiait avant l'issue.
+  it('tolère un silence de plusieurs secondes au milieu d’une tirade propre', async () => {
     const p = build();
     await upToMic(p);
     rec.say('je ne reviendrai jamais dans cette');
     await flush();
     expect(last?.voice?.phase).toBe('listening');
     await tick(900);
+    expect(last?.voice?.phase).toBe('listening'); // encore loin de la pause de jeu
+    await tick(3100); // 4000 ms au total depuis le dernier mot
     expect(last?.voice?.phase).toBe('failed');
     expect(last?.voice?.failures).toBe(1);
-    expect(last?.currentNodeId).toBe('m#0'); // toujours bloqué sur ma réplique
+    expect(last?.currentNodeId).toBe('m#0');
+    p.destroy();
+  });
+
+  // Le revers : une divergence déjà là (pas un début propre) échoue toujours au
+  // court silence, inchangé — la pause de jeu ne s'applique qu'à un préfixe fidèle.
+  it('échoue toujours vite sur une divergence déjà là', async () => {
+    const p = build();
+    await upToMic(p);
+    rec.say('je pars');
+    await flush();
+    expect(last?.voice?.phase).toBe('listening');
+    await tick(900);
+    expect(last?.voice?.phase).toBe('failed');
+    expect(last?.voice?.failures).toBe(1);
+    p.destroy();
+  });
+
+  it('valide une tirade dite avec une vraie pause au milieu, sans échec au passage', async () => {
+    const p = build();
+    await upToMic(p);
+    rec.say('je ne reviendrai jamais dans cette');
+    await flush();
+    await tick(3000); // la pause de jeu, bien au-delà de l'ancien silence de 800 ms
+    expect(last?.voice?.phase).toBe('listening');
+    expect(last?.voice?.failures).toBe(0);
+    rec.say(TEXT.toLowerCase());
+    await flush();
+    expect(last?.currentNodeId).toBe('b#1');
+    expect(last?.voice?.failures).toBe(0);
+    p.destroy();
+  });
+
+  // Un partiel répété à l'identique (révision triviale du moteur) ne doit pas
+  // repousser l'échéance : le compte à rebours part du DERNIER mot nouveau.
+  it('ne repousse pas l’échéance sur un partiel répété à l’identique', async () => {
+    const p = build();
+    await upToMic(p);
+    rec.say('je ne reviendrai jamais dans cette');
+    await flush();
+    await tick(2000);
+    rec.say('je ne reviendrai jamais dans cette');
+    await flush();
+    expect(last?.voice?.phase).toBe('listening');
+    await tick(2000); // 4000 ms depuis le premier mot, pas 6000
+    expect(last?.voice?.phase).toBe('failed');
+    p.destroy();
+  });
+
+  // Le filet de sécurité existant (génération invalidée par `cancel()`) doit encore
+  // tenir pendant la pause longue : un geste pendant l'attente ferme le micro pour
+  // de bon, sans qu'un minuteur en vol ne vienne rendre un verdict tardif.
+  it('un geste pendant la longue attente ferme le micro sans verdict tardif', async () => {
+    const p = build();
+    await upToMic(p);
+    rec.say('je ne reviendrai jamais dans cette');
+    await flush();
+    await tick(1000);
+    p.pause();
+    expect(rec.live).toBe(false);
+    await tick(5000); // bien après l'ancienne échéance de 4000 ms
+    expect(rec.live).toBe(false);
+    expect(last?.voice?.phase).not.toBe('failed');
+    p.destroy();
+  });
+
+  // Le moteur clôt sa requête de lui-même en pleine tirade propre : ni verdict, ni
+  // fin de tentative — juste une requête native rouverte en silence, et la suite
+  // valide normalement une fois dite.
+  it('un finalize prématuré du moteur sur un préfixe propre ne clôt pas la tentative', async () => {
+    const p = build();
+    await upToMic(p);
+    const startsBefore = rec.starts;
+    rec.finalize('je ne reviendrai jamais dans cette');
+    await flush();
+    expect(last?.voice?.phase).toBe('listening'); // aucun verdict, l'écoute continue
+    expect(rec.starts).toBe(startsBefore + 1); // une requête native fraîche
+    expect(rec.live).toBe(true);
+    // Le moteur reparti de zéro ne rapporte que la SUITE, jamais le début déjà acquis.
+    rec.say('maison');
+    await flush();
+    expect(last?.currentNodeId).toBe('b#1'); // la suite recolle et valide
+    p.destroy();
+  });
+
+  // Contrairement au préfixe propre ci-dessus : ici c'est une VRAIE tentative en
+  // moins, pas une requête native rouverte en silence sur la même tentative.
+  it('un finalize sur une réplique déjà fausse échoue tout de suite, comme une vraie tentative', async () => {
+    const p = build();
+    await upToMic(p);
+    rec.finalize('je pars');
+    await flush();
+    expect(last?.voice?.phase).toBe('failed');
+    expect(last?.voice?.failures).toBe(1);
     p.destroy();
   });
 
@@ -322,43 +438,83 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
-  it('rejoue le modèle après exactement deux échecs, puis réécoute compteur à zéro', async () => {
+  it('souffle un indice après exactement deux échecs, puis réécoute compteur à zéro', async () => {
     const p = build();
     await upToMic(p);
 
-    rec.finalize('je reviendrai');
+    rec.finalize('je pars');
     await flush();
     expect(last?.voice?.failures).toBe(1);
 
     await tick(900); // le micro se rouvre pour la 2e tentative
     expect(rec.live).toBe(true);
     const startsBefore = rec.starts;
-    rec.finalize('je reviendrai');
+    rec.finalize('je pars');
     await flush();
     expect(last?.voice?.failures).toBe(2);
 
     await tick(900);
-    expect(last?.voice?.phase).toBe('reference');
-    expect(rec.live).toBe(false); // le micro ne doit rien entendre du modèle
+    expect(last?.voice?.phase).toBe('command');
+    expect(last?.voice?.command).toBe('hint');
+    expect(rec.live).toBe(false); // le micro ne doit rien entendre du clip
     const audio = audios[0]!;
     expect(audio.src).toContain('m#0');
 
-    audio.dispatchEvent(new Event('ended'));
-    await flush();
+    audio.dispatchEvent(new Event('playing'));
+    await tick(350); // le clip est coupé : ni `ended` ni erreur
+    await tick(TO_MIC);
     expect(last?.voice?.failures).toBe(0);
     expect(rec.starts).toBe(startsBefore + 1);
-    expect(last?.currentNodeId).toBe('m#0'); // le modèle n'a pas fait avancer la lecture
+    expect(last?.currentNodeId).toBe('m#0'); // l'indice n'a pas fait avancer la lecture
     p.destroy();
   });
 
-  it('valide de justesse une réplique brodée, et enchaîne', async () => {
+  it("souffle trois indices de plus en plus longs, puis retombe sur le clip entier", async () => {
+    const paused: number[] = [];
+    HTMLMediaElement.prototype.pause = () => {
+      paused.push(paused.length);
+    };
+    const p = build();
+    await upToMic(p);
+    const failTwice = async (): Promise<void> => {
+      rec.finalize('je pars');
+      await flush();
+      await tick(900);
+      rec.finalize('je pars');
+      await flush();
+      await tick(900);
+    };
+    for (const ms of [350, 700, 1050]) {
+      await failTwice();
+      expect(last?.voice?.command).toBe('hint');
+      audios[0]!.dispatchEvent(new Event('playing'));
+      const before = paused.length;
+      await tick(ms - 1);
+      expect(paused.length).toBe(before); // pas encore coupé : l'indice dure bien `ms`
+      await tick(1);
+      expect(paused.length).toBe(before + 1);
+      await tick(TO_MIC);
+      expect(rec.live).toBe(true);
+    }
+    await failTwice();
+    expect(last?.voice?.phase).toBe('reference');
+    p.destroy();
+  });
+
+  it('valide de justesse une réplique brodée, rejoue la bonne version, puis enchaîne', async () => {
     const p = build();
     await upToMic(p);
     rec.finalize(`${TEXT.toLowerCase()} tu sais`);
     await flush();
     expect(last?.voice?.phase).toBe('borderline');
     expect(last?.voice?.result?.added.map((a) => a.text)).toEqual(['tu', 'sais']);
+    expect(rec.live).toBe(false); // le micro ne doit rien entendre du clip
+    const audio = audios[0]!;
+    expect(audio.src).toContain('m#0');
     await tick(600);
+    expect(last?.currentNodeId).toBe('m#0'); // pas d'enchaînement avant la fin du clip
+    audio.dispatchEvent(new Event('ended'));
+    await flush();
     expect(last?.currentNodeId).toBe('b#1');
     p.destroy();
   });
@@ -393,7 +549,7 @@ describe('@theatre/audio-player — répétition vocale', () => {
     await upToMic(p);
     await tick(6100); // 1er silence
     await tick(900);
-    rec.finalize('je reviendrai'); // on parle, mais faux
+    rec.finalize('je pars'); // on parle, mais faux
     await flush();
     expect(last?.voice?.failures).toBe(1);
     await tick(900);
@@ -508,20 +664,20 @@ describe('@theatre/audio-player — répétition vocale', () => {
     p.destroy();
   });
 
-  it('coupe le clip de référence quand le mode est désactivé en pleine lecture', async () => {
+  it("coupe le clip de l'indice quand le mode est désactivé en pleine lecture", async () => {
     const paused: string[] = [];
     HTMLMediaElement.prototype.pause = function pause(this: HTMLMediaElement) {
       paused.push(this.src);
     };
     const p = build();
     await upToMic(p);
-    rec.finalize('je reviendrai');
+    rec.finalize('je pars');
     await flush();
     await tick(900);
-    rec.finalize('je reviendrai');
+    rec.finalize('je pars');
     await flush();
     await tick(900);
-    expect(last?.voice?.phase).toBe('reference');
+    expect(last?.voice?.command).toBe('hint');
     paused.length = 0;
 
     p.setVoice({ enabled: false });
@@ -590,14 +746,14 @@ describe('@theatre/audio-player — répétition vocale', () => {
       expect(audios[0]!.src).toContain('m#0');
 
       // Le compte à rebours part du SON, pas de l'appel : ici le clip met 800 ms à
-      // démarrer, et l'indice doit quand même durer ses deux secondes pleines.
+      // démarrer, et l'indice doit quand même durer ses 350 ms pleines.
       await tick(800);
       audios[0]!.dispatchEvent(new Event('playing'));
-      await tick(1900);
-      expect(rec.live).toBe(false); // pas encore : la troncature court depuis 1,9 s
+      await tick(300);
+      expect(rec.live).toBe(false); // pas encore : la troncature court depuis 0,3 s
 
       // Le clip n'a NI `ended` ni erreur : c'est la troncature qui rend la main.
-      await tick(200);
+      await tick(100);
       await tick(TO_MIC);
       expect(rec.live).toBe(true);
       expect(rec.starts).toBe(startsBefore + 1);
@@ -626,7 +782,7 @@ describe('@theatre/audio-player — répétition vocale', () => {
     it('n’efface pas les échecs déjà accumulés', async () => {
       const p = build();
       await upToMic(p);
-      rec.finalize('je reviendrai');
+      rec.finalize('je pars');
       await flush();
       expect(last?.voice?.failures).toBe(1);
       await tick(900);

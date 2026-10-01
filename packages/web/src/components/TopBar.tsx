@@ -77,14 +77,27 @@ export interface TopBarProps {
   audioEstimate: { chars: number; lines: number } | null;
   /** Nombre de tirades pré-générables ; 0 masque l'entrée de génération. */
   audioBatchCount: number;
+  /** Sur ce lot, combien manquent au cache disque ; `null` = pas encore vérifié. */
+  audioMissingCount: number | null;
+  audioMissingLoading: boolean;
   audioRunning: boolean;
   onGenerateAudio: () => void;
+  /** Déclenche la vérification du cache (gratuite) à l'ouverture du menu « ⋯ ». */
+  onCheckAudioMissing: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   onOpenPalette: () => void;
   onOpenShortcuts: () => void;
   theme: ThemePref;
   onTheme: (t: ThemePref) => void;
+}
+
+/** Libellé de l'entrée « Générer l'audio », affiné dès que le cache a été vérifié. */
+function audioHint(total: number, missing: number | null, loading: boolean): string {
+  if (loading) return `${total} tirades — vérification du cache…`;
+  if (missing === null) return `${total} tirades — réutilise le cache et prépare l'export mobile.`;
+  if (missing === 0) return `${total} tirades — tout est déjà en cache.`;
+  return `${missing} à régénérer sur ${total} — réutilise le cache et prépare l'export mobile.`;
 }
 
 const MODES: { value: AppMode; label: string }[] = [
@@ -183,6 +196,7 @@ export function TopBar(p: TopBarProps) {
         <Menu
           align="end"
           trigger={<IconButton icon="more-horizontal" label="Autres actions" variant="ghost" />}
+          onOpenChange={(open) => open && p.onCheckAudioMissing()}
         >
           {hasPlay && (
             <>
@@ -191,7 +205,7 @@ export function TopBar(p: TopBarProps) {
                 <MenuItem
                   onSelect={p.onGenerateAudio}
                   disabled={p.audioRunning}
-                  hint={`${p.audioBatchCount} tirades — réutilise le cache et prépare l'export mobile.`}
+                  hint={audioHint(p.audioBatchCount, p.audioMissingCount, p.audioMissingLoading)}
                 >
                   Générer l'audio
                 </MenuItem>

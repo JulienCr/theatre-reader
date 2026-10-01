@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluate, tokenize } from './evaluate';
+import { evaluate, evaluatePrefix, tokenize } from './evaluate';
 import { canonicalizeNumbers } from './numbers';
 import { splitWords } from './normalize';
 
@@ -81,6 +81,30 @@ describe('verdicts', () => {
 
   it('tolère le « ne » avalé, que personne ne prononce', () => {
     expect(verdict("Je ne sais pas ce qu'il veut.", "je sais pas ce qu'il veut")).toBe('ok');
+  });
+
+  it('tolère le « n\' » élidé devant voyelle, dans les deux sens', () => {
+    expect(verdict("On n'a rien fait.", 'on a rien fait')).toBe('ok');
+    expect(verdict('On a rien fait.', "on n'a rien fait")).toBe('ok');
+  });
+
+  it("assimile « environ » et « en virant », dans les deux sens", () => {
+    expect(verdict('Il reste environ deux minutes.', 'il reste en virant deux minutes')).toBe('ok');
+    expect(verdict('Il reste en virant deux minutes.', 'il reste environ deux minutes')).toBe('ok');
+  });
+
+  it("assimile « plutôt » et « plus tôt », dans les deux sens et en strict", () => {
+    expect(verdict('Il vient plutôt demain.', 'il vient plus tôt demain')).toBe('ok');
+    expect(verdict('Il vient plus tôt demain.', 'il vient plutôt demain')).toBe('ok');
+    expect(verdict('Il vient plutôt demain.', 'il vient plus tôt demain', 'strict')).toBe('ok');
+    expect(verdict('Il vient plus tôt demain.', 'il vient plutôt demain', 'strict')).toBe('ok');
+  });
+
+  it("assimile « tant » et « tente », dans les deux sens et en strict", () => {
+    expect(verdict('Il a tant et si bien insisté.', 'il a tente et si bien insisté')).toBe('ok');
+    expect(verdict('Il a tente et si bien insisté.', 'il a tant et si bien insisté')).toBe('ok');
+    expect(verdict('Il a tant et si bien insisté.', 'il a tente et si bien insisté', 'strict')).toBe('ok');
+    expect(verdict('Il a tente et si bien insisté.', 'il a tant et si bien insisté', 'strict')).toBe('ok');
   });
 
   it('absorbe une approximation de transcription sur un mot plein', () => {
@@ -235,6 +259,68 @@ describe('tolérance', () => {
   });
 });
 
+describe('evaluatePrefix', () => {
+  const TEXT = 'Je ne reviendrai jamais dans cette maison.';
+
+  it('juge propre le début d’une longue tirade encore en cours', () => {
+    const r = evaluatePrefix(TEXT, 'je ne reviendrai');
+    expect(r.total).toBe(7);
+    expect(r.reached).toBe(3);
+    expect(r.verdict).not.toBe('fail');
+  });
+
+  it('échoue quand un passage entier a été sauté avant de reprendre plus loin', () => {
+    const expected = 'Je pars demain matin sans dire au revoir à personne.';
+    const r = evaluatePrefix(expected, 'je pars a personne');
+    expect(r.verdict).toBe('fail');
+  });
+
+  it('échoue sur une négation absente à l’intérieur du passage couvert', () => {
+    const r = evaluatePrefix(TEXT, 'je ne reviendrai dans cette');
+    expect(r.reached).toBeGreaterThanOrEqual(5);
+    expect(r.verdict).toBe('fail');
+  });
+
+  // Le piège de la ligne 0 : si `i = 0` pouvait servir de fin libre, ces trois mots
+  // (dont l'un est mal transcrit) seraient avalés comme amorce gratuite, avec zéro
+  // mot atteint. Ce test échoue net si la garde `i ∈ [1, n]` d'align.ts disparaît.
+  it('n’avale jamais le début comme une amorce gratuite (piège ligne 0)', () => {
+    const r = evaluatePrefix('Je reviendrai jamais dans cette maison.', 'je revien jamais');
+    expect(r.reached).toBeGreaterThanOrEqual(3);
+  });
+
+  it('reconnaît une autocorrection en cours, pas encore terminée', () => {
+    const r = evaluatePrefix(TEXT, 'je reviendrai non je ne reviendrai');
+    expect(r.reached).toBeGreaterThan(0);
+    expect(r.verdict).not.toBe('fail');
+  });
+
+  it("ne prend pas un ordre vocal isolé pour un début de tirade", () => {
+    expect(evaluatePrefix(TEXT, 'passe').verdict).toBe('fail');
+  });
+
+  it('échoue sur une réplique totalement étrangère', () => {
+    expect(evaluatePrefix(TEXT, 'bonsoir madame comment allez vous').verdict).toBe('fail');
+  });
+
+  // Ancrage de non-régression : sur une lecture complète et correcte, la fin libre
+  // atteint toute la tirade et s'accorde avec `evaluate` — jamais un verdict qui le
+  // contredit à l'oreille (ok/borderline d'un côté, fail de l'autre).
+  it('s’accorde avec `evaluate` quand la tirade est dite en entier', () => {
+    const cases: [string, string][] = [
+      [TEXT, 'je ne reviendrai jamais dans cette maison'],
+      ["Je ne sais pas ce qu'il veut.", "je sais pas ce qu'il veut"],
+      ['Il reviendrait demain matin.', 'il reviendrais demain matin'],
+    ];
+    for (const [expected, heard] of cases) {
+      const full = evaluate(expected, heard);
+      const prefix = evaluatePrefix(expected, heard);
+      expect(prefix.reached).toBe(prefix.total);
+      expect(prefix.verdict === 'fail').toBe(full.verdict === 'fail');
+    }
+  });
+});
+
 describe('robustesse', () => {
   it('ne casse pas sur un texte attendu vide', () => {
     expect(evaluate('', 'bonjour').verdict).toBe('ok');
@@ -242,5 +328,9 @@ describe('robustesse', () => {
 
   it('canonicalise une liste de jetons déjà découpée', () => {
     expect(canonicalizeNumbers(splitWords('trente-deux')).map((t) => t.raw)).toEqual(['trente deux']);
+  });
+
+  it("ne plante pas quand un seul mot attendu se découpe en trois côté dictée", () => {
+    expect(() => evaluate('Chevelure.', 'ché vé lourd')).not.toThrow();
   });
 });
