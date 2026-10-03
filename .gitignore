@@ -12,3 +12,5 @@ data/
 packages/web/dist/
 # Textes sources (œuvres tierces sous droits) — non publiés
 textes/
+# Binaire du correcteur orthographique compilé à la volée (server/src/spell.ts).
+.cache/

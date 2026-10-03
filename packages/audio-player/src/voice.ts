@@ -29,7 +29,8 @@ import {
 export interface SpeechRecognizer {
   /** Moteur présent ET permissions accordées. Faux = pas de mode vocal, sans erreur. */
   available(): Promise<boolean>;
-  start(opts: { locale: string }): Promise<void>;
+  /** `contextualStrings`: words the engine should expect (names, invented words). */
+  start(opts: { locale: string; contextualStrings?: string[] }): Promise<void>;
   /** Fin propre : le moteur peut encore émettre son dernier résultat. */
   stop(): Promise<void>;
   /** Coupure immédiate : plus rien ne doit remonter. */
@@ -85,6 +86,8 @@ export interface VoiceCoachOptions {
   recognizer: SpeechRecognizer;
   tolerance: Tolerance;
   locale?: string;
+  /** Words to hint to the recognizer; none means the engine's own vocabulary only. */
+  vocabulary?: string[];
   /** Joue le clip de la tirade courante et résout à la fin — ou tout de suite s'il n'y en a pas. */
   playReference: () => Promise<void>;
   /** Idem, mais tronqué : le début de la tirade, juste de quoi la relancer. */
@@ -336,7 +339,10 @@ export function createVoiceCoach(o: VoiceCoachOptions): VoiceCoach {
     }
 
     try {
-      await o.recognizer.start({ locale: o.locale ?? 'fr-FR' });
+      await o.recognizer.start({
+        locale: o.locale ?? 'fr-FR',
+        ...(o.vocabulary?.length ? { contextualStrings: o.vocabulary } : {}),
+      });
     } catch (e) {
       if (destroyed || my !== gen) return false;
       phase = 'error';

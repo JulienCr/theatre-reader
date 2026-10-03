@@ -185,7 +185,12 @@ export function Chrome({
       // Sans reconnaissance (le .html exporté), le moteur ignore tout du mode vocal
       // et la pause de répétition reste celle d'avant.
       voice: recognizer
-        ? { recognizer, enabled: voiceRef.current.enabled, tolerance: voiceRef.current.tolerance }
+        ? {
+            recognizer,
+            enabled: voiceRef.current.enabled,
+            tolerance: voiceRef.current.tolerance,
+            vocabulary: data.voiceVocabulary,
+          }
         : undefined,
     });
     player.setRate(rate);

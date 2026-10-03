@@ -42,6 +42,7 @@ export interface VoiceOptions {
   enabled?: boolean;
   tolerance?: Tolerance;
   locale?: string;
+  vocabulary?: string[];
 }
 
 /**
@@ -1078,6 +1079,7 @@ export function createPlayer(opts: PlayerOptions): Player {
       recognizer: opts.voice.recognizer,
       tolerance: opts.voice.tolerance ?? 'soft',
       locale: opts.voice.locale,
+      vocabulary: opts.voice.vocabulary,
       playReference,
       playHint: () => playReference(nextHintMs()),
       command: (c) => {

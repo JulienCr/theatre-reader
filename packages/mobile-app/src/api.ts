@@ -46,6 +46,18 @@ export function loadPlay(slug: string): Promise<{ fountain: string; meta: PlayMe
   return getJson(`/api/plays/${encodeURIComponent(slug)}`);
 }
 
+/** Best effort: voice still works without hints, so any failure yields no vocabulary. */
+export async function loadVocabulary(slug: string): Promise<string[]> {
+  try {
+    const { vocabulary } = await getJson<{ vocabulary: string[] }>(
+      `/api/plays/${encodeURIComponent(slug)}/vocabulary`,
+    );
+    return Array.isArray(vocabulary) ? vocabulary : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function loadNotes(slug: string): Promise<Note[]> {
   const { notes } = await getJson<{ notes: Note[] }>(
     `/api/plays/${encodeURIComponent(slug)}/notes`,

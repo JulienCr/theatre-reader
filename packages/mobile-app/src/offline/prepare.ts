@@ -8,7 +8,7 @@
  * dépenser reste le rôle du bouton « Générer l'audio » de l'atelier web.
  */
 
-import { buildAudioItems, fetchAudioManifest, audioUrl, loadNotes, loadPlay } from '../api';
+import { buildAudioItems, fetchAudioManifest, audioUrl, loadNotes, loadPlay, loadVocabulary } from '../api';
 import * as store from './store';
 
 /**
@@ -47,7 +47,7 @@ export async function prepareOffline(
 ): Promise<PrepareResult> {
   const { fountain, meta } = await loadPlay(slug);
   const notes = await loadNotes(slug);
-  await store.savePlay(slug, { fountain, meta });
+  await store.savePlay(slug, { fountain, meta, vocabulary: await loadVocabulary(slug) });
   await store.saveNotes(slug, notes);
 
   // `buildAudioItems` est le seul constructeur autorisé : il produit le nodeId du

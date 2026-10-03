@@ -25,6 +25,7 @@ import {
 import { buildReaderDocument, storageKeyFor } from '@theatre/reader-ui/document';
 import { DEFAULT_OUTPUT_FORMAT, DEFAULT_TTS_MODEL, hasElevenLabsKey, synthesize } from './tts';
 import { audioCacheKey, readAudioCache, writeAudioCache } from './storage';
+import { vocabularyFor } from './vocabulary';
 
 const require = createRequire(import.meta.url);
 
@@ -167,6 +168,12 @@ export async function exportReaderHtml(
 
   const audio = await buildAudioClips(fountain, characters, slug, audioOpts);
 
+  // The vocabulary only sharpens speech recognition: never worth failing an export.
+  const vocabulary = await vocabularyFor(fountain, characters).catch((e) => {
+    console.warn(`vocabulary skipped: ${e instanceof Error ? e.message : String(e)}`);
+    return undefined;
+  });
+
   const { body, css, data, title } = buildReaderDocument({
     fountain,
     characters,
@@ -175,6 +182,7 @@ export async function exportReaderHtml(
     storageKey: storageKeyFor(slug),
     clips: audio?.clips,
     myCharacterId: audio?.myCharacterId,
+    vocabulary,
   });
 
   // Échappe </script> et < pour une inclusion sûre dans une balise <script>.

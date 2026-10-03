@@ -20,3 +20,5 @@ export { phoneticKey } from './phonetic';
 export { align, similarity } from './align';
 export type { Op } from './align';
 export { blocks, weightOf, CRITICAL } from './weight';
+export { buildVocabulary } from './vocabulary';
+export type { VocabularyInput } from './vocabulary';

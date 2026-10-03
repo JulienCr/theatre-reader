@@ -67,9 +67,20 @@ buildVocabulary({
 Ordre de la liste, jusqu'à `max` :
 
 1. Noms de personnages, mis en forme « Giuseppe » (pas « GIUSEPPE »).
-2. Noms propres du texte (`Token.proper`, cf. `normalize.ts`) absents de la liste.
-3. Mots inconnus (`!isKnown`), du plus fréquent au moins fréquent, puis alphabétique
-   pour un résultat stable.
+2. Noms propres du texte (`Token.proper`, cf. `normalize.ts`), **seulement si leur
+   forme en minuscules est inconnue du correcteur**.
+3. Autres mots inconnus (`!isKnown`), du plus fréquent au moins fréquent, puis
+   alphabétique pour un résultat stable.
+
+> **Amendé après mesure.** La première version gardait tous les noms propres. Sur la
+> vraie pièce, les 100 places étaient prises par des mots courants capitalisés
+> (« Merci », « Porte », « Dieu », « Monsieur ») et des mots criés en majuscules
+> (« NON », « NOUS ») : « chévéloure » arrivait 94e. Avec le filtre ci-dessus, il
+> passe 54e et la tête de liste ne contient plus que de vrais noms (Beethoven,
+> Berlusconi, Corléone…).
+
+Le préfixe d'élision est retiré avant tout test (`l'aubergine` → `aubergine`) :
+`splitWords` garde l'apostrophe dans le mot, et un correcteur rejette `l'aubergine`.
 
 Pur et sans I/O : le correcteur est INJECTÉ (`isKnown`), comme le recognizer l'est
 dans `audio-player`. Les textes passés sont les textes DITS : didascalies exclues.
@@ -92,7 +103,8 @@ l'export audio sans clé ElevenLabs).
 
 ### 3. Calcul et mémoïsation — `@theatre/server`
 
-`playVocabulary(slug)` : lit la pièce, extrait les textes dits de l'AST
+`vocabularyFor(fountain, characters)` (et non par `slug` : l'export reçoit le texte
+dans sa requête) : lit la pièce, extrait les textes dits de l'AST
 (`speechText` des répliques, didascalies exclues), appelle `unknownWords` puis
 `buildVocabulary`. Mémoïsé en mémoire sur `sha1(fountain + noms de personnages)` :
 un texte inchangé ne repaie pas le correcteur, un texte modifié se recalcule seul.
@@ -132,6 +144,13 @@ Changements d'interface, tous additifs et optionnels :
   Le faux recognizer de développement l'ignore.
 - `SpeechPlugin.swift` : lit `contextualStrings` dans `start` et le pose sur la
   requête. Absent ou vide : comportement actuel.
+
+## Mise en œuvre
+
+Mesuré sur la vraie pièce : 0,4 s au premier calcul, 0 ms ensuite (mémo). Le serveur
+dépend désormais de `@theatre/voice-match` (dépendance de workspace). La dégradation
+du correcteur passe par un drapeau : un résultat calculé quand le correcteur était
+indisponible n'est pas mémoïsé, pour qu'un appel ultérieur puisse réessayer.
 
 ## Gestion des erreurs
 

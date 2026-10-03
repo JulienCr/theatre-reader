@@ -125,10 +125,11 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func start(_ call: CAPPluginCall) {
         let locale = call.getString("locale") ?? "fr-FR"
+        let hints = call.getArray("contextualStrings", String.self) ?? []
         DispatchQueue.main.async {
             self.teardown(cancel: true) // un démarrage annule toujours l'écoute précédente
             do {
-                try self.beginListening(locale: locale)
+                try self.beginListening(locale: locale, hints: hints)
                 call.resolve()
             } catch {
                 self.restorePlaybackSession()
@@ -191,7 +192,7 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func beginListening(locale: String) throws {
+    private func beginListening(locale: String, hints: [String]) throws {
         guard let engineRecognizer = SFSpeechRecognizer(locale: Locale(identifier: locale)),
               engineRecognizer.isAvailable else {
             throw NSError(
@@ -207,6 +208,8 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
+        // A bias, not a guarantee: names and invented words the engine would not guess.
+        req.contextualStrings = hints
         // Hors ligne, la reconnaissance serveur échoue sans rien transcrire ; la
         // version embarquée est moins fine mais elle répond. En ligne, on garde la
         // serveur, nettement meilleure sur du texte de théâtre.

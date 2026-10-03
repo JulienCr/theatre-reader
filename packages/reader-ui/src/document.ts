@@ -55,6 +55,8 @@ export interface ReaderData {
   storageKey: string;
   /** Audio (opt-in) : nodeId -> URL du clip, + mon rôle. */
   audio?: { clips: Record<string, string>; myCharacterId?: string };
+  /** Words to hint to the speech recognizer (`contextualStrings`); absent when empty. */
+  voiceVocabulary?: string[];
 }
 
 export interface ReaderDocumentInput {
@@ -66,6 +68,8 @@ export interface ReaderDocumentInput {
   /** nodeId -> URL du clip. OPAQUE ici : data URI (export), URL serveur ou fichier local (app). */
   clips?: Record<string, string>;
   myCharacterId?: string;
+  /** Words to hint to the speech recognizer, computed by the server (cf. voice-match `buildVocabulary`). */
+  vocabulary?: string[];
 }
 
 export interface ReaderDocument {
@@ -99,6 +103,7 @@ export function buildReaderDocument(input: ReaderDocumentInput): ReaderDocument 
     notes: input.notes ?? [],
     storageKey: input.storageKey,
     ...(audio ? { audio } : {}),
+    ...(input.vocabulary?.length ? { voiceVocabulary: input.vocabulary } : {}),
   };
 
   return { body, css, data, title };
