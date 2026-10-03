@@ -42,6 +42,8 @@ export interface AlignOptions {
   maxSkip: number;
   /** Similarité à partir de laquelle deux mots comptent comme le même. */
   matchSim: number;
+  /** Admet les équivalences réservées au mode souple (cf. `variants.ts`). */
+  soft?: boolean;
 }
 
 const GAP = 1;
@@ -87,6 +89,19 @@ function sameElidedNe(a: string, b: string): boolean {
   return false;
 }
 
+/** Mots en « -ent » qui ne sont pas un pluriel verbal : `comment` ne se dit pas `comme`. */
+const NOT_VERB_PLURAL = new Set(['comment']);
+
+/**
+ * `a` est le pluriel verbal en « -ent » de `b` (`dégagent` / `dégage`) : le « -ent » est
+ * muet, mais `phonetic.ts` le lit comme une nasale. Le radical de trois lettres au moins
+ * écarte `sent`/`se`, `vent`/`ve`, où ce n'est pas un pluriel.
+ */
+function silentEnt(a: Token, b: Token): boolean {
+  if (!a.key.endsWith('ent') || a.key.length < 6 || NOT_VERB_PLURAL.has(a.key)) return false;
+  return phoneticKey(a.key.slice(0, -3) + 'e') === b.phon;
+}
+
 /**
  * Proximité de deux mots, entre 0 et 1.
  *
@@ -99,17 +114,29 @@ function sameElidedNe(a: string, b: string): boolean {
  * sur trois, et ce sont pourtant deux répliques différentes. Même chose face à un
  * mot ordinaire — un nombre ne s'approxime pas.
  */
-export function similarity(a: Token, b: Token): number {
+export function similarity(a: Token, b: Token, soft = false): number {
   if (a.key === b.key) return 1;
   if (a.key.startsWith('#') || b.key.startsWith('#')) return 0;
   if (a.phon && a.phon === b.phon) return HOMOPHONE_SIM;
   // Même valeur que l'homophonie : dans les deux cas la personne a dit la réplique,
   // c'est la machine qui a choisi la forme écrite.
-  if (sameVariant(a.key, b.key)) return HOMOPHONE_SIM;
+  if (sameVariant(a.key, b.key, soft)) return HOMOPHONE_SIM;
   if (sameElidedNe(a.key, b.key)) return HOMOPHONE_SIM;
+  if (silentEnt(a, b) || silentEnt(b, a)) return HOMOPHONE_SIM;
   const max = Math.max(a.key.length, b.key.length);
   if (max === 0) return 1;
   return 1 - levenshtein(a.key, b.key) / max;
+}
+
+/**
+ * Même son à la nasale près (`A` « en » / `O` « on »), que l'iPhone confond sans cesse.
+ * Réservé aux regroupements : un mot coupé ou collé est déjà une dictée qui s'est
+ * trompée, alors qu'en 1-pour-1 ça rapprocherait `dent` de `dont`.
+ */
+function sameLooseSound(a: Token, b: Token): boolean {
+  if (a.key.startsWith('#') || b.key.startsWith('#')) return false;
+  const loose = (phon: string): string => phon.replace(/[AO]/g, 'N');
+  return a.phon !== '' && loose(a.phon) === loose(b.phon);
 }
 
 /**
@@ -129,6 +156,7 @@ function joined(a: Token, b: Token): Token {
 export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op[] {
   const n = expected.length;
   const m = heard.length;
+  const sim = (a: Token, b: Token): number => similarity(a, b, opts.soft);
   const maxSkip = Math.max(0, Math.min(opts.maxSkip, m));
 
   // Paires adjacentes, calculées une fois : la matrice les consulte n×m fois.
@@ -146,14 +174,19 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
    */
   const mergeCost = (i: number, j: number): number => {
     if (j < 2) return Infinity;
-    const s = similarity(expected[i - 1]!, pairH[j - 1]!);
+    const s = sameLooseSound(expected[i - 1]!, pairH[j - 1]!) ? HOMOPHONE_SIM : sim(expected[i - 1]!, pairH[j - 1]!);
     return s >= opts.matchSim ? 1 - s : Infinity;
   };
   const splitCost = (i: number, j: number): number => {
     if (i < 2) return Infinity;
-    const s = similarity(pairE[i - 1]!, heard[j - 1]!);
+    const s = sameLooseSound(pairE[i - 1]!, heard[j - 1]!) ? HOMOPHONE_SIM : sim(pairE[i - 1]!, heard[j - 1]!);
     return s >= opts.matchSim ? 1 - s : Infinity;
   };
+
+  // Un mot qui répète son voisin immédiat est gratuit à sauter, d'un côté comme de
+  // l'autre (« très très » dit « très »). Sans ça il rivalise avec l'amorce libre.
+  const delCost = (i: number): number => (i >= 2 && expected[i - 1]!.key === expected[i - 2]!.key ? 0 : GAP);
+  const insCost = (j: number): number => (j >= 2 && heard[j - 1]!.key === heard[j - 2]!.key ? 0 : GAP);
 
   const cost: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
   for (let i = 1; i <= n; i++) cost[i]![0] = i * GAP;
@@ -166,8 +199,8 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
     const above = cost[i - 1]!;
     const e = expected[i - 1]!;
     for (let j = 1; j <= m; j++) {
-      const sub = above[j - 1]! + (1 - similarity(e, heard[j - 1]!));
-      let best = Math.min(sub, above[j]! + GAP, row[j - 1]! + GAP);
+      const sub = above[j - 1]! + (1 - sim(e, heard[j - 1]!));
+      let best = Math.min(sub, above[j]! + delCost(i), row[j - 1]! + insCost(j));
       // La dictée décide seule de la segmentation : elle coupe un mot qu'elle ne
       // connaît pas et colle ceux qu'elle croit liés. Ces deux transitions sont ce
       // qui empêche de compter une coupure comme « un mot faux + un mot en trop ».
@@ -182,11 +215,11 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
   let j = m;
   const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
   while (i > 0 && j > 0) {
-    const sim = similarity(expected[i - 1]!, heard[j - 1]!);
-    const diagonal = cost[i - 1]![j - 1]! + (1 - sim);
+    const s = sim(expected[i - 1]!, heard[j - 1]!);
+    const diagonal = cost[i - 1]![j - 1]! + (1 - s);
     // Le 1-pour-1 est essayé en premier : à coût égal, deux mots restent deux mots.
     if (near(cost[i]![j]!, diagonal)) {
-      ops.push(sim >= opts.matchSim ? { type: 'match', e: i - 1, h: j - 1 } : { type: 'sub', e: i - 1, h: j - 1 });
+      ops.push(s >= opts.matchSim ? { type: 'match', e: i - 1, h: j - 1 } : { type: 'sub', e: i - 1, h: j - 1 });
       i--;
       j--;
     } else if (near(cost[i]![j]!, cost[i - 1]![j - 2]! + mergeCost(i, j))) {
@@ -197,7 +230,7 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
       ops.push({ type: 'split', e: i - 2, h: j - 1 });
       i -= 2;
       j--;
-    } else if (near(cost[i]![j]!, cost[i - 1]![j]! + GAP)) {
+    } else if (near(cost[i]![j]!, cost[i - 1]![j]! + delCost(i))) {
       ops.push({ type: 'del', e: i - 1 });
       i--;
     } else {
