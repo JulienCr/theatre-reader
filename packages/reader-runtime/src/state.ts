@@ -6,6 +6,7 @@
  * clignotement « valeurs par défaut puis valeurs réelles »).
  */
 import type { ReadingSettings, Tolerance } from '@theatre/audio-player';
+import type { LineFilter } from './visibility';
 
 /**
  * Où la lecture en était, pour la reprendre depuis l'écran d'accueil de l'app.
@@ -20,6 +21,8 @@ export interface ResumePoint {
   label: string;
   /** Date du passage, en ms — l'accueil en fait un « il y a 2 j ». */
   at: number;
+  /** Dernière tirade franchie (attribut `data-nid`) : ancre plus précise que `sceneId`, absente tant qu'aucune n'a été franchie. */
+  nodeId?: string;
 }
 
 /**
@@ -32,6 +35,7 @@ export interface PersistedState {
   selected: string[]; // characterId[], l'ordre fixe les couleurs
   fontPct: number; // 100 = base
   reading: ReadingSettings; // réglages de répétition
+  lineFilter: LineFilter; // which lines the reader shows
   resume?: ResumePoint; // absent tant qu'aucune scène n'a été franchie
 }
 
@@ -115,7 +119,12 @@ function resumeOr(v: unknown, d: ResumePoint | undefined): ResumePoint | undefin
   if (typeof v !== 'object' || v === null) return d;
   const r = v as Partial<ResumePoint>;
   if (typeof r.sceneId !== 'string' || typeof r.label !== 'string') return d;
-  return { sceneId: r.sceneId, label: r.label, at: numOr(r.at, 0) };
+  return {
+    sceneId: r.sceneId,
+    label: r.label,
+    at: numOr(r.at, 0),
+    nodeId: typeof r.nodeId === 'string' ? r.nodeId : undefined,
+  };
 }
 
 /**
@@ -167,6 +176,10 @@ export function loadState(key: string, fallback: PersistedState): PersistedState
           tick: boolOr(r.tick, fallback.reading.tick),
           onlyMyScenes: boolOr(r.onlyMyScenes, fallback.reading.onlyMyScenes),
         },
+        lineFilter:
+          parsed.lineFilter === 'mine' || parsed.lineFilter === 'mineWithCue'
+            ? parsed.lineFilter
+            : fallback.lineFilter,
         resume: resumeOr(parsed.resume, fallback.resume),
       };
     }

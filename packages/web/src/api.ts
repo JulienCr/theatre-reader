@@ -168,6 +168,28 @@ export async function ttsBatch(
   return json<TtsBatchResult>(res);
 }
 
+/**
+ * Consulte l'état du cache disque pour un lot de tirades, sans rien synthétiser
+ * ni dépenser de caractères ElevenLabs (contrairement à `ttsBatch`).
+ */
+export async function audioManifest(
+  slug: string,
+  items: TtsBatchItem[],
+  opts?: { model?: string; settings?: VoiceSettings; signal?: AbortSignal },
+): Promise<{ manifest: Record<string, { key: string; cached: boolean }> }> {
+  const res = await fetch(`/api/plays/${encodeURIComponent(slug)}/audio/manifest`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ items, model: opts?.model, settings: opts?.settings }),
+    signal: opts?.signal,
+  });
+  if (!res.ok) {
+    const msg = await res.json().catch(() => null);
+    throw new Error(msg?.error ?? `Échec de la vérification du cache (${res.status})`);
+  }
+  return json<{ manifest: Record<string, { key: string; cached: boolean }> }>(res);
+}
+
 export async function loadNotes(slug: string): Promise<Note[]> {
   const { notes } = await json<{ notes: Note[] }>(
     await fetch(`/api/plays/${encodeURIComponent(slug)}/notes`),

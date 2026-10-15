@@ -1,4 +1,11 @@
+import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
 import { defineConfig } from 'vite';
+
+// Vite résout un alias depuis le fichier importateur : les composants partagés
+// (reader-ui, ui) ne déclarent pas preact, donc `preact/compat` y est introuvable
+// dans l'agencement pnpm isolé. On l'épingle sur le preact de ce paquet.
+const preact = dirname(createRequire(import.meta.url).resolve('preact/package.json'));
 
 export default defineConfig({
   resolve: {
@@ -10,9 +17,9 @@ export default defineConfig({
     alias: {
       // Sous-chemin distinct : `preact/compat` n'exporte pas createRoot, il vit
       // dans `preact/compat/client`.
-      'react-dom/client': 'preact/compat/client',
-      'react-dom': 'preact/compat',
-      react: 'preact/compat',
+      'react-dom/client': `${preact}/compat/client`,
+      'react-dom': `${preact}/compat`,
+      react: `${preact}/compat`,
     },
   },
   // @theatre/core est importé en TS source (pattern "internal package") :

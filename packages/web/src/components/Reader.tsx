@@ -483,7 +483,8 @@ export function Reader({
           const player = playerRef.current;
           if (!player) break;
           e.preventDefault();
-          if (pstateRef.current?.waitingForUser) player.resume();
+          if (pstateRef.current?.waitingForUser && pstateRef.current.timed) player.toggleTimer();
+          else if (pstateRef.current?.waitingForUser) player.resume();
           else player.toggle();
           break;
         }
@@ -586,11 +587,15 @@ export function Reader({
               onClick={() => {
                 const p = playerRef.current;
                 if (!p) return;
-                if (pstate?.waitingForUser) p.resume();
+                if (pstate?.waitingForUser && pstate.timed) p.toggleTimer();
+                else if (pstate?.waitingForUser) p.resume();
                 else p.toggle();
               }}
             >
-              {pstate?.playing && !pstate?.waitingForUser ? '⏸' : '▶'}
+              {(pstate?.playing && !pstate?.waitingForUser) ||
+              (pstate?.timed && !pstate.timerPaused)
+                ? '⏸'
+                : '▶'}
             </button>
             <button
               aria-label="Réplique précédente"
@@ -625,7 +630,7 @@ export function Reader({
             <span className="reader-speaker">
               {pstate?.waitingForUser
                 ? pstate.timed
-                  ? `À toi (${Math.ceil((pstate.timedMs ?? 0) / 1000)} s) — ${nameOf(pstate.currentCharacterId)}`
+                  ? `À toi (${Math.ceil((pstate.timedMs ?? 0) / 1000)} s${pstate.timerPaused ? ', en pause' : ''}) — ${nameOf(pstate.currentCharacterId)}`
                   : `À toi — ${nameOf(pstate.currentCharacterId)}`
                 : nameOf(pstate?.currentCharacterId ?? null)}
             </span>

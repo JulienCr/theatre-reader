@@ -9,8 +9,8 @@
  * Les didascalies n'ont pas à être filtrées ici : le texte attendu vient des
  * `.speech` du rendu de @theatre/core, qui les excluent déjà.
  */
-export { evaluate, tokenize } from './evaluate';
-export type { EvaluatedWord, Evaluation, Tolerance, Verdict } from './evaluate';
+export { evaluate, evaluatePrefix, tokenize } from './evaluate';
+export type { EvaluatedWord, Evaluation, PrefixEvaluation, Tolerance, Verdict } from './evaluate';
 export { matchCommand } from './commands';
 export type { VoiceCommand } from './commands';
 export { fold, splitWords, FILLERS } from './normalize';

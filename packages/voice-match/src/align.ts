@@ -74,6 +74,20 @@ function levenshtein(a: string, b: string): number {
 const HOMOPHONE_SIM = 0.95;
 
 /**
+ * « n' » élidé devant voyelle : la même chute de « ne » qu'on tolère déjà seul
+ * (cf. weight.ts) — « il n'a rien dit » entendu « il a rien dit » ne change pas le
+ * sens, `rien` portant seul la négation. Ça ne passe pas par `variants.ts` parce que
+ * ce n'est pas un mot entier substitué à un autre : l'apostrophe reste dans le mot
+ * (cf. normalize.ts), donc `n'a` et `a` sont deux clés entières à rapprocher, pas
+ * deux tokens dont l'un serait absent.
+ */
+function sameElidedNe(a: string, b: string): boolean {
+  if (a.startsWith("n'") && a.slice(2) === b) return true;
+  if (b.startsWith("n'") && b.slice(2) === a) return true;
+  return false;
+}
+
+/**
  * Proximité de deux mots, entre 0 et 1.
  *
  * Trois façons de se ressembler, dans l'ordre : la même graphie, le même son, des
@@ -92,6 +106,7 @@ export function similarity(a: Token, b: Token): number {
   // Même valeur que l'homophonie : dans les deux cas la personne a dit la réplique,
   // c'est la machine qui a choisi la forme écrite.
   if (sameVariant(a.key, b.key)) return HOMOPHONE_SIM;
+  if (sameElidedNe(a.key, b.key)) return HOMOPHONE_SIM;
   const max = Math.max(a.key.length, b.key.length);
   if (max === 0) return 1;
   return 1 - levenshtein(a.key, b.key) / max;
@@ -178,7 +193,7 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
       ops.push({ type: 'merge', e: i - 1, h: j - 2 });
       i--;
       j -= 2;
-    } else if (near(cost[i]![j]!, cost[i - 2]![j - 1]! + splitCost(i, j))) {
+    } else if (i >= 2 && near(cost[i]![j]!, cost[i - 2]![j - 1]! + splitCost(i, j))) {
       ops.push({ type: 'split', e: i - 2, h: j - 1 });
       i -= 2;
       j--;

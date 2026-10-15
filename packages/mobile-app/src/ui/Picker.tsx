@@ -91,11 +91,15 @@ export function Picker() {
    * qu'une fois par page et le runtime n'a pas d'API de démontage. Tout étant
    * local, le rechargement est instantané.
    *
-   * `sceneId` devient le fragment de l'URL : c'est `main.ts` qui l'atteint, une
-   * fois la pièce injectée dans le DOM.
+   * Le point de reprise devient le fragment de l'URL : c'est `main.ts` qui
+   * l'atteint, une fois la pièce injectée dans le DOM. La tirade précise
+   * (`nodeId`) prime sur le début de la scène (`sceneId`) quand elle est
+   * connue — préfixe `n:`/`h:` pour que `main.ts` sache laquelle des deux
+   * il a en main sans avoir à la deviner.
    */
-  function open(slug: string, sceneId?: string): void {
-    const anchor = sceneId ? `#${encodeURIComponent(sceneId)}` : '';
+  function open(slug: string, resume?: ResumePoint): void {
+    const target = resume?.nodeId ? `n:${resume.nodeId}` : resume?.sceneId ? `h:${resume.sceneId}` : '';
+    const anchor = target ? `#${encodeURIComponent(target)}` : '';
     location.assign(`${location.pathname}?slug=${encodeURIComponent(slug)}${anchor}`);
   }
 
@@ -173,7 +177,7 @@ export function Picker() {
                   <button
                     type="button"
                     className="picker-open"
-                    onClick={() => open(row.slug, row.resume?.sceneId)}
+                    onClick={() => open(row.slug, row.resume)}
                   >
                     <span className="picker-name">{row.name}</span>
                     <span className="picker-meta">{metaLabel(row)}</span>

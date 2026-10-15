@@ -69,6 +69,8 @@ export function App() {
   const [audioGen, setAudioGen] = useState<(AudioGenState & { controller: AbortController }) | null>(
     null,
   );
+  const [audioMissingCount, setAudioMissingCount] = useState<number | null>(null);
+  const [audioMissingLoading, setAudioMissingLoading] = useState(false);
   const [popover, setPopover] = useState<{ target: PopoverTarget } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [playsLoaded, setPlaysLoaded] = useState(false);
@@ -684,6 +686,27 @@ export function App() {
     }
   }, [play, audioBatchItems, flash]);
 
+  // Le lot a changé (texte édité, voix réassignée) : le dernier décompte n'est plus fiable.
+  useEffect(() => {
+    setAudioMissingCount(null);
+  }, [audioBatchItems]);
+
+  // Vérifie gratuitement (sans ElevenLabs) combien de tirades du lot manquent au cache disque.
+  const onCheckAudioMissing = useCallback(() => {
+    if (!play || !audioBatchItems.length || audioMissingCount !== null || audioMissingLoading) return;
+    setAudioMissingLoading(true);
+    api
+      .audioManifest(play.slug, audioBatchItems, { model: play.audio.model, settings: play.audio.settings })
+      .then(({ manifest }) => {
+        const missing = Object.values(manifest).filter((v) => !v.cached).length;
+        setAudioMissingCount(missing);
+      })
+      .catch(() => {
+        // Vérification best-effort : un échec laisse juste le libellé générique.
+      })
+      .finally(() => setAudioMissingLoading(false));
+  }, [play, audioBatchItems, audioMissingCount, audioMissingLoading]);
+
   const commands = useMemo<Command[]>(() => {
     const cmds: Command[] = [];
     cmds.push({ id: 'import', label: 'Importer un PDF', run: () => fileInput.current?.click() });
@@ -814,8 +837,11 @@ export function App() {
         onExportWithAudio={setExportWithAudio}
         audioEstimate={audioEstimate}
         audioBatchCount={audioBatchItems.length}
+        audioMissingCount={audioMissingCount}
+        audioMissingLoading={audioMissingLoading}
         audioRunning={Boolean(audioGen?.running)}
         onGenerateAudio={onGenerateAllAudio}
+        onCheckAudioMissing={onCheckAudioMissing}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
         onOpenPalette={() => setPaletteOpen(true)}

@@ -24,6 +24,22 @@ const CLASSES: string[][] = [
   // Démonstratifs : la dictée tranche entre eux d'après le nom qui suit, pas
   // d'après ce qui a été dit.
   ['ce', 'cet', 'cette', 'ces'],
+  // `envirant` n'est pas un mot : c'est la clé de `en` + `virant` collés par
+  // `joined()` (align.ts) quand la dictée découpe « environ » en deux mots.
+  // L'entrée sert donc aux deux sens — regroupement (`merge`) et découpage
+  // (`split`) — sans jamais apparaître seule dans un texte.
+  ['environ', 'envirant'],
+  // `plustot` : clé jointe de `plus` + `tôt`. Contrairement à `environ`/`en
+  // virant`, le sens peut différer (« plutôt demain » = à la place, « plus
+  // tôt demain » = plus tôt) — exception assumée quand même, à l'image de
+  // `ce`/`cette` : la confusion de dictée est trop fréquente pour la laisser
+  // échouer en `strict`.
+  ['plutot', 'plustot'],
+  // `tant` (t final muet) et `tente` (t dégagé par la chute du e muet) ne
+  // sonnent pas pareil au sens strict du moteur phonétique, mais la dictée
+  // les confond dans « tant et si bien » / « tente et si bien » — exception
+  // assumée sur confirmation, comme les deux précédentes.
+  ['tant', 'tente'],
 ];
 
 const CLASS_OF = new Map<string, number>();
