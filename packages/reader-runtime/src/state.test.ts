@@ -21,6 +21,7 @@ const FALLBACK: PersistedState = {
   selected: [],
   fontPct: 100,
   reading: { ...DEFAULT_READING },
+  lineFilter: 'all',
 };
 
 /** localStorage minimal : `state.ts` n'en utilise que get et set. */
@@ -68,6 +69,21 @@ describe('loadState', () => {
     const state = loadState(KEY, FALLBACK);
     expect(state.resume).toBeUndefined();
     expect(state.fontPct).toBe(120);
+  });
+
+  it.each(['mine', 'mineWithCue'] as const)('conserve le filtre de répliques « %s »', (lineFilter) => {
+    saveState(KEY, { ...FALLBACK, lineFilter });
+    expect(loadState(KEY, FALLBACK).lineFilter).toBe(lineFilter);
+  });
+
+  it('retombe sur le repli quand le filtre de répliques manque', () => {
+    store.set(KEY, JSON.stringify({ selected: [], fontPct: 100 }));
+    expect(loadState(KEY, FALLBACK).lineFilter).toBe('all');
+  });
+
+  it.each(['everything', 42, null])('retombe sur le repli pour un filtre de répliques invalide (%s)', (lineFilter) => {
+    store.set(KEY, JSON.stringify({ ...FALLBACK, lineFilter }));
+    expect(loadState(KEY, FALLBACK).lineFilter).toBe('all');
   });
 
   it('ne jette pas sur un JSON illisible', () => {

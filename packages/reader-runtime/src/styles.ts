@@ -95,6 +95,8 @@ export const STYLE =
 /* Sous-segment (Souple/Strict) : décalé sous sa case pour se lire comme un détail
    de l'option cochée juste au-dessus, et non comme un troisième mode de lecture. */
 .mode-seg--sub { margin: var(--sp-2) 0 var(--sp-4) 30px; }
+/* Full-width segment: its hint sits flush left, not under a checkbox label. */
+.lines-filter .mode-hint { margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); }
 /* Commandes vocales : aligné sur le sous-segment, donc rattaché à la même case.
    Deux colonnes plutôt qu'une phrase par ligne — ce qu'on vient chercher ici,
    c'est le mot à dire, pas l'explication. */
