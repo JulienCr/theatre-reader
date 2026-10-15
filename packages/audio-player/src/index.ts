@@ -24,6 +24,7 @@ export {
 // Ré-exporté ici pour que les hôtes (chrome du lecteur, app mobile) n'aient pas à
 // dépendre de @theatre/voice-match juste pour nommer le niveau de tolérance.
 export type { Evaluation, EvaluatedWord, Tolerance, VoiceCommand } from '@theatre/voice-match';
+export { loadRate, nextRate, RATES, saveRate } from './rate';
 
 export interface AudioTirade {
   nodeId: string;

@@ -11,6 +11,7 @@ export const SHORTCUTS: [string, string][] = [
   ['+  ·  -  ·  0', 'Zoom avant · arrière · réinitialiser'],
   ['Espace', 'Lecture / pause · reprend (dit ta réplique)'],
   ['.  ·  ,', 'Réplique audio suivante · précédente'],
+  ['v', 'Vitesse de lecture (1× · 1,5× · 2×)'],
   ['m', 'Mode de lecture (continu / répétition…)'],
   ['f', 'Plein écran'],
   ['?', 'Afficher / masquer cette aide'],
