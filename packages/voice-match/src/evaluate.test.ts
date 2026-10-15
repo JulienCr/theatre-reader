@@ -107,6 +107,108 @@ describe('verdicts', () => {
     expect(verdict('Il a tente et si bien insisté.', 'il a tant et si bien insisté', 'strict')).toBe('ok');
   });
 
+  it("assimile « on » et « en », dans les deux sens et en strict", () => {
+    expect(verdict('On part demain matin.', 'en part demain matin')).toBe('ok');
+    expect(verdict('Il en reste deux.', 'il on reste deux')).toBe('ok');
+    expect(verdict('On part demain matin.', 'en part demain matin', 'strict')).toBe('ok');
+  });
+
+  it('assimile les civilités abrégées et leur mot entier, dans les deux sens et en strict', () => {
+    for (const mode of ['soft', 'strict'] as const) {
+      const pairs: [string, string][] = [['Mr', 'monsieur'], ['M.', 'monsieur'], ['Mme', 'madame'], ['Mlle', 'mademoiselle']];
+      for (const [short, full] of pairs) {
+        expect(verdict(`Bonjour ${short} Dupont.`, `bonjour ${full} Dupont`, mode)).toBe('ok');
+        expect(verdict(`Bonjour ${full} Dupont.`, `bonjour ${short.toLowerCase().replace('.', '')} Dupont`, mode)).toBe('ok');
+      }
+    }
+    expect(verdict('Bonjour madame Dupont.', 'bonjour mademoiselle Dupont')).not.toBe('ok');
+  });
+
+  it('traite « ça » et « sa » comme le même son, cédille comprise', () => {
+    for (const mode of ['soft', 'strict'] as const) {
+      expect(verdict('Ça va ?', 'sa va', mode)).toBe('ok');
+      expect(verdict('Sa mère vient.', 'ça mère vient', mode)).toBe('ok');
+      expect(verdict('Le garçon part.', 'le garson part', mode)).toBe('ok');
+    }
+  });
+
+  it('assimile les contractions « t’as », « t’es », « j’suis » et leur forme pleine', () => {
+    const pairs: [string, string][] = [
+      ['T’as vu ça ?', 'tu as vu ça'],
+      ['Tu as vu ça ?', 't’as vu ça'],
+      ['T’es là ?', 'tu es là'],
+      ['Tu es là ?', 't’es là'],
+      ['J’suis là.', 'je suis là'],
+      ['Je suis là.', 'j’suis là'],
+      ['Chuis là.', 'je suis là'],
+      ['Je suis là.', 'chuis là'],
+    ];
+    for (const mode of ['soft', 'strict'] as const) {
+      for (const [expected, heard] of pairs) expect(verdict(expected, heard, mode), `${expected} | ${heard}`).toBe('ok');
+    }
+  });
+
+  it('laisse tomber « il » devant « faut », comme devant « y a »', () => {
+    expect(verdict('Il faut partir demain.', 'faut partir demain')).toBe('ok');
+    expect(verdict('Faut partir demain.', 'il faut partir demain', 'strict')).toBe('ok');
+  });
+
+  it('assimile « ouais »/« oui » et « ben »/« bah » en souple seulement', () => {
+    expect(verdict('Ouais, bien sûr.', 'oui bien sûr')).toBe('ok');
+    expect(verdict('Oui, bien sûr.', 'ouais bien sûr')).toBe('ok');
+    expect(verdict('Ben oui, bien sûr.', 'bah oui bien sûr')).toBe('ok');
+    expect(verdict('Ouais, bien sûr.', 'oui bien sûr', 'strict')).not.toBe('ok');
+    expect(verdict('Ben oui, bien sûr.', 'bah oui bien sûr', 'strict')).not.toBe('ok');
+  });
+
+  it('rapproche un mot coupé ou collé dont la nasale est confondue (« envoie » / « on voit »)', () => {
+    for (const mode of ['soft', 'strict'] as const) {
+      expect(verdict('Envoie ça demain.', 'on voit ça demain', mode)).toBe('ok');
+      expect(verdict('On voit ça demain.', 'envoie ça demain', mode)).toBe('ok');
+      expect(verdict('Il envoie ça.', 'il on voit ça', mode)).toBe('ok');
+    }
+  });
+
+  it('ne confond pas la nasale hors d’un regroupement', () => {
+    expect(verdict('Il a une dent cassée.', 'il a une dont cassée')).not.toBe('ok');
+    expect(verdict('Ils vont partir.', 'ils vendent partir')).not.toBe('ok');
+  });
+
+  it('tolère un « ne » manquant en souple, pas en strict', () => {
+    expect(verdict('Je ne sais pas.', 'je sais pas')).toBe('ok');
+    expect(verdict('Je ne sais pas.', 'je sais pas', 'strict')).not.toBe('ok');
+    expect(verdict('Je ne sais pas.', 'je ne sais')).toBe('fail');
+  });
+
+  it("traite « il y a », « y a », « ya » et « il ya » comme une seule chose", () => {
+    const forms = ['il y a', 'y a', 'ya', 'il ya'];
+    for (const expected of forms) {
+      for (const heard of forms) {
+        expect(verdict(`${expected} du monde ici.`, `${heard} du monde ici`)).toBe('ok');
+        expect(verdict(`${expected} du monde ici.`, `${heard} du monde ici`, 'strict')).toBe('ok');
+      }
+    }
+  });
+
+  it("ne laisse tomber « il » que devant « y a »", () => {
+    expect(verdict('Il part demain matin.', 'part demain matin')).not.toBe('ok');
+  });
+
+  it('ignore un mot répété dit une seule fois', () => {
+    expect(verdict('C’est très très bien.', 'c’est très bien')).toBe('ok');
+    expect(verdict('C’est très très bien.', 'c’est très bien', 'strict')).toBe('ok');
+    expect(verdict('Non non non, jamais.', 'non jamais')).toBe('ok');
+  });
+
+  it('ignore un mot dit deux fois quand un seul est attendu', () => {
+    expect(verdict('C’est très bien.', 'c’est très très bien')).toBe('ok');
+    expect(verdict('C’est très bien.', 'c’est très très bien', 'strict')).toBe('ok');
+  });
+
+  it("ne pardonne pas un mot répété absent des deux côtés", () => {
+    expect(verdict('Non non, jamais.', 'jamais')).toBe('fail');
+  });
+
   it('absorbe une approximation de transcription sur un mot plein', () => {
     expect(verdict('Il reviendrait demain matin.', 'il reviendrais demain matin')).toBe('ok');
   });
@@ -170,6 +272,19 @@ describe('homophones', () => {
     expect(verdict('Ouvre cette porte.', 'ouvre ces porte')).toBe('ok');
     expect(verdict('Range ces papiers.', 'range cette papiers')).toBe('ok');
     expect(verdict('Ouvre cette porte.', 'ouvre ces porte', 'strict')).toBe('ok');
+  });
+
+  it('rapproche le pluriel verbal en « -ent » de son singulier, en strict aussi', () => {
+    for (const mode of ['soft', 'strict'] as const) {
+      expect(verdict('Ils dégagent de là.', 'ils dégage de là', mode)).toBe('ok');
+      expect(verdict('Il dégage de là.', 'il dégagent de là', mode)).toBe('ok');
+      expect(verdict('Elles chantent bien.', 'elles chante bien', mode)).toBe('ok');
+    }
+  });
+
+  it("ne prend pas pour un pluriel un mot qui finit en « -ent »", () => {
+    expect(verdict('Il sent la rose.', 'il se la rose')).not.toBe('ok');
+    expect(verdict('Comment va-t-il ?', 'comme va t il')).not.toBe('ok');
   });
 
   it("n'étend pas l'exception aux mots qui portent le sens", () => {

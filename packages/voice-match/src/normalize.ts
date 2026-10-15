@@ -44,7 +44,7 @@ const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'’]*/gu;
 /** Fin de phrase : ce qui précède une majuscule sans en faire un nom propre. */
 const SENTENCE_END = /[.!?…:;]/;
 
-/** Minuscule, sans accent, apostrophe droite. */
+/** Minuscule, sans accent, apostrophe droite. La cédille est perdue ici : cf. `splitWords` pour le son. */
 export function fold(word: string): string {
   return word
     .normalize('NFD')
@@ -79,7 +79,7 @@ export function splitWords(text: string): Token[] {
       key,
       raw,
       proper: !sentenceStart && first !== first.toLowerCase() && first === first.toUpperCase(),
-      phon: phoneticKey(key),
+      phon: phoneticKey(fold(raw.replace(/ç/gi, 'ss'))),
     });
     sentenceStart = false;
     cursor = at + raw.length;
