@@ -25,6 +25,7 @@ import {
 import { buildReaderDocument, storageKeyFor } from '@theatre/reader-ui/document';
 import { DEFAULT_OUTPUT_FORMAT, DEFAULT_TTS_MODEL, hasElevenLabsKey, synthesize } from './tts';
 import { audioCacheKey, readAudioCache, writeAudioCache } from './storage';
+import { vocabularyFor } from './vocabulary';
 
 const require = createRequire(import.meta.url);
 
@@ -129,6 +130,10 @@ async function readerRuntime(): Promise<string> {
         // Sous-chemin distinct : `preact/compat` n'exporte pas createRoot,
         // il vit dans `preact/compat/client`.
         'react-dom/client': 'preact/compat/client',
+        // Importé par le JSX de CHAQUE fichier (jsxImportSource), y compris ceux de
+        // reader-ui et ui qui ne déclarent pas preact : sans alias, esbuild le résout
+        // depuis le fichier et échoue.
+        'preact/jsx-runtime': 'preact/jsx-runtime',
       },
       // esbuild résout les alias depuis le répertoire de travail, or le build est
       // lancé depuis @theatre/server, qui ne dépend pas de preact. On se place donc
@@ -174,6 +179,12 @@ export async function exportReaderHtml(
 
   const audio = await buildAudioClips(fountain, characters, slug, audioOpts);
 
+  // The vocabulary only sharpens speech recognition: never worth failing an export.
+  const vocabulary = await vocabularyFor(fountain, characters).catch((e) => {
+    console.warn(`vocabulary skipped: ${e instanceof Error ? e.message : String(e)}`);
+    return undefined;
+  });
+
   const { body, css, data, title } = buildReaderDocument({
     fountain,
     characters,
@@ -182,6 +193,7 @@ export async function exportReaderHtml(
     storageKey: storageKeyFor(slug),
     clips: audio?.clips,
     myCharacterId: audio?.myCharacterId,
+    vocabulary,
   });
 
   // Échappe </script> et < pour une inclusion sûre dans une balise <script>.

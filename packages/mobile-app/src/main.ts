@@ -12,7 +12,7 @@ import type { Note } from '@theatre/core';
 import { boot } from '@theatre/reader-runtime';
 import { buildReaderDocument, storageKeyFor, type ReaderDocument } from '@theatre/reader-ui';
 import { uiCss } from '@theatre/ui';
-import { buildOnlineClips, loadNotes, loadPlay, type PlayMeta } from './api';
+import { buildOnlineClips, loadNotes, loadPlay, loadVocabulary, type PlayMeta } from './api';
 import { discover } from './discovery';
 import { buildOfflineClips } from './offline/prepare';
 import * as store from './offline/store';
@@ -40,6 +40,7 @@ interface PlaySource {
   meta: PlayMeta;
   notes: Note[];
   clips: Record<string, string>;
+  vocabulary?: string[];
 }
 
 function injectStyle(css: string): void {
@@ -147,7 +148,7 @@ async function loadServerSource(slug: string): Promise<PlaySource> {
   const { fountain, meta } = await loadPlay(slug);
   const notes = await loadNotes(slug);
   const clips = await buildOnlineClips(slug, fountain, meta);
-  return { fountain, meta, notes, clips };
+  return { fountain, meta, notes, clips, vocabulary: await loadVocabulary(slug) };
 }
 
 /**
@@ -189,6 +190,7 @@ function buildDocument(slug: string, source: PlaySource): ReaderDocument {
     storageKey: storageKeyFor(slug),
     clips: source.clips,
     myCharacterId: source.meta.audio?.myCharacterId,
+    vocabulary: source.vocabulary,
   });
 }
 

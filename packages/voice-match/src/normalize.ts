@@ -44,7 +44,7 @@ const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}'’]*/gu;
 /** Fin de phrase : ce qui précède une majuscule sans en faire un nom propre. */
 const SENTENCE_END = /[.!?…:;]/;
 
-/** Minuscule, sans accent, apostrophe droite. */
+/** Minuscule, sans accent, apostrophe droite. La cédille est perdue ici : cf. `splitWords` pour le son. */
 export function fold(word: string): string {
   return word
     .normalize('NFD')
@@ -61,6 +61,17 @@ export function fold(word: string): string {
  * mots entendus EN TROP (cf. `evaluate.ts`) — là où elles ne peuvent rien casser.
  */
 export const FILLERS = new Set(['euh', 'heu', 'hem', 'hum', 'mmh', 'mm', 'hmm']);
+
+/**
+ * Interjections qu'une pièce écrit et qu'un moteur de dictée ne rend presque jamais
+ * (`hum`, `rho`, `euh`). Côté ATTENDU seulement : on ne peut pas exiger de les entendre.
+ */
+const INTERJECTION_RE = /^(?:rh?o+|hu+m+|hm+|mm+h?|heu+h?|eu+h+|hem)$/;
+
+/** Vrai pour une clé de comparaison (cf. `fold`) qui est une interjection. */
+export function isInterjection(key: string): boolean {
+  return INTERJECTION_RE.test(key);
+}
 
 /** Découpe en mots, sans toucher aux nombres (cf. `tokenize`). */
 export function splitWords(text: string): Token[] {
@@ -79,7 +90,7 @@ export function splitWords(text: string): Token[] {
       key,
       raw,
       proper: !sentenceStart && first !== first.toLowerCase() && first === first.toUpperCase(),
-      phon: phoneticKey(key),
+      phon: phoneticKey(fold(raw.replace(/ç/gi, 'ss'))),
     });
     sentenceStart = false;
     cursor = at + raw.length;

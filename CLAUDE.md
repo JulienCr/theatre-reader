@@ -79,6 +79,7 @@ until it is right. Three layers, in dependency order — `@theatre/voice-match` 
 comparison, no DOM) → `createVoiceCoach` (state machine) → the host, which injects a
 `SpeechRecognizer`. What matters when touching it:
 
+- **Adding or changing a word equivalence / tolerated gap?** Read the `voice-equivalences` skill (`.claude/skills/`) first: it maps each need to the one file that owns it.
 - **The recognizer is injected, never imported.** No `voice` option in `createPlayer`
   means the player behaves exactly as before — that is what keeps the exported `.html`
   and the web reader working, since neither has a speech engine. `boot({ recognizer })`

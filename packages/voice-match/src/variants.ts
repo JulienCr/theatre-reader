@@ -40,13 +40,44 @@ const CLASSES: string[][] = [
   // les confond dans « tant et si bien » / « tente et si bien » — exception
   // assumée sur confirmation, comme les deux précédentes.
   ['tant', 'tente'],
+  // `on` / `en` : l'iPhone les confond sans cesse, exception assumée à la demande de l'acteur.
+  ['on', 'en'],
+  // Abréviations de civilité : la pièce écrit `M.`/`Mme`, l'acteur dit le mot entier.
+  ['monsieur', 'mr', 'm'],
+  ['madame', 'mme'],
+  ['mademoiselle', 'mlle'],
+  // Contractions orales rendues en un ou deux mots. Clés JOINTES (`tuas` = `tu` + `as`,
+  // cf. `joined()` dans align.ts) : `t'as`/`tu as` ne sonnent pas pareil pour `phonetic.ts`.
+  ["t'as", 'tuas'],
+  ["t'es", 'tues'],
+  ["j'suis", 'jesuis', 'chuis', 'chui'],
 ];
 
-const CLASS_OF = new Map<string, number>();
-CLASSES.forEach((words, i) => words.forEach((w) => CLASS_OF.set(w, i)));
+/**
+ * Classes réservées au mode souple : des mots du texte que l'acteur peut remplacer
+ * par un équivalent de registre (`ouais` dit `oui`). Les accepter en strict serait
+ * trahir le texte, d'où une table à part.
+ */
+const SOFT_CLASSES: string[][] = [
+  ['ouais', 'oui'],
+  ['ben', 'bah'],
+];
 
-/** Vrai quand les deux mots appartiennent à la même classe de variantes. */
-export function sameVariant(a: string, b: string): boolean {
-  const cls = CLASS_OF.get(a);
-  return cls !== undefined && cls === CLASS_OF.get(b);
+function indexClasses(classes: string[][]): Map<string, number> {
+  const index = new Map<string, number>();
+  classes.forEach((words, i) => words.forEach((w) => index.set(w, i)));
+  return index;
+}
+
+const CLASS_OF = indexClasses(CLASSES);
+const SOFT_CLASS_OF = indexClasses(SOFT_CLASSES);
+
+function sameIn(index: Map<string, number>, a: string, b: string): boolean {
+  const cls = index.get(a);
+  return cls !== undefined && cls === index.get(b);
+}
+
+/** Vrai quand les deux mots appartiennent à la même classe de variantes (`soft` ajoute les classes souples). */
+export function sameVariant(a: string, b: string, soft = false): boolean {
+  return sameIn(CLASS_OF, a, b) || (soft && sameIn(SOFT_CLASS_OF, a, b));
 }
