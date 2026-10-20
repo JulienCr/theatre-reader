@@ -119,6 +119,7 @@ export function Chrome({
   initial,
   onExit,
   recognizer,
+  startAt,
 }: {
   data: ReaderData;
   /** Le `.play` rendu par @theatre/core — jamais rendu par React, seulement muté. */
@@ -129,6 +130,8 @@ export function Chrome({
   onExit?: () => void;
   /** Fourni par l'app seule : sans lui, aucun réglage vocal n'est proposé. */
   recognizer?: SpeechRecognizer;
+  /** Reprise à l'ouverture, cf. `BootOptions.startAt`. */
+  startAt?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(initial.selected);
   // Borné dès la lecture : un localStorage abîmé ne doit pas rendre la pièce illisible.
@@ -376,6 +379,26 @@ export function Chrome({
     }
     saveState(data.storageKey, { selected, fontPct, reading, lineFilter, resume });
   }, [data.storageKey, selected, fontPct, reading, lineFilter, resume]);
+
+  // Reprise : ici et non dans l'hôte, car `render()` est asynchrone — un scroll posé
+  // avant le montage est décalé par la taille du texte et le masquage, et le curseur
+  // du lecteur ne bougerait jamais. Après les layout effects ci-dessus, avant l'observateur.
+  useEffect(() => {
+    if (!startAt) return;
+    const sep = startAt.indexOf(':');
+    const kind = startAt.slice(0, sep);
+    const value = startAt.slice(sep + 1);
+    if (kind === 'h') {
+      if (document.getElementById(value)) goToEntry(value);
+      return;
+    }
+    const el = visibleAnchor(play, value);
+    const nid = el?.getAttribute('data-nid');
+    if (!el || !nid) return;
+    playerRef.current?.seek(nid);
+    el.scrollIntoView({ block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ouverture seulement
+  }, []);
 
   // Le champ de recherche n'est focalisé qu'à l'ouverture de sa sheet.
   useEffect(() => {
