@@ -482,3 +482,12 @@ describe('liaison absente à la dictée', () => {
   });
 });
 });
+
+describe('nom propre confondu par la dictée', () => {
+  it('Brévilliers vaut Brévier, dans les deux sens et dans les deux modes', () => {
+    for (const tol of ['strict', 'soft'] as const) {
+      expect(verdict('Ah Brévier.', 'ah Brévilliers', tol)).toBe('ok');
+      expect(verdict('Ah Brévilliers.', 'ah Brévier', tol)).toBe('ok');
+    }
+  });
+});
