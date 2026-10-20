@@ -30,13 +30,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { decorate } from '@theatre/annotations';
 import {
   createPlayer,
-<<<<<<< HEAD
   loadRate,
   nextRate,
   saveRate,
-=======
   HIDDEN_SCENE_CLASS,
->>>>>>> origin/feat/voice-vocabulary
   type Player,
   type PlayerState,
   type MaskStyle,
