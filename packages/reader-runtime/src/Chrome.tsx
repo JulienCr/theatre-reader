@@ -455,7 +455,19 @@ export function Chrome({
 
   const goToEntry = (id: string): void => {
     setSheet(null);
-    document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    const heading = document.getElementById(id);
+    if (!heading) return;
+    // Le curseur suit : première tirade visible après l'en-tête.
+    let first: HTMLElement | null = null;
+    for (let el = heading.nextElementSibling; el; el = el.nextElementSibling) {
+      if (el.matches('p.line[data-nid]') && !el.classList.contains(HIDDEN_SCENE_CLASS)) {
+        first = el as HTMLElement;
+        break;
+      }
+    }
+    const nid = first?.getAttribute('data-nid');
+    if (nid) playerRef.current?.seek(nid);
+    heading.scrollIntoView({ block: 'start' });
   };
 
   const playing = Boolean(pstate?.playing && !pstate.waitingForUser);

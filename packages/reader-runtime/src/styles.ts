@@ -148,6 +148,7 @@ export const STYLE =
 /* Option « mes scènes » : les plages exclues sont retirées du flux ; !important
    pour l'emporter sur le display propre aux répliques/en-têtes. */
 .scene--hidden { display: none !important; }
+.scene--hidden.scene--peek { display: revert !important; }
 /* Le maintien dévoile la réplique (createPeek, @theatre/reader-ui) : sans
    -webkit-touch-callout / user-select, iOS répondrait à l'appui long par sa loupe et
    son menu Copier — par-dessus le texte qu'on vient justement de dévoiler. Restreint
