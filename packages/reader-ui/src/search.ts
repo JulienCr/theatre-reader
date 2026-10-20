@@ -26,11 +26,12 @@ const CURRENT_CLASS = 'reader-hit--current';
 const SKIPPED_TAGS = new Set(['SCRIPT', 'STYLE', 'MARK']);
 
 /**
- * Classe d'une scène masquée (option « mes scènes » du lecteur mobile ; valeur de
- * `HIDDEN_SCENE_CLASS` de @theatre/audio-player). Son texte est ignoré : sinon la
- * recherche compterait et cadrerait des occurrences invisibles (saut « dans le vide »).
+ * Classe d'un bloc masqué par les filtres du lecteur mobile (valeur de
+ * `HIDDEN_SCENE_CLASS` de @theatre/audio-player). La recherche le trouve quand même :
+ * le résultat courant le démasque via `PEEK_CLASS` (voir `reveal`).
  */
 const HIDDEN_SUBTREE_CLASS = 'scene--hidden';
+const PEEK_CLASS = 'scene--peek';
 
 /**
  * Parcours explicite plutôt que `document.createTreeWalker(root, SHOW_TEXT, …)` :
@@ -46,8 +47,7 @@ function collectTextNodes(root: Node): Text[] {
       if (child.nodeValue) out.push(child as Text);
     } else if (
       child.nodeType === 1 &&
-      !SKIPPED_TAGS.has((child as Element).tagName) &&
-      !(child as Element).classList.contains(HIDDEN_SUBTREE_CLASS)
+      !SKIPPED_TAGS.has((child as Element).tagName)
     ) {
       out.push(...collectTextNodes(child));
     }
@@ -83,11 +83,25 @@ export function createSearch(root: HTMLElement): SearchController {
     }
     marks = [];
     index = 0;
+    unreveal();
+  }
+
+  function unreveal(): void {
+    root.querySelectorAll(`.${PEEK_CLASS}`).forEach((el) => el.classList.remove(PEEK_CLASS));
+  }
+
+  /** Démasque le bloc caché qui porte `el`, pour que le saut ne tombe pas dans le vide. */
+  function reveal(el: HTMLElement): void {
+    unreveal();
+    el.closest(`.${HIDDEN_SUBTREE_CLASS}`)?.classList.add(PEEK_CLASS);
   }
 
   function focus(i: number): void {
     marks.forEach((m, k) => m.classList.toggle(CURRENT_CLASS, k === i));
-    marks[i]?.scrollIntoView({ block: 'center' });
+    const m = marks[i];
+    if (!m) return;
+    reveal(m);
+    m.scrollIntoView({ block: 'center' });
   }
 
   function mark(query: string): void {
