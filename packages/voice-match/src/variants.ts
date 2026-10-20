@@ -44,6 +44,8 @@ const CLASSES: string[][] = [
   ['on', 'en'],
   // Abréviations de civilité : la pièce écrit `M.`/`Mme`, l'acteur dit le mot entier.
   ['monsieur', 'mr', 'm'],
+  // Nom propre de la pièce : la dictée entend « Brévilliers » (une vraie commune) pour « Brévier ».
+  ['brevier', 'brevilliers'],
   ['madame', 'mme'],
   ['mademoiselle', 'mlle'],
   // Contractions orales rendues en un ou deux mots. Clés JOINTES (`tuas` = `tu` + `as`,
