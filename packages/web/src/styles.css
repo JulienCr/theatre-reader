@@ -714,7 +714,7 @@ mark.reader-hit--current {
 
 /* Tirade masquée (répétition) : texte flouté jusqu'à ce qu'elle soit dite. */
 .line--masked .speech {
-  filter: blur(5px);
+  filter: blur(7px);
   cursor: pointer;
   transition: filter 0.12s;
 }
@@ -725,6 +725,21 @@ mark.reader-hit--current {
 .line--masked.line--revealed .speech,
 .line--masked.line--peek .speech {
   filter: none;
+}
+/* Barre : taille fixe, quelle que soit la réplique — ni longueur ni forme du texte ne transparaissent. */
+.line--masked-bar:not(.line--revealed):not(.line--peek) .speech {
+  display: block;
+  width: min(10em, 70%);
+  height: 1.1em;
+  overflow: hidden;
+  filter: none;
+  border-radius: 3px;
+  background: var(--ink);
+  color: transparent;
+}
+.line--masked-bar:not(.line--revealed):not(.line--peek) .speech * {
+  color: transparent !important;
+  background: none !important;
 }
 
 /* Barre de temps (avancement auto) : en haut du bloc de la tirade en cours. */
@@ -1718,6 +1733,11 @@ kbd {
   gap: var(--sp-4);
   padding: var(--sp-1) 0;
   border-bottom: 1px solid var(--border);
+}
+.study-progress__where {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .study-progress__level {
   color: var(--muted);

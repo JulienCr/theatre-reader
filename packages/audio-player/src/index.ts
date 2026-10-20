@@ -49,16 +49,21 @@ export interface VoiceOptions {
  * Réglages de lecture, modulaires. Deux « modes » se résument à `rehearsal` :
  * - `rehearsal: false` → lecture continue : aucune pause, tout est lu.
  * - `rehearsal: true`  → répétition : pause sur MES répliques, modulée par :
- *   - `mask`        : masquer (flouter) mes répliques tant qu'elles ne sont pas dites.
+ *   - `mask`        : masquer mes répliques tant qu'elles ne sont pas dites
+ *                     (`maskStyle` : floutées, ou cachées derrière une barre fixe).
  *   - `playMine`    : à la reprise, le TTS lit ma réplique (contrôle mémoire) ;
  *                     sinon elle est sautée.
  *   - `autoAdvance` : la pause se termine seule après la durée du mp3 de ma réplique
  *                     (sans la jouer), au lieu d'attendre un clic.
  *   - `tick`        : bip sonore quand c'est à moi.
  */
+export type MaskStyle = 'blur' | 'bar';
+
 export interface ReadingSettings {
   rehearsal: boolean;
   mask: boolean;
+  /** `bar` : barre de taille fixe, qui ne trahit ni la longueur ni la forme du texte. */
+  maskStyle: MaskStyle;
   playMine: boolean;
   autoAdvance: boolean;
   tick: boolean;
@@ -69,6 +74,7 @@ export interface ReadingSettings {
 const DEFAULT_SETTINGS: ReadingSettings = {
   rehearsal: false,
   mask: false,
+  maskStyle: 'blur',
   playMine: false,
   autoAdvance: false,
   tick: false,
@@ -122,6 +128,8 @@ export interface PlayerOptions {
   resolveDuration?: (t: AudioTirade) => Promise<number | null>;
   /** Classe sur les répliques masquées. Défaut 'line--masked'. */
   maskedClass?: string;
+  /** Classe ajoutée aux répliques masquées en style `bar`. Défaut 'line--masked-bar'. */
+  barClass?: string;
   /** Classe ajoutée quand une réplique masquée est révélée. Défaut 'line--revealed'. */
   revealedClass?: string;
   /**
@@ -223,6 +231,7 @@ function relocate(prev: AudioTirade[], prevIndex: number, next: AudioTirade[]): 
 export function createPlayer(opts: PlayerOptions): Player {
   const speakingClass = opts.speakingClass ?? 'line--speaking';
   const maskedClass = opts.maskedClass ?? 'line--masked';
+  const barClass = opts.barClass ?? 'line--masked-bar';
   const revealedClass = opts.revealedClass ?? 'line--revealed';
   const audio = document.createElement('audio');
   audio.preload = 'auto';
@@ -362,7 +371,7 @@ export function createPlayer(opts: PlayerOptions): Player {
   function applyMask(): void {
     opts.container
       .querySelectorAll<HTMLElement>(`.${maskedClass}`)
-      .forEach((el) => el.classList.remove(maskedClass, revealedClass));
+      .forEach((el) => el.classList.remove(maskedClass, barClass, revealedClass));
     maskedLines = [];
     if (!shouldMask()) return;
     tirades.forEach((t, at) => {
@@ -374,11 +383,15 @@ export function createPlayer(opts: PlayerOptions): Player {
     syncMask();
   }
 
-  /** Aligne le flou sur la position. À rejouer quand la POSITION change (cf. `emit`). */
+  /** Aligne le masque sur la position et le style. À rejouer quand l'un des deux change (cf. `emit`). */
   function syncMask(): void {
+    const bar = settings.maskStyle === 'bar';
     for (const { at, els } of maskedLines) {
       const said = isSaid(at);
-      for (const el of els) el.classList.toggle(revealedClass, said);
+      for (const el of els) {
+        el.classList.toggle(revealedClass, said);
+        el.classList.toggle(barClass, bar);
+      }
     }
   }
 

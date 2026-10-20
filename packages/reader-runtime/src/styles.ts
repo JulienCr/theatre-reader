@@ -35,6 +35,16 @@ export const STYLE =
    centrage ne dépend toujours pas du contenu. */
 .reader-bar-side, .reader-bar .transport-mode { flex: 1 1 0; min-width: min-content; }
 .reader-bar > .reader-bar-side:last-child, .reader-bar .transport-mode { justify-content: flex-end; }
+/* Compteur de tirade : dans la marge basse du dock (celle qui se prolonge sous
+   l'indicateur d'accueil), en absolu — rien ne bouge, et il ne capte aucun appui.
+   Le retrait à gauche évite le coin arrondi de l'écran (rayon ≈ 47 px sur iPhone). */
+.reader-count {
+  position: absolute; left: calc(var(--sp-6) + env(safe-area-inset-left)); bottom: 0;
+  display: flex; align-items: center;
+  height: max(var(--sp-3), env(safe-area-inset-bottom));
+  font-size: 10px; line-height: 1; color: var(--ink-faint);
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
 /* Les cibles restent à 44 px, mais sans la générosité horizontale du bouton
    tactile par défaut : à 320 px, 14 px de marge de chaque côté suffisaient à
    pousser la bascule hors de la barre. */
@@ -152,9 +162,13 @@ export const STYLE =
    -webkit-touch-callout / user-select, iOS répondrait à l'appui long par sa loupe et
    son menu Copier — par-dessus le texte qu'on vient justement de dévoiler. Restreint
    aux répliques masquées : ailleurs, la sélection reste celle du système. */
-.line--masked .speech { display: inline-block; filter: blur(5px); transition: filter .12s; cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.line--masked .speech { display: inline-block; filter: blur(7px); transition: filter .12s; cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 /* Dite (le moteur) ou regardée le temps d'un appui (le peek) : dans les deux cas, en clair. */
 .line--masked.line--revealed .speech, .line--masked.line--peek .speech { filter: none; }
+/* Barre : taille fixe, quelle que soit la réplique — ni longueur ni forme du texte ne transparaissent. */
+.line--masked-bar:not(.line--revealed):not(.line--peek) .speech { display: block; width: min(10em, 70%); height: 1.1em; overflow: hidden; filter: none; border-radius: 3px; background: var(--ink); }
+.line--masked-bar:not(.line--revealed):not(.line--peek) .speech * { color: transparent !important; background: none !important; }
+.line--masked-bar:not(.line--revealed):not(.line--peek) .speech { color: transparent; }
 .line-timer { display: block; height: 4px; margin: 0 0 6px; border-radius: 2px; background: color-mix(in srgb, var(--ink) 12%, transparent); overflow: hidden; }
 .line-timer-fill { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
 .line-hint { display: flex; justify-content: flex-end; margin: 4px 0 8px; }

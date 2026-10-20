@@ -5,7 +5,7 @@
  * vivent dans le localStorage, clé par pièce, et NON dans meta.json (qui est
  * partagé et sauvegardé manuellement côté éditeur).
  */
-import type { ReadingSettings } from '@theatre/audio-player';
+import type { MaskStyle, ReadingSettings } from '@theatre/audio-player';
 
 export interface ReadingPrefs {
   settings: ReadingSettings;
@@ -15,8 +15,10 @@ export interface ReadingPrefs {
 const keyFor = (slug: string): string => `theatre-reader:reading:${slug}`;
 const boolOr = (v: unknown, d: boolean): boolean => (typeof v === 'boolean' ? v : d);
 
+const maskStyleOr = (v: unknown, d: MaskStyle): MaskStyle => (v === 'blur' || v === 'bar' ? v : d);
+
 export function defaultSettings(): ReadingSettings {
-  return { rehearsal: false, mask: true, playMine: false, autoAdvance: false, tick: false, onlyMyScenes: false };
+  return { rehearsal: false, mask: true, maskStyle: 'blur', playMine: false, autoAdvance: false, tick: false, onlyMyScenes: false };
 }
 
 export function loadReadingPrefs(slug: string, fallbackRoles: string[]): ReadingPrefs {
@@ -30,6 +32,7 @@ export function loadReadingPrefs(slug: string, fallbackRoles: string[]): Reading
       settings: {
         rehearsal: boolOr(s.rehearsal, fallback.settings.rehearsal),
         mask: boolOr(s.mask, fallback.settings.mask),
+        maskStyle: maskStyleOr(s.maskStyle, fallback.settings.maskStyle),
         playMine: boolOr(s.playMine, fallback.settings.playMine),
         autoAdvance: boolOr(s.autoAdvance, fallback.settings.autoAdvance),
         tick: boolOr(s.tick, fallback.settings.tick),

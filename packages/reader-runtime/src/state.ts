@@ -122,6 +122,7 @@ export function colorFor(index: number): string {
 export const DEFAULT_READING: ReadingSettings = {
   rehearsal: false,
   mask: true,
+  maskStyle: 'blur',
   playMine: false,
   autoAdvance: false,
   tick: false,
@@ -202,6 +203,7 @@ export function loadState(key: string, fallback: PersistedState): PersistedState
         reading: {
           rehearsal: boolOr(r.rehearsal, fallback.reading.rehearsal),
           mask: boolOr(r.mask, fallback.reading.mask),
+          maskStyle: r.maskStyle === 'blur' || r.maskStyle === 'bar' ? r.maskStyle : fallback.reading.maskStyle,
           playMine: boolOr(r.playMine, fallback.reading.playMine),
           autoAdvance: boolOr(r.autoAdvance, fallback.reading.autoAdvance),
           tick: boolOr(r.tick, fallback.reading.tick),

@@ -130,6 +130,10 @@ async function readerRuntime(): Promise<string> {
         // Sous-chemin distinct : `preact/compat` n'exporte pas createRoot,
         // il vit dans `preact/compat/client`.
         'react-dom/client': 'preact/compat/client',
+        // Importé par le JSX de CHAQUE fichier (jsxImportSource), y compris ceux de
+        // reader-ui et ui qui ne déclarent pas preact : sans alias, esbuild le résout
+        // depuis le fichier et échoue.
+        'preact/jsx-runtime': 'preact/jsx-runtime',
       },
       // esbuild résout les alias depuis le répertoire de travail, or le build est
       // lancé depuis @theatre/server, qui ne dépend pas de preact. On se place donc
