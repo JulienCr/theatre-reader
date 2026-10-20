@@ -45,6 +45,11 @@ export interface BootOptions {
    * qui n'écouterait rien.
    */
   recognizer?: SpeechRecognizer;
+  /**
+   * Point de reprise à l'ouverture : `n:<data-nid>` (une tirade) ou `h:<id>` (un en-tête).
+   * Appliqué par le chrome, une fois la mise en page posée (taille du texte, masquage).
+   */
+  startAt?: string;
 }
 
 function injectStyle(css: string): void {
@@ -94,6 +99,7 @@ function init(d: ReaderData, options: BootOptions): void {
       initial,
       onExit: options.onExit,
       recognizer: options.recognizer,
+      startAt: options.startAt,
     }),
   );
 }
