@@ -148,9 +148,19 @@ function sameLooseSound(a: Token, b: Token): boolean {
  * milieu de « chévéloure » ce même `e` se prononce (`SevelUr`). Recalculer sur
  * « chévélourd » redonne `SevelUr`, et les deux formes se retrouvent.
  */
-function joined(a: Token, b: Token): Token {
+function joined(a: Token, b: Token): Joined {
   const key = a.key + b.key;
-  return { key, raw: `${a.raw} ${b.raw}`, proper: a.proper || b.proper, phon: phoneticKey(key) };
+  const token: Joined = { key, raw: `${a.raw} ${b.raw}`, proper: a.proper || b.proper, phon: phoneticKey(key) };
+  // Gluing « types » + « au » puts the final `s` between vowels, which reads as /z/.
+  if (a.key.endsWith('s') && /^[aeiouy]/.test(b.key)) token.phonNoLiaison = phoneticKey(a.key.slice(0, -1) + b.key);
+  return token;
+}
+
+type Joined = Token & { phonNoLiaison?: string };
+
+/** A glued pair against a single word: the pair's `s` is silent when spoken without liaison. */
+function sameWithoutLiaison(single: Token, pair: Joined): boolean {
+  return pair.phonNoLiaison !== undefined && single.phon !== '' && single.phon === pair.phonNoLiaison;
 }
 
 export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op[] {
@@ -161,8 +171,8 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
 
   // Paires adjacentes, calculées une fois : la matrice les consulte n×m fois.
   // `pairH[j]` colle heard[j-1] et heard[j] ; `pairE[i]` fait de même côté attendu.
-  const pairH: (Token | null)[] = heard.map((h, j) => (j > 0 ? joined(heard[j - 1]!, h) : null));
-  const pairE: (Token | null)[] = expected.map((e, i) => (i > 0 ? joined(expected[i - 1]!, e) : null));
+  const pairH: (Joined | null)[] = heard.map((h, j) => (j > 0 ? joined(heard[j - 1]!, h) : null));
+  const pairE: (Joined | null)[] = expected.map((e, i) => (i > 0 ? joined(expected[i - 1]!, e) : null));
   /**
    * Coût d'un regroupement, ou `Infinity` s'il n'est pas franc.
    *
@@ -174,12 +184,12 @@ export function align(expected: Token[], heard: Token[], opts: AlignOptions): Op
    */
   const mergeCost = (i: number, j: number): number => {
     if (j < 2) return Infinity;
-    const s = sameLooseSound(expected[i - 1]!, pairH[j - 1]!) ? HOMOPHONE_SIM : sim(expected[i - 1]!, pairH[j - 1]!);
+    const s = sameLooseSound(expected[i - 1]!, pairH[j - 1]!) || sameWithoutLiaison(expected[i - 1]!, pairH[j - 1]!) ? HOMOPHONE_SIM : sim(expected[i - 1]!, pairH[j - 1]!);
     return s >= opts.matchSim ? 1 - s : Infinity;
   };
   const splitCost = (i: number, j: number): number => {
     if (i < 2) return Infinity;
-    const s = sameLooseSound(pairE[i - 1]!, heard[j - 1]!) ? HOMOPHONE_SIM : sim(pairE[i - 1]!, heard[j - 1]!);
+    const s = sameLooseSound(pairE[i - 1]!, heard[j - 1]!) || sameWithoutLiaison(heard[j - 1]!, pairE[i - 1]!) ? HOMOPHONE_SIM : sim(pairE[i - 1]!, heard[j - 1]!);
     return s >= opts.matchSim ? 1 - s : Infinity;
   };
 

@@ -13,7 +13,7 @@ export { evaluate, evaluatePrefix, tokenize } from './evaluate';
 export type { EvaluatedWord, Evaluation, PrefixEvaluation, Tolerance, Verdict } from './evaluate';
 export { matchCommand } from './commands';
 export type { VoiceCommand } from './commands';
-export { fold, splitWords, FILLERS } from './normalize';
+export { fold, splitWords, FILLERS, isInterjection } from './normalize';
 export type { Token } from './normalize';
 export { canonicalizeNumbers } from './numbers';
 export { phoneticKey } from './phonetic';

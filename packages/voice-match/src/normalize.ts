@@ -62,6 +62,17 @@ export function fold(word: string): string {
  */
 export const FILLERS = new Set(['euh', 'heu', 'hem', 'hum', 'mmh', 'mm', 'hmm']);
 
+/**
+ * Interjections qu'une pièce écrit et qu'un moteur de dictée ne rend presque jamais
+ * (`hum`, `rho`, `euh`). Côté ATTENDU seulement : on ne peut pas exiger de les entendre.
+ */
+const INTERJECTION_RE = /^(?:rh?o+|hu+m+|hm+|mm+h?|heu+h?|eu+h+|hem)$/;
+
+/** Vrai pour une clé de comparaison (cf. `fold`) qui est une interjection. */
+export function isInterjection(key: string): boolean {
+  return INTERJECTION_RE.test(key);
+}
+
 /** Découpe en mots, sans toucher aux nombres (cf. `tokenize`). */
 export function splitWords(text: string): Token[] {
   const out: Token[] = [];

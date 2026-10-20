@@ -12,7 +12,7 @@
  * au-delà de ces quelques mots.
  */
 import { align, similarity, type Op } from './align';
-import { FILLERS, splitWords, type Token } from './normalize';
+import { FILLERS, isInterjection, splitWords, type Token } from './normalize';
 import { forgivenDel, forgivenIns } from './leniency';
 import { canonicalizeNumbers } from './numbers';
 import { blocks, weightOf } from './weight';
@@ -151,6 +151,12 @@ function scoreOps(expected: Token[], heard: Token[], ops: Op[], p: Profile): Sco
         break;
       case 'sub': {
         const e = expected[op.e]!;
+        if (isInterjection(e.key)) {
+          words[op.e]!.status = 'ok';
+          lastExpected = op.e;
+          reached = Math.max(reached, op.e + 1);
+          break;
+        }
         words[op.e] = { text: e.raw, status: 'replaced', heard: heard[op.h]!.raw };
         lost += weightOf(e);
         blocked ||= blocks(e, p.strictBlocking);
@@ -218,6 +224,10 @@ export function evaluate(
   const words: EvaluatedWord[] = expected.map((t) => ({ text: t.raw, status: 'missing' }));
   if (!expected.length) return { verdict: 'ok', score: 1, words, added: [] };
   if (!heard.length) return { verdict: 'no-speech', score: 0, words, added: [] };
+  // A tirade made only of interjections ("Hum.") cannot be checked: whatever was said counts.
+  if (expected.every((t) => isInterjection(t.key))) {
+    return { verdict: 'ok', score: 1, words: words.map((w) => ({ ...w, status: 'ok' as const })), added: [] };
+  }
 
   const ops = align(expected, heard, {
     maxSkip: Math.min(p.maxSkipAbs, Math.max(p.minSkip, Math.ceil(expected.length * p.maxSkipRatio))),
@@ -307,6 +317,7 @@ export function evaluatePrefix(
 
   if (!heard.length) return { reached: 0, total, verdict: 'no-speech' };
   if (!expected.length) return { reached: 0, total: 0, verdict: 'ok' };
+  if (expected.every((t) => isInterjection(t.key))) return { reached: total, total, verdict: 'ok' };
 
   const ops = align(expected, heard, {
     maxSkip: Math.min(p.maxSkipAbs, Math.max(p.minSkip, Math.ceil(expected.length * p.maxSkipRatio))),

@@ -174,6 +174,30 @@ describe('verdicts', () => {
     expect(verdict('Ils vont partir.', 'ils vendent partir')).not.toBe('ok');
   });
 
+  it('ignore une interjection du texte (« hum », « rho ») que la dictée ne rend pas', () => {
+    for (const mode of ['soft', 'strict'] as const) {
+      expect(verdict('Hum, je pars demain.', 'je pars demain', mode)).toBe('ok');
+      expect(verdict('Je pars, rho, demain.', 'je pars demain', mode)).toBe('ok');
+      expect(verdict('Rhô ! Je pars demain.', 'je pars demain', mode)).toBe('ok');
+    }
+    expect(verdict('Hum, je pars demain.', 'je pars')).toBe('fail');
+  });
+
+  it('valide avec n’importe quoi une tirade faite seulement d’interjections', () => {
+    for (const mode of ['soft', 'strict'] as const) {
+      expect(verdict('Hum.', 'bonjour tout le monde', mode)).toBe('ok');
+      expect(verdict('Rho… Hum.', 'oui', mode)).toBe('ok');
+      expect(evaluate('Hum.', 'n’importe quoi', { tolerance: mode }).words.every((w) => w.status === 'ok')).toBe(true);
+    }
+    expect(verdict('Hum.', '')).toBe('no-speech');
+    expect(evaluatePrefix('Hum.', 'oui')).toEqual({ reached: 1, total: 1, verdict: 'ok' });
+  });
+
+  it('ne prend pas pour une interjection un mot qui y ressemble', () => {
+    expect(verdict('Il a eu mal.', 'il a mal')).not.toBe('ok');
+    expect(verdict('Un petit rhum.', 'un petit')).not.toBe('ok');
+  });
+
   it('tolère un « ne » manquant en souple, pas en strict', () => {
     expect(verdict('Je ne sais pas.', 'je sais pas')).toBe('ok');
     expect(verdict('Je ne sais pas.', 'je sais pas', 'strict')).not.toBe('ok');
@@ -448,4 +472,13 @@ describe('robustesse', () => {
   it("ne plante pas quand un seul mot attendu se découpe en trois côté dictée", () => {
     expect(() => evaluate('Chevelure.', 'ché vé lourd')).not.toThrow();
   });
+
+describe('liaison absente à la dictée', () => {
+  it('« types au » dicté « typo », dans les deux sens', () => {
+    for (const tol of ['soft', 'strict'] as const) {
+      expect(verdict('juste pour rouler des types au poker', 'juste pour rouler des typo poker', tol)).toBe('ok');
+      expect(verdict('juste pour rouler des typo poker', 'juste pour rouler des types au poker', tol)).toBe('ok');
+    }
+  });
+});
 });

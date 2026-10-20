@@ -1,5 +1,5 @@
 /** Écarts tolérés (machine ou oral, pas un trou dans le texte) : décide si un `del`/`ins` compte. */
-import type { Token } from './normalize';
+import { isInterjection, type Token } from './normalize';
 
 /** « il » avalé à l'oral : « il y a » se dit « y a » (ou « ya »), « il faut » se dit « faut ». */
 function elidableIl(t: Token[], i: number): boolean {
@@ -23,6 +23,7 @@ function repeatOfMatched(t: Token[], i: number, matched: ReadonlySet<number>): b
  */
 export function forgivenDel(expected: Token[], e: number, matched: ReadonlySet<number>, forgiveNe: boolean): boolean {
   if (forgiveNe && expected[e]!.key === 'ne') return true;
+  if (isInterjection(expected[e]!.key)) return true;
   return elidableIl(expected, e) || repeatOfMatched(expected, e, matched);
 }
 
