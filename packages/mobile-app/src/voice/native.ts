@@ -16,7 +16,7 @@ import type { SpeechRecognizer } from '@theatre/audio-player';
 interface SpeechPlugin {
   /** Demande les deux permissions (micro + reconnaissance) et rend le verdict. */
   authorize(): Promise<{ granted: boolean }>;
-  start(options: { locale: string }): Promise<void>;
+  start(options: { locale: string; contextualStrings?: string[] }): Promise<void>;
   stop(): Promise<void>;
   abort(): Promise<void>;
   /** Prend la route audio d'enregistrement sans ouvrir le micro. */

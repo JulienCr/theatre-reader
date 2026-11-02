@@ -33,8 +33,10 @@ import {
   loadRate,
   nextRate,
   saveRate,
+  HIDDEN_SCENE_CLASS,
   type Player,
   type PlayerState,
+  type MaskStyle,
   type ReadingSettings,
   type SpeechRecognizer,
   type Tolerance,
@@ -61,16 +63,21 @@ import {
 import { VoiceFeedback } from './VoiceFeedback';
 import type { ReaderData } from './types';
 
-type SheetName = 'options' | 'chars' | 'scenes' | 'search' | 'mode' | 'note' | null;
+type SheetName = 'options' | 'chars' | 'scenes' | 'search' | 'tirade' | 'mode' | 'note' | null;
 
 const clampFont = (p: number): number => Math.min(FONT_MAX, Math.max(FONT_MIN, p));
 
 /** Options de répétition, dans l'ordre d'affichage. */
 const REHEARSAL_OPTIONS: { key: keyof ReadingSettings; label: string; hint: string }[] = [
-  { key: 'mask', label: 'Masquer mes répliques', hint: "Floutées jusqu'à ce qu'elles soient dites." },
+  { key: 'mask', label: 'Masquer mes répliques', hint: "Cachées jusqu'à ce qu'elles soient dites." },
   { key: 'playMine', label: 'Me faire répéter', hint: 'À la reprise, le TTS lit ma réplique.' },
   { key: 'autoAdvance', label: 'Avancement automatique', hint: 'Reprise auto après la durée, sans clic.' },
   { key: 'tick', label: "Bip quand c'est à moi", hint: '' },
+];
+
+const MASK_STYLES: { value: MaskStyle; label: string }[] = [
+  { value: 'blur', label: 'Flou' },
+  { value: 'bar', label: 'Barre noire' },
 ];
 
 /**
@@ -119,6 +126,7 @@ export function Chrome({
   initial,
   onExit,
   recognizer,
+  startAt,
 }: {
   data: ReaderData;
   /** Le `.play` rendu par @theatre/core — jamais rendu par React, seulement muté. */
@@ -129,6 +137,8 @@ export function Chrome({
   onExit?: () => void;
   /** Fourni par l'app seule : sans lui, aucun réglage vocal n'est proposé. */
   recognizer?: SpeechRecognizer;
+  /** Reprise à l'ouverture, cf. `BootOptions.startAt`. */
+  startAt?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(initial.selected);
   // Borné dès la lecture : un localStorage abîmé ne doit pas rendre la pièce illisible.
@@ -149,6 +159,9 @@ export function Chrome({
   // du tout. Une fois affichée, elle reste montée (comme avant le portage React).
   const [noteBody, setNoteBody] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [tiradeInput, setTiradeInput] = useState('');
+  const [tiradeError, setTiradeError] = useState<string | null>(null);
+  const tiradeInputRef = useRef<HTMLInputElement>(null);
   const [pstate, setPstate] = useState<PlayerState | null>(null);
   const [sceneId, setSceneId] = useState<string | null>(null);
   // Répétition vocale : réglage global (toutes pièces), d'où sa propre clé.
@@ -185,7 +198,12 @@ export function Chrome({
       // Sans reconnaissance (le .html exporté), le moteur ignore tout du mode vocal
       // et la pause de répétition reste celle d'avant.
       voice: recognizer
-        ? { recognizer, enabled: voiceRef.current.enabled, tolerance: voiceRef.current.tolerance }
+        ? {
+            recognizer,
+            enabled: voiceRef.current.enabled,
+            tolerance: voiceRef.current.tolerance,
+            vocabulary: data.voiceVocabulary,
+          }
         : undefined,
     });
     player.setRate(rate);
@@ -329,6 +347,32 @@ export function Chrome({
     });
   }, [play, selected]);
 
+  // Mes tirades dans l'ordre de la pièce entière, filtres d'affichage ignorés : c'est la
+  // numérotation du plan d'apprentissage (toute réplique de mes rôles compte, même
+  // réduite à une didascalie). La position est celle du moteur (`currentNodeId`).
+  const myNodeIds = useMemo(
+    () =>
+      Array.from(play.querySelectorAll<HTMLElement>('p.line[data-nid][data-cid]'))
+        .filter((el) => selected.includes(el.getAttribute('data-cid')!))
+        .map((el) => el.getAttribute('data-nid')!),
+    [play, selected],
+  );
+  const myPosition = useMemo(() => {
+    if (!myNodeIds.length || !pstate?.currentNodeId) return null;
+    const order = Array.from(play.querySelectorAll<HTMLElement>('p.line[data-nid]')).map((el) =>
+      el.getAttribute('data-nid'),
+    );
+    const at = order.indexOf(pstate.currentNodeId);
+    if (at < 0) return null;
+    const mine = new Set(myNodeIds);
+    let rank = 0;
+    for (let i = 0; i < order.length; i++) {
+      if (mine.has(order[i]!)) rank++;
+      if (i >= at && mine.has(order[i]!)) break;
+    }
+    return { rank, total: myNodeIds.length };
+  }, [play, myNodeIds, pstate?.currentNodeId]);
+
   // Option « n'afficher que mes scènes ». La RÈGLE est dans @theatre/core, partagée
   // avec le lecteur web : lui filtre l'AST, nous masquons le DOM, mais à partir du
   // même verdict — une règle réécrite ici est ce qui avait laissé le contenu
@@ -377,9 +421,30 @@ export function Chrome({
     saveState(data.storageKey, { selected, fontPct, reading, lineFilter, resume });
   }, [data.storageKey, selected, fontPct, reading, lineFilter, resume]);
 
+  // Reprise : ici et non dans l'hôte, car `render()` est asynchrone — un scroll posé
+  // avant le montage est décalé par la taille du texte et le masquage, et le curseur
+  // du lecteur ne bougerait jamais. Après les layout effects ci-dessus, avant l'observateur.
+  useEffect(() => {
+    if (!startAt) return;
+    const sep = startAt.indexOf(':');
+    const kind = startAt.slice(0, sep);
+    const value = startAt.slice(sep + 1);
+    if (kind === 'h') {
+      if (document.getElementById(value)) goToEntry(value);
+      return;
+    }
+    const el = visibleAnchor(play, value);
+    const nid = el?.getAttribute('data-nid');
+    if (!el || !nid) return;
+    playerRef.current?.seek(nid);
+    el.scrollIntoView({ block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ouverture seulement
+  }, []);
+
   // Le champ de recherche n'est focalisé qu'à l'ouverture de sa sheet.
   useEffect(() => {
     if (sheet === 'search') searchInputRef.current?.focus();
+    if (sheet === 'tirade') tiradeInputRef.current?.focus();
   }, [sheet]);
 
   const closeSheet = (): void => setSheet(null);
@@ -455,7 +520,39 @@ export function Chrome({
 
   const goToEntry = (id: string): void => {
     setSheet(null);
-    document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    const heading = document.getElementById(id);
+    if (!heading) return;
+    // Le curseur suit : première tirade visible après l'en-tête.
+    let first: HTMLElement | null = null;
+    for (let el = heading.nextElementSibling; el; el = el.nextElementSibling) {
+      if (el.matches('p.line[data-nid]') && !el.classList.contains(HIDDEN_SCENE_CLASS)) {
+        first = el as HTMLElement;
+        break;
+      }
+    }
+    const nid = first?.getAttribute('data-nid');
+    if (nid) playerRef.current?.seek(nid);
+    heading.scrollIntoView({ block: 'start' });
+  };
+
+  /** Saute à MA tirade n° `rank` (numérotation du plan d'apprentissage). */
+  const goToTirade = (): void => {
+    const rank = Number(tiradeInput);
+    const nid = Number.isInteger(rank) ? myNodeIds[rank - 1] : undefined;
+    if (!nid) {
+      setTiradeError(`Entre un numéro de 1 à ${myNodeIds.length}.`);
+      return;
+    }
+    const el = play.querySelector<HTMLElement>(`p.line[data-nid="${nid}"]`);
+    // Masquée par « mes scènes » ou par le filtre de répliques : y aller ne montrerait rien.
+    if (!el || el.closest(`.${HIDDEN_SCENE_CLASS}`)) {
+      setTiradeError('Cette tirade est masquée par un filtre d\'affichage.');
+      return;
+    }
+    setTiradeError(null);
+    setSheet(null);
+    playerRef.current?.seek(nid);
+    el.scrollIntoView({ block: 'center' });
   };
 
   const playing = Boolean(pstate?.playing && !pstate.waitingForUser);
@@ -552,6 +649,18 @@ export function Chrome({
             </>
           )}
         </Toolbar>
+
+        {/* Rang de ma tirade (la courante, ou la prochaine si l'on est chez un autre),
+            comme dans le plan d'apprentissage. Posé dans la marge basse du dock, hors
+            flux : il ne déplace aucun bouton. */}
+        {myPosition && (
+          <span
+            className="reader-count"
+            aria-label={`Ma tirade ${myPosition.rank} sur ${myPosition.total}`}
+          >
+            {myPosition.rank} / {myPosition.total}
+          </span>
+        )}
       </div>
 
       {/* Toutes les sheets sont montées en permanence et n'échangent que leur
@@ -577,6 +686,17 @@ export function Chrome({
           />
           <NavItem icon="list" label="Scènes" onClick={() => openSheet('scenes', 'options')} />
           <NavItem icon="search" label="Recherche" onClick={() => openSheet('search', 'options')} />
+          {myNodeIds.length > 0 && (
+            <NavItem
+              icon="skip-forward"
+              label="Aller à la tirade n°"
+              hint={myPosition ? `${myPosition.rank} / ${myPosition.total}` : undefined}
+              onClick={() => {
+                setTiradeError(null);
+                openSheet('tirade', 'options');
+              }}
+            />
+          )}
           <NavItem
             icon="sliders"
             label="Mode de lecture"
@@ -683,6 +803,38 @@ export function Chrome({
         </div>
       </Sheet>
 
+      <Sheet title="Aller à la tirade n°" open={sheet === 'tirade'} onClose={closeSheet} onBack={backToParent}>
+        <p className="sheet-intro">
+          Le numéro de MES tirades, comme dans le plan d'apprentissage
+          {myNodeIds.length > 0 && ` (1 à ${myNodeIds.length})`}.
+        </p>
+        <form
+          className="reader-search"
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            goToTirade();
+          }}
+        >
+          <input
+            ref={tiradeInputRef}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={myNodeIds.length}
+            placeholder="N°"
+            value={tiradeInput}
+            onInput={(ev) => {
+              setTiradeInput(ev.currentTarget.value);
+              setTiradeError(null);
+            }}
+          />
+          <Button size="touch" type="submit">
+            Aller
+          </Button>
+        </form>
+        {tiradeError && <p className="sheet-intro">{tiradeError}</p>}
+      </Sheet>
+
       <Sheet title="Mode de lecture" open={sheet === 'mode'} onClose={closeSheet} onBack={backToParent}>
         {/* Interrupteur maître : Continu / Répétition. Le même `Button` que la
             bascule de la barre — c'est le même état, il doit se lire pareil. */}
@@ -724,6 +876,21 @@ export function Chrome({
             </label>
           );
         })}
+
+        {/* Style du masque : flou, ou barre de taille fixe (le flou laisse deviner le texte). */}
+        <div className="mode-seg">
+          {MASK_STYLES.map((m) => (
+            <Button
+              key={m.value}
+              size="touch"
+              disabled={!reading.rehearsal || !reading.mask}
+              aria-pressed={reading.maskStyle === m.value}
+              onClick={() => changeSettings({ maskStyle: m.value })}
+            >
+              {m.label}
+            </Button>
+          ))}
+        </div>
 
         {/* Validation vocale — seulement là où il y a une reconnaissance à piloter. */}
         {recognizer && (
@@ -854,7 +1021,7 @@ function NavItem({
   hint,
   onClick,
 }: {
-  icon: 'users' | 'list' | 'search' | 'sliders';
+  icon: 'users' | 'list' | 'search' | 'sliders' | 'skip-forward';
   label: string;
   hint?: string;
   onClick: () => void;

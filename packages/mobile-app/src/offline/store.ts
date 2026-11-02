@@ -25,6 +25,8 @@ import type { PlayMeta } from '../api';
 export interface StoredPlay {
   fountain: string;
   meta: PlayMeta;
+  /** Recognizer hints (cf. server `vocabularyFor`); absent on plays synced before this existed. */
+  vocabulary?: string[];
 }
 
 /**

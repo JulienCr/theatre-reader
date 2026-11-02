@@ -182,6 +182,9 @@ importers:
       '@theatre/reader-ui':
         specifier: workspace:*
         version: link:../reader-ui
+      '@theatre/voice-match':
+        specifier: workspace:*
+        version: link:../voice-match
       bonjour-service:
         specifier: ^1.4.4
         version: 1.4.4
