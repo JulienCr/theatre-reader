@@ -113,24 +113,45 @@ export function lineFilterHidden(
   return out;
 }
 
-/** Element to keep in view after a visibility change: the speaking line, else `nid`, else the nearest visible node after it, else before it. */
-export function visibleAnchor(play: HTMLElement, nid: string | null): HTMLElement | null {
-  const speaking = play.querySelector<HTMLElement>('.line--speaking');
-  if (speaking && !speaking.classList.contains(HIDDEN_SCENE_CLASS)) return speaking;
-  if (nid === null) return null;
+const isVisibleNode = (el: Element): boolean =>
+  el.hasAttribute('data-nid') && !el.classList.contains(HIDDEN_SCENE_CLASS);
+
+/** `nid` itself if it passes `accept`, else the nearest node after it that does, else the nearest before it. */
+function nearestAccepted(
+  play: HTMLElement,
+  nid: string,
+  accept: (el: Element) => boolean,
+): HTMLElement | null {
   const from = (Array.from(play.children) as HTMLElement[]).find(
     (el) => el.getAttribute('data-nid') === nid,
   );
   if (!from) return null;
-  if (!from.classList.contains(HIDDEN_SCENE_CLASS)) return from;
-  const isVisible = (el: Element): boolean =>
-    el.hasAttribute('data-nid') && !el.classList.contains(HIDDEN_SCENE_CLASS);
+  if (accept(from)) return from;
   for (const step of ['nextElementSibling', 'previousElementSibling'] as const) {
     for (let el = from[step]; el; el = el[step]) {
-      if (isVisible(el)) return el as HTMLElement;
+      if (accept(el)) return el as HTMLElement;
     }
   }
   return null;
+}
+
+/** Element to keep in view after a visibility change: the speaking line, else `nid`, else the nearest visible node after it, else before it. */
+export function visibleAnchor(play: HTMLElement, nid: string | null): HTMLElement | null {
+  const speaking = play.querySelector<HTMLElement>('.line--speaking');
+  if (speaking && !speaking.classList.contains(HIDDEN_SCENE_CLASS)) return speaking;
+  return nid === null ? null : nearestAccepted(play, nid, isVisibleNode);
+}
+
+/**
+ * Like `visibleAnchor` minus the speaking line, but restricted to what the audio engine indexes
+ * (visible `p.line` with a speaker): a heading or stage direction is never a valid `seek` target.
+ */
+export function nearestVisibleLine(play: HTMLElement, nid: string): HTMLElement | null {
+  return nearestAccepted(
+    play,
+    nid,
+    (el) => isVisibleNode(el) && el.matches('p.line[data-cid]'),
+  );
 }
 
 /** `data-nid` of the first visible line in the range opened by heading `headingId`, or null if that range shows no dialogue. */

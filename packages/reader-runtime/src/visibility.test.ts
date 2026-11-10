@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
-import { applyVisibility, firstVisibleLineIn, lineFilterHidden, rangeIndex, visibleAnchor } from './visibility';
+import { applyVisibility, firstVisibleLineIn, lineFilterHidden, nearestVisibleLine, rangeIndex, visibleAnchor } from './visibility';
 
 /**
  * Imite la sortie de `renderBody` : préambule sans `data-nid`, puis les nœuds de
@@ -248,6 +248,37 @@ describe('visibleAnchor', () => {
   it('rend null pour un nid inconnu ou absent', () => {
     expect(visibleAnchor(play, 'nope#0')).toBeNull();
     expect(visibleAnchor(play, null)).toBeNull();
+  });
+});
+
+describe('nearestVisibleLine (resume cursor)', () => {
+  const hide = (...nids: string[]): void =>
+    nids.forEach((nid) =>
+      play.querySelector(`[data-nid="${nid}"]`)!.classList.add('scene--hidden'),
+    );
+  const nid = (nid: string): string | undefined =>
+    nearestVisibleLine(play, nid)?.getAttribute('data-nid') ?? undefined;
+
+  it('rend la tirade elle-même quand elle est visible', () => {
+    expect(nid('b1#0')).toBe('b1#0');
+  });
+
+  it('saute les en-têtes visibles : seule une tirade est une cible de seek valide', () => {
+    hide('p2#0');
+    // visibleAnchor would answer the heading s1#0 here; the engine does not index it.
+    expect(visibleAnchor(play, 'p2#0')?.getAttribute('data-nid')).toBe('s1#0');
+    expect(nid('p2#0')).toBe('b1#0');
+  });
+
+  it('retombe sur la tirade visible qui précède quand plus rien ne suit', () => {
+    hide('s2#0', 'm1#0');
+    expect(nid('m1#0')).toBe('b1#0');
+  });
+
+  it('rend null pour un nid inconnu ou sans aucune tirade visible', () => {
+    expect(nid('nope#0')).toBeUndefined();
+    hide('lead#0', 'p1#0', 'p2#0', 'b1#0', 'm1#0');
+    expect(nid('b1#0')).toBeUndefined();
   });
 });
 
