@@ -10,6 +10,8 @@ export type RemoteCommand = 'next' | 'previous';
 export interface RemoteControls {
   /** Subscribes to commands and returns the unsubscribe. */
   onCommand(cb: (command: RemoteCommand) => void): () => void;
+  /** True while a session runs, rehearsal pauses and open mic included (no clip needs to sound). */
+  setActive?(active: boolean): void;
 }
 
 /**

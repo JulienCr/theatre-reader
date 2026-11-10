@@ -1,26 +1,31 @@
 /**
- * Headset next/previous buttons, seen from TypeScript.
+ * Headset next/previous buttons, through the Media Session API.
  *
- * Adapts the `armRemote` / `remoteCommand` half of the Swift plugin
- * (ios/App/App/SpeechPlugin.swift) to the `RemoteControls` the reader expects.
+ * WebKit owns the process-wide MPRemoteCommandCenter for the audio element and
+ * rewrites it at every playback change, so a native handler gets overridden.
+ * Declaring the handlers here lets WebKit route the buttons to us itself.
  * What a press does is decided by the player; this file only carries the event.
  */
-import { Capacitor } from '@capacitor/core';
 import type { RemoteControls } from '@theatre/reader-runtime';
-import { listen, Speech } from './voice/native';
 
-/** `null` off device: the WebView has no plugin and no headset. */
-export function nativeRemote(title: string): RemoteControls | null {
-  if (!Capacitor.isNativePlatform()) return null;
+/** `null` when the WebView has no Media Session (the reader then has no hardware transport). */
+export function headsetRemote(title: string): RemoteControls | null {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return null;
+  const session = navigator.mediaSession;
   return {
     onCommand: (cb) => {
-      const off = listen<{ command: 'next' | 'previous' }>('remoteCommand', (d) => cb(d.command));
-      // Arm after subscribing: a press right after arming must find a listener.
-      Speech.armRemote({ title }).catch(() => {});
+      session.metadata = new MediaMetadata({ title, artist: 'Theatre Reader' });
+      session.setActionHandler('nexttrack', () => cb('next'));
+      session.setActionHandler('previoustrack', () => cb('previous'));
       return () => {
-        off();
-        Speech.disarmRemote().catch(() => {});
+        session.setActionHandler('nexttrack', null);
+        session.setActionHandler('previoustrack', null);
+        session.metadata = null;
       };
+    },
+    // A rehearsal pause or an open mic plays no clip: without this the page reads as stopped.
+    setActive: (active) => {
+      session.playbackState = active ? 'playing' : 'paused';
     },
   };
 }

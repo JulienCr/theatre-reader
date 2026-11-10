@@ -265,6 +265,11 @@ export function Chrome({
     return bindRemote(remote, () => playerRef.current);
   }, [remote, hasClips]);
 
+  const sessionActive = Boolean(pstate?.playing);
+  useEffect(() => {
+    if (hasClips) remote?.setActive?.(sessionActive);
+  }, [remote, hasClips, sessionActive]);
+
   // Scène courante, pour le bandeau : le dernier en-tête franchi. L'observateur
   // émet un premier lot dès le branchement, ce qui initialise le bandeau sans
   // écouter le défilement.

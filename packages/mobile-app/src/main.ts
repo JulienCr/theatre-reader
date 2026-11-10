@@ -16,7 +16,7 @@ import { buildOnlineClips, loadNotes, loadPlay, loadVocabulary, type PlayMeta } 
 import { discover } from './discovery';
 import { buildOfflineClips } from './offline/prepare';
 import * as store from './offline/store';
-import { nativeRemote } from './remote';
+import { headsetRemote } from './remote';
 import { Picker, pickerCss } from './ui/Picker';
 import { pickRecognizer } from './voice';
 
@@ -78,7 +78,7 @@ function mountReader(doc: ReaderDocument): void {
     // `null` hors appareil (et hors développement) : le lecteur n'affiche alors
     // simplement aucun réglage de validation vocale.
     recognizer: pickRecognizer() ?? undefined,
-    remote: nativeRemote(doc.title) ?? undefined,
+    remote: headsetRemote(doc.title) ?? undefined,
     startAt: decodeAnchor(location.hash.slice(1)) || undefined,
   });
 }
