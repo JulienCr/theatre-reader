@@ -82,18 +82,21 @@ describe('@theatre/reader-ui — recherche', () => {
     expect(marks()).toHaveLength(2);
   });
 
-  it('ignore le texte des scènes masquées (option « mes scènes »)', () => {
-    // Une scène masquée porte .scene--hidden : son texte ne doit pas être compté
-    // ni cadré, sinon la recherche saute « dans le vide » (occurrence invisible).
+  it('trouve le texte des scènes masquées et les démasque en cadrant', () => {
     root.innerHTML =
-      '<h3 class="scene"><span>SCENE I</span></h3>' +
       '<p class="line"><span class="speech">Le directeur parle.</span></p>' +
-      '<div class="scene--hidden">' +
-      '<h3 class="scene"><span>SCENE II</span></h3>' +
-      '<p class="line"><span class="speech">Le directeur caché.</span></p>' +
-      '</div>';
+      '<p class="line scene--hidden"><span class="speech">Le directeur caché.</span></p>';
     const search = createSearch(root);
-    expect(search.run('directeur')).toBe(1); // seule l'occurrence visible compte
+    expect(search.run('directeur')).toBe(2);
+    const hidden = root.querySelector('.scene--hidden')!;
+    expect(hidden.classList.contains('scene--peek')).toBe(false);
+    search.step(1);
+    expect(hidden.classList.contains('scene--peek')).toBe(true);
+    search.step(1);
+    expect(hidden.classList.contains('scene--peek')).toBe(false);
+    search.step(1);
+    search.clear();
+    expect(hidden.classList.contains('scene--peek')).toBe(false);
   });
 
   it('retombe sur ses pieds si le conteneur a été vidé entre-temps', () => {
