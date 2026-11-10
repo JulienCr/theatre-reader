@@ -1,7 +1,9 @@
 import AVFoundation
 import Capacitor
+import MediaPlayer
 import Network
 import Speech
+import UIKit
 
 /**
  Reconnaissance vocale pour la répétition (issue #40), côté natif.
@@ -29,7 +31,9 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "abort", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepare", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "release", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "release", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "armRemote", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "disarmRemote", returnType: CAPPluginReturnPromise)
     ]
 
     private let engine = AVAudioEngine()
@@ -49,6 +53,13 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
     private var engineRunning = false
     /// Numéro de l'écoute courante : ce qui remonte d'une écoute passée est ignoré.
     private var episode = 0
+    /// Parameters of the listen in progress (nil when idle), to re-open it after a route change.
+    private var listenParams: (locale: String, hints: [String])?
+
+    private var remoteArmed = false
+    private var remoteTargets: [(command: MPRemoteCommand, token: Any)] = []
+    private var remoteTitle = "Theatre Reader"
+    private var nowPlayingOwned = false
 
     /**
      Erreurs que SFSpeech rend en fin de flux et qui ne signalent aucune panne.
@@ -89,6 +100,18 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
             self.engineRunning = false
             try? self.ensureEngine()
         }
+
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in self?.routeDidChange(note) }
+
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.reassertRemote() }
     }
 
     // MARK: - Permissions
@@ -215,6 +238,7 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         // serveur, nettement meilleure sur du texte de théâtre.
         req.requiresOnDeviceRecognition = !online && engineRecognizer.supportsOnDeviceRecognition
         request = req
+        listenParams = (locale, hints)
 
         try ensureEngine()
 
@@ -292,6 +316,7 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         // L'épisode change ici : tout ce que l'écoute qu'on ferme émettra encore —
         // et elle émettra — arrivera avec un numéro périmé, donc ignoré.
         episode += 1
+        listenParams = nil
         let running = task
         task = nil
         // Dans les deux cas on ferme le flux ; `cancel` y ajoute l'abandon du
@@ -345,6 +370,41 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         )
         try session.setActive(true)
         sessionOwned = true
+        preferBluetoothInput()
+    }
+
+    /// Picks the Bluetooth HFP mic when one is connected, else lets iOS choose (built-in).
+    private func preferBluetoothInput() {
+        let session = AVAudioSession.sharedInstance()
+        let hfp = session.availableInputs?.first { $0.portType == .bluetoothHFP }
+        try? session.setPreferredInput(hfp)
+    }
+
+    /// Only connect/disconnect reasons: our own `setPreferredInput` reports `.override`, which would loop.
+    private func routeDidChange(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: raw),
+              reason == .newDeviceAvailable || reason == .oldDeviceUnavailable else { return }
+        reassertRemote()
+        guard sessionOwned else { return }
+        preferBluetoothInput()
+        restartInput()
+    }
+
+    /// New input means a new hardware format: the tap and the live request both carry the old one.
+    private func restartInput() {
+        let resume = listenParams
+        if resume != nil { teardown(cancel: true) }
+        if engineRunning {
+            stopEngine()
+            try? ensureEngine()
+        }
+        guard let resume else { return }
+        do {
+            try beginListening(locale: resume.locale, hints: resume.hints)
+        } catch {
+            emit("error", ["message": error.localizedDescription])
+        }
     }
 
     /**
@@ -359,8 +419,70 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         guard sessionOwned else { return }
         sessionOwned = false
         let session = AVAudioSession.sharedInstance()
+        try? session.setPreferredInput(nil)
         try? session.setCategory(.playback, mode: .default)
         try? session.setActive(true)
+    }
+
+    // MARK: - Headset buttons
+
+    /// Starts forwarding next/previous track presses as `remoteCommand` events.
+    @objc func armRemote(_ call: CAPPluginCall) {
+        let title = call.getString("title")
+        DispatchQueue.main.async {
+            if let title { self.remoteTitle = title }
+            self.remoteArmed = true
+            self.reassertRemote()
+            call.resolve()
+        }
+    }
+
+    @objc func disarmRemote(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.remoteArmed = false
+            for (command, token) in self.remoteTargets {
+                command.removeTarget(token)
+                command.isEnabled = false
+            }
+            self.remoteTargets = []
+            if self.nowPlayingOwned { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
+            self.nowPlayingOwned = false
+            call.resolve()
+        }
+    }
+
+    /**
+     Registers the targets once, then re-enables them: WebKit manages the same shared
+     command center for the audio element and may switch commands off behind our back.
+     Play/pause are left to WebKit; a second handler would toggle twice.
+     */
+    private func reassertRemote() {
+        guard remoteArmed else { return }
+        let center = MPRemoteCommandCenter.shared()
+        if remoteTargets.isEmpty {
+            let pairs: [(MPRemoteCommand, String)] = [
+                (center.nextTrackCommand, "next"),
+                (center.previousTrackCommand, "previous")
+            ]
+            remoteTargets = pairs.map { command, name in
+                let token = command.addTarget { [weak self] _ in
+                    self?.emit("remoteCommand", ["command": name])
+                    return .success
+                }
+                return (command, token)
+            }
+        }
+        for (command, _) in remoteTargets { command.isEnabled = true }
+        // iOS only routes remote commands to the Now Playing app; without any audio
+        // playing (rehearsal pause) nothing else would make us one.
+        let nowPlaying = MPNowPlayingInfoCenter.default()
+        if nowPlaying.nowPlayingInfo == nil {
+            nowPlaying.nowPlayingInfo = [
+                MPMediaItemPropertyTitle: remoteTitle,
+                MPNowPlayingInfoPropertyPlaybackRate: 1.0
+            ]
+            nowPlayingOwned = true
+        }
     }
 
     private func emit(_ event: String, _ data: [String: Any]) {

@@ -23,6 +23,13 @@ interface SpeechPlugin {
   prepare(): Promise<void>;
   /** Rend la route à la lecture pleine qualité. */
   release(): Promise<void>;
+  /** Starts receiving headset next/previous presses as `remoteCommand` events. */
+  armRemote(options: { title?: string }): Promise<void>;
+  disarmRemote(): Promise<void>;
+  addListener(
+    event: 'remoteCommand',
+    cb: (data: { command: 'next' | 'previous' }) => void,
+  ): Promise<PluginListenerHandle>;
   addListener(
     event: 'partial' | 'final',
     cb: (data: { text: string }) => void,
@@ -33,7 +40,8 @@ interface SpeechPlugin {
   ): Promise<PluginListenerHandle>;
 }
 
-const Speech = registerPlugin<SpeechPlugin>('TheatreSpeech');
+// Registered once: `remote.ts` shares this proxy rather than registering the name twice.
+export const Speech = registerPlugin<SpeechPlugin>('TheatreSpeech');
 
 /**
  * Abonnement synchrone à un pont qui, lui, s'abonne de façon asynchrone.
@@ -43,7 +51,10 @@ const Speech = registerPlugin<SpeechPlugin>('TheatreSpeech');
  * désabonnement arrive avant l'abonnement — un micro coupé qui continue de parler
  * au lecteur. Le drapeau `off` couvre exactement cette fenêtre.
  */
-function listen<T>(event: 'partial' | 'final' | 'error', cb: (d: T) => void): () => void {
+export function listen<T>(
+  event: 'partial' | 'final' | 'error' | 'remoteCommand',
+  cb: (d: T) => void,
+): () => void {
   let off = false;
   let handle: PluginListenerHandle | null = null;
   void (Speech.addListener as (e: string, f: (d: T) => void) => Promise<PluginListenerHandle>)(
