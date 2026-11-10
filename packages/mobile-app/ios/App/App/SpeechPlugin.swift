@@ -1,5 +1,6 @@
 import AVFoundation
 import Capacitor
+import MediaPlayer
 import Network
 import Speech
 
@@ -29,7 +30,10 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "abort", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepare", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "release", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "release", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "armRemote", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "disarmRemote", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setRemoteActive", returnType: CAPPluginReturnPromise)
     ]
 
     private let engine = AVAudioEngine()
@@ -51,6 +55,13 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
     private var episode = 0
     /// Parameters of the listen in progress (nil when idle), to re-open it after a route change.
     private var listenParams: (locale: String, hints: [String])?
+
+    private var remoteArmed = false
+    private var remoteActive = false
+    private var remoteTitle = "Theatre Reader"
+    private var remoteTargets: [(command: MPRemoteCommand, token: Any)] = []
+    private var remoteTimer: Timer?
+    private var lastHeadsetState = ""
 
     /**
      Erreurs que SFSpeech rend en fin de flux et qui ne signalent aucune panne.
@@ -98,6 +109,8 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
             queue: .main
         ) { [weak self] note in self?.routeDidChange(note) }
     }
+
+    deinit { remoteTimer?.invalidate() }
 
     // MARK: - Permissions
 
@@ -365,11 +378,13 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         try? session.setPreferredInput(hfp)
     }
 
-    /// Only connect/disconnect reasons: our own `setPreferredInput` reports `.override`, which would loop.
+    /// Input restart only on connect/disconnect: our own `setPreferredInput` reports `.override`, which would loop.
     private func routeDidChange(_ note: Notification) {
         guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-              let reason = AVAudioSession.RouteChangeReason(rawValue: raw),
-              reason == .newDeviceAvailable || reason == .oldDeviceUnavailable else { return }
+              let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
+        NSLog("[headset] route change reason=%lu %@", reason.rawValue, headsetStateLine())
+        reassertRemote()
+        guard reason == .newDeviceAvailable || reason == .oldDeviceUnavailable else { return }
         guard sessionOwned else { return }
         preferBluetoothInput()
         restartInput()
@@ -406,6 +421,104 @@ public class SpeechPlugin: CAPPlugin, CAPBridgedPlugin {
         try? session.setPreferredInput(nil)
         try? session.setCategory(.playback, mode: .default)
         try? session.setActive(true)
+    }
+
+    // MARK: - Headset buttons
+
+    /// Registers next/previous and starts the keep-alive that re-asserts them.
+    @objc func armRemote(_ call: CAPPluginCall) {
+        let title = call.getString("title")
+        DispatchQueue.main.async {
+            if let title { self.remoteTitle = title }
+            self.remoteArmed = true
+            self.registerRemoteTargets()
+            self.remoteTimer?.invalidate()
+            self.remoteTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                self?.reassertRemote()
+            }
+            self.reassertRemote()
+            call.resolve()
+        }
+    }
+
+    @objc func disarmRemote(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            NSLog("[headset] disarm")
+            self.remoteArmed = false
+            self.remoteTimer?.invalidate()
+            self.remoteTimer = nil
+            for (command, token) in self.remoteTargets {
+                command.removeTarget(token)
+                command.isEnabled = false
+            }
+            self.remoteTargets = []
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            call.resolve()
+        }
+    }
+
+    @objc func setRemoteActive(_ call: CAPPluginCall) {
+        let active = call.getBool("active") ?? false
+        DispatchQueue.main.async {
+            self.remoteActive = active
+            self.reassertRemote()
+            call.resolve()
+        }
+    }
+
+    private func registerRemoteTargets() {
+        guard remoteTargets.isEmpty else { return }
+        let center = MPRemoteCommandCenter.shared()
+        let pairs: [(MPRemoteCommand, String)] = [
+            (center.nextTrackCommand, "next"),
+            (center.previousTrackCommand, "previous")
+        ]
+        remoteTargets = pairs.map { command, name in
+            let token = command.addTarget { [weak self] _ in
+                NSLog("[headset] command received: %@", name)
+                self?.emit("remoteCommand", ["command": name])
+                return .success
+            }
+            return (command, token)
+        }
+        UIApplication.shared.beginReceivingRemoteControlEvents()
+        NSLog("[headset] registered next/previous targets")
+    }
+
+    /**
+     Idempotent, run every second: another client (WebKit) may disable the commands or
+     clear the Now Playing info. iOS only routes buttons to the Now Playing app.
+     */
+    private func reassertRemote() {
+        guard remoteArmed else { return }
+        for (command, _) in remoteTargets { command.isEnabled = true }
+        let center = MPNowPlayingInfoCenter.default()
+        let state: MPNowPlayingPlaybackState = remoteActive ? .playing : .paused
+        if center.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String != remoteTitle
+            || center.playbackState != state {
+            center.nowPlayingInfo = [
+                MPMediaItemPropertyTitle: remoteTitle,
+                MPMediaItemPropertyArtist: "Theatre Reader",
+                MPNowPlayingInfoPropertyPlaybackRate: remoteActive ? 1.0 : 0.0,
+                MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0
+            ]
+            center.playbackState = state
+        }
+        let line = headsetStateLine()
+        if line != lastHeadsetState {
+            lastHeadsetState = line
+            NSLog("[headset] state %@", line)
+        }
+    }
+
+    private func headsetStateLine() -> String {
+        let session = AVAudioSession.sharedInstance()
+        let commands = MPRemoteCommandCenter.shared()
+        let mixable = session.categoryOptions.contains(.mixWithOthers)
+        let outputs = session.currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")
+        return "category=\(session.category.rawValue) mixable=\(mixable) otherAudio=\(session.isOtherAudioPlaying) "
+            + "next=\(commands.nextTrackCommand.isEnabled) prev=\(commands.previousTrackCommand.isEnabled) "
+            + "active=\(remoteActive) nowPlaying=\(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil) out=\(outputs)"
     }
 
     private func emit(_ event: String, _ data: [String: Any]) {

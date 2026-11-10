@@ -1,31 +1,34 @@
 /**
- * Headset next/previous buttons, through the Media Session API.
+ * Headset next/previous buttons, through the native plugin.
  *
- * WebKit owns the process-wide MPRemoteCommandCenter for the audio element and
- * rewrites it at every playback change, so a native handler gets overridden.
- * Declaring the handlers here lets WebKit route the buttons to us itself.
+ * WKWebView's Media Session never reached the app (no Now Playing client in the app
+ * process), so the app registers MPRemoteCommandCenter itself (SpeechPlugin.swift).
  * What a press does is decided by the player; this file only carries the event.
  */
+import { Capacitor } from '@capacitor/core';
 import type { RemoteControls } from '@theatre/reader-runtime';
+import { listen, Speech } from './voice/native';
 
-/** `null` when the WebView has no Media Session (the reader then has no hardware transport). */
-export function headsetRemote(title: string): RemoteControls | null {
-  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return null;
-  const session = navigator.mediaSession;
+type RemotePlugin = Pick<typeof Speech, 'armRemote' | 'disarmRemote' | 'setRemoteActive'>;
+
+/** `null` off device: the web dev server has no headset transport to receive. */
+export function headsetRemote(
+  title: string,
+  plugin: RemotePlugin | null = Capacitor.isNativePlatform() ? Speech : null,
+): RemoteControls | null {
+  if (!plugin) return null;
   return {
     onCommand: (cb) => {
-      session.metadata = new MediaMetadata({ title, artist: 'Theatre Reader' });
-      session.setActionHandler('nexttrack', () => cb('next'));
-      session.setActionHandler('previoustrack', () => cb('previous'));
+      const off = listen<{ command: 'next' | 'previous' }>('remoteCommand', (d) => cb(d.command));
+      void plugin.armRemote({ title }).catch(() => {});
       return () => {
-        session.setActionHandler('nexttrack', null);
-        session.setActionHandler('previoustrack', null);
-        session.metadata = null;
+        off();
+        void plugin.disarmRemote().catch(() => {});
       };
     },
-    // A rehearsal pause or an open mic plays no clip: without this the page reads as stopped.
+    // A rehearsal pause or an open mic plays no clip: without this the app reads as stopped.
     setActive: (active) => {
-      session.playbackState = active ? 'playing' : 'paused';
+      void plugin.setRemoteActive({ active }).catch(() => {});
     },
   };
 }
