@@ -30,7 +30,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { decorate } from '@theatre/annotations';
 import {
   createPlayer,
-  HIDDEN_SCENE_CLASS,
   loadRate,
   nextRate,
   saveRate,
@@ -59,6 +58,7 @@ import {
   lineFilterHidden,
   nearestVisibleLine,
   rangeIndex,
+  tiradeJumpTarget,
   visibleAnchor,
   type LineFilter,
 } from './visibility';
@@ -553,15 +553,18 @@ export function Chrome({
       setTiradeError(`Entre un numéro de 1 à ${myNodeIds.length}.`);
       return;
     }
-    const el = play.querySelector<HTMLElement>(`p.line[data-nid="${nid}"]`);
+    const { line: el, seekNid } = tiradeJumpTarget(play, nid);
     // Masquée par « mes scènes » ou par le filtre de répliques : y aller ne montrerait rien.
-    if (!el || el.closest(`.${HIDDEN_SCENE_CLASS}`)) {
+    if (!el) {
       setTiradeError('Cette tirade est masquée par un filtre d\'affichage.');
       return;
     }
     setTiradeError(null);
     setSheet(null);
-    playerRef.current?.seek(nid);
+    // A stage-direction-only tirade is not indexed by the engine: `seek` would return early and
+    // leave the old clip / open mic running, so the cursor goes to a neighbour or playback stops.
+    if (seekNid) playerRef.current?.seek(seekNid);
+    else playerRef.current?.pause();
     el.scrollIntoView({ block: 'center' });
   };
 

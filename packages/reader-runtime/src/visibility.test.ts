@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
-import { applyVisibility, firstVisibleLineIn, lineFilterHidden, nearestVisibleLine, rangeIndex, visibleAnchor } from './visibility';
+import { applyVisibility, firstVisibleLineIn, lineFilterHidden, nearestVisibleLine, rangeIndex, tiradeJumpTarget, visibleAnchor } from './visibility';
 
 /**
  * Imite la sortie de `renderBody` : préambule sans `data-nid`, puis les nœuds de
@@ -284,6 +284,39 @@ describe('nearestVisibleLine (resume cursor)', () => {
     expect(nid('nope#0')).toBeUndefined();
     hide('lead#0', 'p1#0', 'p2#0', 'b1#0', 'm1#0');
     expect(nid('b1#0')).toBeUndefined();
+  });
+});
+
+describe('tiradeJumpTarget (jump to tirade number)', () => {
+  const target = (nid: string): { line?: string; seek: string | null } => {
+    const t = tiradeJumpTarget(play, nid);
+    return { line: t.line?.getAttribute('data-nid') ?? undefined, seek: t.seekNid };
+  };
+
+  it('scrolls to and seeks the tirade itself when it is indexed', () => {
+    expect(target('b1#0')).toEqual({ line: 'b1#0', seek: 'b1#0' });
+  });
+
+  it('keeps the scroll target on a stage-direction-only tirade but seeks its indexed neighbour', () => {
+    play.querySelector('[data-nid="b1#0"]')!.innerHTML = '<span class="didascalie">(silence)</span>';
+    expect(target('b1#0')).toEqual({ line: 'b1#0', seek: 'm1#0' });
+  });
+
+  it('falls back to the previous indexed tirade when nothing indexed follows', () => {
+    play.querySelector('[data-nid="m1#0"]')!.innerHTML = '<span class="didascalie">(il sort)</span>';
+    expect(target('m1#0')).toEqual({ line: 'm1#0', seek: 'b1#0' });
+  });
+
+  it('has no seek target when no tirade at all is indexed', () => {
+    play.querySelectorAll('p.line').forEach((l) => (l.innerHTML = '<span class="didascalie">(…)</span>'));
+    expect(target('b1#0')).toEqual({ line: 'b1#0', seek: null });
+  });
+
+  it('refuses a tirade hidden by a display filter or unknown', () => {
+    play.querySelector('[data-nid="s1#0"]')!.classList.add('scene--hidden');
+    play.querySelector('[data-nid="b1#0"]')!.classList.add('scene--hidden');
+    expect(target('b1#0')).toEqual({ line: undefined, seek: null });
+    expect(target('nope#0')).toEqual({ line: undefined, seek: null });
   });
 });
 
