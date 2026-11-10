@@ -17,7 +17,7 @@ Run: `pnpm vitest run packages/voice-match && pnpm --filter @theatre/voice-match
 | Two words **sound the same** but are spelled differently | nothing to do: `phonetic.ts` already groups them. Fix the rules there only if a real homophone is missed | soft + strict |
 | A word **split in two / two glued** by dictation (`environ`/`en virant`) | `variants.ts` too, using the **joined key** (the two keys concatenated, accents folded: `envirant`) | soft + strict |
 | `n'a` ≈ `a` (elided *ne*) | `sameElidedNe` in `align.ts` | soft + strict |
-| Verb plural `-ent` ≈ singular (`dégagent`/`dégage`) | `silentEnt` in `align.ts` (`phonetic.ts` reads the silent `-ent` as a nasal, and a general fix there would merge `comment`/`comme`, `sent`/`se`) | soft + strict |
+| Verb plural `-ent` ≈ singular (`dégagent`/`dégage`) | `silentEnt` in `align.ts`, restricted to the verb stems of `SILENT_ENT_STEMS` (a suffix test would merge `président`/`préside`, `moment`/`môme`; add the stem of a missing verb) | soft + strict |
 | An equivalence **only in soft mode** (a register swap such as `ouais`/`oui`) | `SOFT_CLASSES` in `variants.ts`, reached through `AlignOptions.soft` ← `Profile.softVariants` | soft |
 | A word **split/glued** by dictation with a confused nasal (`envoie` / `on voit`: `A`≠`O`) | `sameLooseSound` in `align.ts`, used by `mergeCost`/`splitCost` only. NOT 1-for-1: it would merge `dent`/`dont` | soft + strict |
 | A word may be **missing** or **extra** and that is fine | `leniency.ts` (`forgivenDel` / `forgivenIns`) | see below |

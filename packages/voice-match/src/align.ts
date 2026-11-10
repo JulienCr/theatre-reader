@@ -89,17 +89,26 @@ function sameElidedNe(a: string, b: string): boolean {
   return false;
 }
 
-/** Mots en « -ent » qui ne sont pas un pluriel verbal : `comment` ne se dit pas `comme`. */
-const NOT_VERB_PLURAL = new Set(['comment']);
-
 /**
- * `a` est le pluriel verbal en « -ent » de `b` (`dégagent` / `dégage`) : le « -ent » est
- * muet, mais `phonetic.ts` le lit comme une nasale. Le radical de trois lettres au moins
- * écarte `sent`/`se`, `vent`/`ve`, où ce n'est pas un pluriel.
+ * Folded stems of -er / -ier verbs whose 3rd-person plural "-ent" is silent. A closed list, not
+ * a suffix test: `président`/`préside`, `prudent`/`prude`, `moment`/`môme` look identical and are
+ * not verb plurals. A verb missing here falls back to plain comparison: add its stem to accept it.
  */
+const SILENT_ENT_STEMS = new Set([
+  'parl', 'aim', 'chant', 'pens', 'arriv', 'rest', 'demand', 'regard', 'trouv', 'donn', 'pass',
+  'tomb', 'entr', 'mont', 'port', 'jou', 'dans', 'cri', 'pleur', 'mang', 'rentr', 'laiss',
+  'appell', 'cherch', 'vol', 'degag', 'march', 'travaill', 'tourn', 'ferm', 'command', 'quitt',
+  'cach', 'sembl', 'ador', 'detest', 'oubli', 'rev', 'prepar', 'lanc', 'sauv', 'pouss', 'frapp',
+  'touch', 'brul', 'refus', 'accept', 'merit', 'import', 'expliqu', 'ecout', 'cass', 'gagn',
+  'remerci', 'etudi', 'compt', 'resist', 'insist', 'continu', 'press', 'signal', 'fil', 'form',
+  'lev', 'embrass', 'pri', 'verifi',
+]);
+
+/** `a` is the verb plural of `b` (`dégagent` / `dégage`): `phonetic.ts` reads the silent "-ent" as a nasal. */
 function silentEnt(a: Token, b: Token): boolean {
-  if (!a.key.endsWith('ent') || a.key.length < 6 || NOT_VERB_PLURAL.has(a.key)) return false;
-  return phoneticKey(a.key.slice(0, -3) + 'e') === b.phon;
+  if (!a.key.endsWith('ent')) return false;
+  const stem = a.key.slice(0, -3);
+  return SILENT_ENT_STEMS.has(stem) && phoneticKey(stem + 'e') === b.phon;
 }
 
 /**

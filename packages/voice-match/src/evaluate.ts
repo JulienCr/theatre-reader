@@ -142,6 +142,14 @@ function scoreOps(expected: Token[], heard: Token[], ops: Op[], p: Profile): Sco
     }
   }
 
+  /** A heard word with no counterpart in the text: extra speech unless a rule forgives it. */
+  const countExtra = (h: Token, index: number): void => {
+    if (p.ignoreFillers && FILLERS.has(h.key)) return;
+    if (forgivenIns(heard, index, matchedH)) return;
+    added.push({ text: h.raw, after: lastExpected });
+    extra += weightOf(h);
+  };
+
   for (const op of ops) {
     switch (op.type) {
       case 'match':
@@ -152,9 +160,11 @@ function scoreOps(expected: Token[], heard: Token[], ops: Op[], p: Profile): Sco
       case 'sub': {
         const e = expected[op.e]!;
         if (isInterjection(e.key)) {
+          // The interjection is optional, but the word heard in its place is not the play's text.
           words[op.e]!.status = 'ok';
           lastExpected = op.e;
           reached = Math.max(reached, op.e + 1);
+          countExtra(heard[op.h]!, op.h);
           break;
         }
         words[op.e] = { text: e.raw, status: 'replaced', heard: heard[op.h]!.raw };
@@ -194,14 +204,9 @@ function scoreOps(expected: Token[], heard: Token[], ops: Op[], p: Profile): Sco
         lastExpected = op.e + 1;
         reached = Math.max(reached, op.e + 2);
         break;
-      case 'ins': {
-        const h = heard[op.h]!;
-        if (p.ignoreFillers && FILLERS.has(h.key)) break;
-        if (forgivenIns(heard, op.h, matchedH)) break;
-        added.push({ text: h.raw, after: lastExpected });
-        extra += weightOf(h);
+      case 'ins':
+        countExtra(heard[op.h]!, op.h);
         break;
-      }
       case 'skip':
         // L'amorce d'une autocorrection : ni comptée, ni montrée. La personne s'est
         // reprise d'elle-même, lui rappeler son faux départ n'apprend rien.

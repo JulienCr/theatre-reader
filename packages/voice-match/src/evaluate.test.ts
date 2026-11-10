@@ -183,6 +183,15 @@ describe('verdicts', () => {
     expect(verdict('Hum, je pars demain.', 'je pars')).toBe('fail');
   });
 
+  it('compte comme du texte en trop le mot entendu à la place d’une interjection', () => {
+    expect(verdict('Hum, je pars demain.', 'bonjour je pars demain', 'strict')).toBe('fail');
+    expect(verdict('Je pars, hum, demain.', 'je pars jamais demain', 'strict')).toBe('fail');
+    expect(verdict('Je pars, hum, demain.', 'je pars jamais demain', 'soft')).toBe('fail');
+    expect(evaluate('Hum, je pars demain.', 'bonjour je pars demain', { tolerance: 'strict' }).added).toEqual([
+      { text: 'bonjour', after: 0 },
+    ]);
+  });
+
   it('valide avec n’importe quoi une tirade faite seulement d’interjections', () => {
     for (const mode of ['soft', 'strict'] as const) {
       expect(verdict('Hum.', 'bonjour tout le monde', mode)).toBe('ok');
@@ -309,6 +318,22 @@ describe('homophones', () => {
   it("ne prend pas pour un pluriel un mot qui finit en « -ent »", () => {
     expect(verdict('Il sent la rose.', 'il se la rose')).not.toBe('ok');
     expect(verdict('Comment va-t-il ?', 'comme va t il')).not.toBe('ok');
+  });
+
+  it("ne prend pas un nom ou un adjectif en « -ent » pour un pluriel verbal, dans les deux sens", () => {
+    const pairs: [string, string][] = [
+      ['Le président parle.', 'le préside parle'],
+      ['Elle est excellente, il est excellent.', 'elle est excelle il est excelle'],
+      ['Il est prudent.', 'il est prude'],
+      ['Un moment.', 'un môme'],
+    ];
+    for (const [text, said] of pairs) {
+      expect(verdict(text, said, 'strict')).not.toBe('ok');
+    }
+    expect(verdict('Il préside le conseil.', 'il président le conseil', 'strict')).not.toBe('ok');
+    expect(verdict('Elle excelle en tout.', 'elle excellent en tout', 'strict')).not.toBe('ok');
+    expect(verdict('Il est prude.', 'il est prudent', 'strict')).not.toBe('ok');
+    expect(verdict('Un môme.', 'un moment', 'strict')).not.toBe('ok');
   });
 
   it("n'étend pas l'exception aux mots qui portent le sens", () => {
