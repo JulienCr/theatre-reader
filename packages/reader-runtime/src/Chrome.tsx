@@ -53,6 +53,7 @@ import {
 } from './state';
 import {
   applyVisibility,
+  firstVisibleLineIn,
   lineFilterHidden,
   rangeIndex,
   visibleAnchor,
@@ -455,7 +456,13 @@ export function Chrome({
 
   const goToEntry = (id: string): void => {
     setSheet(null);
-    document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    const heading = document.getElementById(id);
+    if (!heading) return;
+    // The cursor follows, but only within the chosen scene: a scene with no visible
+    // dialogue leaves it where it is rather than jumping into a later one.
+    const nid = firstVisibleLineIn(document.querySelector<HTMLElement>('.play') ?? document.body, id);
+    if (nid) playerRef.current?.seek(nid);
+    heading.scrollIntoView({ block: 'start' });
   };
 
   const playing = Boolean(pstate?.playing && !pstate.waitingForUser);
