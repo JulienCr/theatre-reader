@@ -55,10 +55,12 @@ import {
   applyVisibility,
   firstVisibleLineIn,
   lineFilterHidden,
+  nearestVisibleLine,
   rangeIndex,
   visibleAnchor,
   type LineFilter,
 } from './visibility';
+import { parseStartAt } from './startAt';
 import { VoiceFeedback } from './VoiceFeedback';
 import type { ReaderData } from './types';
 
@@ -120,6 +122,7 @@ export function Chrome({
   initial,
   onExit,
   recognizer,
+  startAt,
 }: {
   data: ReaderData;
   /** Le `.play` rendu par @theatre/core — jamais rendu par React, seulement muté. */
@@ -130,6 +133,8 @@ export function Chrome({
   onExit?: () => void;
   /** Fourni par l'app seule : sans lui, aucun réglage vocal n'est proposé. */
   recognizer?: SpeechRecognizer;
+  /** Reprise à l'ouverture, cf. `BootOptions.startAt`. */
+  startAt?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(initial.selected);
   // Borné dès la lecture : un localStorage abîmé ne doit pas rendre la pièce illisible.
@@ -276,6 +281,9 @@ export function Chrome({
   const [nodeId, setNodeId] = useState<string | null>(null);
   const nodeIdRef = useRef<string | null>(null);
   nodeIdRef.current = nodeId;
+  // Set by the opening resume: the observer's first batch describes the pre-scroll geometry
+  // or a neighbouring line, and would overwrite the explicitly sought node.
+  const skipObservedRef = useRef(false);
   useEffect(() => {
     const els = Array.from(play.querySelectorAll<HTMLElement>('.line[data-nid]'));
     if (!els.length) return;
@@ -287,6 +295,10 @@ export function Chrome({
           if (!nid) continue;
           if (e.isIntersecting) crossed.add(nid);
           else crossed.delete(nid);
+        }
+        if (skipObservedRef.current) {
+          skipObservedRef.current = false;
+          return;
         }
         let current: string | null = null;
         for (const el of els) {
@@ -377,6 +389,32 @@ export function Chrome({
     }
     saveState(data.storageKey, { selected, fontPct, reading, lineFilter, resume });
   }, [data.storageKey, selected, fontPct, reading, lineFilter, resume]);
+
+  // Reprise : ici et non dans l'hôte, car `render()` est asynchrone — un scroll posé
+  // avant le montage est décalé par la taille du texte et le masquage, et le curseur
+  // du lecteur ne bougerait jamais. Après les layout effects ci-dessus.
+  useEffect(() => {
+    if (!startAt) return;
+    const { kind, value } = parseStartAt(startAt);
+    if (kind === 'heading') {
+      goToEntry(value);
+      return;
+    }
+    // The cursor needs an indexed tirade; the scroll may settle for any visible node.
+    const line = nearestVisibleLine(play, value);
+    const nid = line?.getAttribute('data-nid');
+    if (!line || !nid) {
+      visibleAnchor(play, value)?.scrollIntoView({ block: 'center' });
+      return;
+    }
+    playerRef.current?.seek(nid);
+    // Not `scrollIntoView`: `.line--speaking` carries `scroll-margin: 40vh`, which would park
+    // the line below the observer's 12 % zone and let it report an earlier tirade.
+    window.scrollBy(0, line.getBoundingClientRect().top - window.innerHeight * 0.06);
+    skipObservedRef.current = true;
+    setNodeId(nid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ouverture seulement
+  }, []);
 
   // Le champ de recherche n'est focalisé qu'à l'ouverture de sa sheet.
   useEffect(() => {

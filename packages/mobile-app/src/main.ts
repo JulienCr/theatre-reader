@@ -76,28 +76,8 @@ function mountReader(doc: ReaderDocument): void {
     // `null` hors appareil (et hors développement) : le lecteur n'affiche alors
     // simplement aucun réglage de validation vocale.
     recognizer: pickRecognizer() ?? undefined,
+    startAt: decodeAnchor(location.hash.slice(1)) || undefined,
   });
-
-  // Le navigateur a déjà traité le fragment quand la page s'est chargée : à ce
-  // moment-là le corps de la pièce n'existait pas encore (il vient d'être injecté
-  // juste au-dessus), donc l'ancre ne menait nulle part. C'est ici, et seulement
-  // ici, qu'elle est atteignable.
-  const anchor = decodeAnchor(location.hash.slice(1));
-  if (anchor) resolveAnchor(anchor)?.scrollIntoView({ block: 'start' });
-}
-
-/**
- * Le point de reprise écrit par Picker porte un préfixe (`n:`/`h:`) disant
- * s'il vise une tirade (`data-nid`, pas un `id`) ou un en-tête de scène (`id`,
- * posé par `buildToc`) — les deux se cherchent différemment dans le DOM.
- */
-function resolveAnchor(anchor: string): HTMLElement | null {
-  const sep = anchor.indexOf(':');
-  if (sep < 0) return document.getElementById(anchor);
-  const kind = anchor.slice(0, sep);
-  const value = anchor.slice(sep + 1);
-  if (kind === 'n') return document.querySelector<HTMLElement>(`.line[data-nid="${value}"]`);
-  return document.getElementById(value);
 }
 
 /**

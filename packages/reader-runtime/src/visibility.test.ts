@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
-import { applyVisibility, firstVisibleLineIn, lineFilterHidden, rangeIndex, visibleAnchor } from './visibility';
+import { applyVisibility, firstVisibleLineIn, lineFilterHidden, nearestVisibleLine, rangeIndex, visibleAnchor } from './visibility';
 
 /**
  * Imite la sortie de `renderBody` : préambule sans `data-nid`, puis les nœuds de
@@ -12,14 +12,14 @@ const BODY =
   '<header class="play-header"><h1 class="title">Pièce</h1></header>' +
   '<section class="distribution"><h2 class="dist-heading">Distribution</h2></section>' +
   '<nav class="toc"><h2 class="toc-heading">Sommaire</h2></nav>' +
-  '<p class="line" data-cid="narrateur" data-nid="lead#0">Avant tout.</p>' +
+  '<p class="line" data-cid="narrateur" data-nid="lead#0"><span class="speech">Avant tout.</span></p>' +
   '<h2 class="act" id="h-1" data-nid="a1#0">ACTE I.</h2>' +
-  '<p class="line" data-cid="narrateur" data-nid="p1#0">Prologue.</p>' +
-  '<p class="line" data-cid="gerald" data-nid="p2#0">Encore.</p>' +
+  '<p class="line" data-cid="narrateur" data-nid="p1#0"><span class="speech">Prologue.</span></p>' +
+  '<p class="line" data-cid="gerald" data-nid="p2#0"><span class="speech">Encore.</span></p>' +
   '<h3 class="scene" id="h-4" data-nid="s1#0">SCENE I.</h3>' +
-  '<p class="line" data-cid="benji" data-nid="b1#0">Me voilà.</p>' +
+  '<p class="line" data-cid="benji" data-nid="b1#0"><span class="speech">Me voilà.</span></p>' +
   '<h3 class="scene" id="h-6" data-nid="s2#0">SCENE II.</h3>' +
-  '<p class="line" data-cid="michel" data-nid="m1#0">Seul.</p>' +
+  '<p class="line" data-cid="michel" data-nid="m1#0"><span class="speech">Seul.</span></p>' +
   '</article>';
 
 const visibility = (headings: string[], ranges: string[]): SceneVisibility => ({
@@ -251,6 +251,42 @@ describe('visibleAnchor', () => {
   });
 });
 
+describe('nearestVisibleLine (resume cursor)', () => {
+  const hide = (...nids: string[]): void =>
+    nids.forEach((nid) =>
+      play.querySelector(`[data-nid="${nid}"]`)!.classList.add('scene--hidden'),
+    );
+  const nid = (nid: string): string | undefined =>
+    nearestVisibleLine(play, nid)?.getAttribute('data-nid') ?? undefined;
+
+  it('rend la tirade elle-même quand elle est visible', () => {
+    expect(nid('b1#0')).toBe('b1#0');
+  });
+
+  it('saute les en-têtes visibles : seule une tirade est une cible de seek valide', () => {
+    hide('p2#0');
+    // visibleAnchor would answer the heading s1#0 here; the engine does not index it.
+    expect(visibleAnchor(play, 'p2#0')?.getAttribute('data-nid')).toBe('s1#0');
+    expect(nid('p2#0')).toBe('b1#0');
+  });
+
+  it('retombe sur la tirade visible qui précède quand plus rien ne suit', () => {
+    hide('s2#0', 'm1#0');
+    expect(nid('m1#0')).toBe('b1#0');
+  });
+
+  it('ignore une réplique faite de didascalies seules, que le moteur n\'indexe pas', () => {
+    play.querySelector('[data-nid="b1#0"]')!.innerHTML = '<span class="didascalie">(silence)</span>';
+    expect(nid('b1#0')).toBe('m1#0');
+  });
+
+  it('rend null pour un nid inconnu ou sans aucune tirade visible', () => {
+    expect(nid('nope#0')).toBeUndefined();
+    hide('lead#0', 'p1#0', 'p2#0', 'b1#0', 'm1#0');
+    expect(nid('b1#0')).toBeUndefined();
+  });
+});
+
 describe('firstVisibleLineIn (scene menu jump)', () => {
   it('returns the first line of the chosen scene', () => {
     expect(firstVisibleLineIn(play, 'h-4')).toBe('b1#0');
@@ -260,5 +296,10 @@ describe('firstVisibleLineIn (scene menu jump)', () => {
     play.querySelector('[data-nid="b1#0"]')!.classList.add('scene--hidden');
     expect(firstVisibleLineIn(play, 'h-4')).toBeNull();
     expect(firstVisibleLineIn(play, 'h-6')).toBe('m1#0');
+  });
+
+  it('skips a parenthetical-only line, which the player does not index', () => {
+    play.querySelector('[data-nid="b1#0"]')!.innerHTML = '<span class="didascalie">(silence)</span>';
+    expect(firstVisibleLineIn(play, 'h-4')).toBeNull();
   });
 });
