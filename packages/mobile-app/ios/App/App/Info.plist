@@ -64,6 +64,14 @@
 	<string>Theatre Reader écoute tes répliques pour vérifier que tu les dis juste. Le micro ne s'ouvre que sur tes répliques, en mode répétition.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Theatre Reader transcrit tes répliques pour les comparer au texte de la pièce. Rien n'est enregistré ni conservé après la vérification.</string>
+	<!--
+		Audio en arrière-plan : écran verrouillé, le casque doit encore piloter la lecture.
+		Clé Info.plist, pas un entitlement : la signature ne change pas.
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

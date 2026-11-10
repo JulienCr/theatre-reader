@@ -62,6 +62,7 @@ import {
   visibleAnchor,
   type LineFilter,
 } from './visibility';
+import { bindRemote, type RemoteControls } from './remote';
 import { parseStartAt } from './startAt';
 import { VoiceFeedback } from './VoiceFeedback';
 import type { ReaderData } from './types';
@@ -129,6 +130,7 @@ export function Chrome({
   initial,
   onExit,
   recognizer,
+  remote,
   startAt,
 }: {
   data: ReaderData;
@@ -140,6 +142,8 @@ export function Chrome({
   onExit?: () => void;
   /** Fourni par l'app seule : sans lui, aucun réglage vocal n'est proposé. */
   recognizer?: SpeechRecognizer;
+  /** Fourni par l'app seule : touches suivant/précédent d'un casque. */
+  remote?: RemoteControls;
   /** Reprise à l'ouverture, cf. `BootOptions.startAt`. */
   startAt?: string;
 }) {
@@ -254,6 +258,17 @@ export function Chrome({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- montage seul, par conception
   }, []);
+
+  // Same gate as the on-screen transport: without clips there are no ⏮/⏭ to mirror.
+  useEffect(() => {
+    if (!remote || !hasClips) return;
+    return bindRemote(remote, () => playerRef.current);
+  }, [remote, hasClips]);
+
+  const sessionActive = Boolean(pstate?.playing);
+  useEffect(() => {
+    if (hasClips) remote?.setActive?.(sessionActive);
+  }, [remote, hasClips, sessionActive]);
 
   // Scène courante, pour le bandeau : le dernier en-tête franchi. L'observateur
   // émet un premier lot dès le branchement, ce qui initialise le bandeau sans

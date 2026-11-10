@@ -19,11 +19,13 @@ import { createRoot } from 'react-dom/client';
 import { createElement } from 'react';
 import { createSearch } from '@theatre/reader-ui';
 import { Chrome } from './Chrome';
+import type { RemoteControls } from './remote';
 import { DEFAULT_READING, loadState, type PersistedState } from './state';
 import { STYLE } from './styles';
 import type { ReaderData } from './types';
 
 export type { ReaderData } from './types';
+export type { RemoteCommand, RemoteControls } from './remote';
 export { loadResume, type ResumePoint } from './state';
 
 /**
@@ -45,6 +47,8 @@ export interface BootOptions {
    * qui n'écouterait rien.
    */
   recognizer?: SpeechRecognizer;
+  /** Headset track buttons; app only, like `recognizer`. Absent: no hardware transport. */
+  remote?: RemoteControls;
   /**
    * Point de reprise à l'ouverture : `n:<data-nid>` (une tirade) ou `h:<id>` (un en-tête).
    * Appliqué par le chrome, une fois la mise en page posée (taille du texte, masquage).
@@ -99,6 +103,7 @@ function init(d: ReaderData, options: BootOptions): void {
       initial,
       onExit: options.onExit,
       recognizer: options.recognizer,
+      remote: options.remote,
       startAt: options.startAt,
     }),
   );
