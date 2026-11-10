@@ -133,6 +133,18 @@ export function visibleAnchor(play: HTMLElement, nid: string | null): HTMLElemen
   return null;
 }
 
+/** `data-nid` of the first visible line in the range opened by heading `headingId`, or null if that range shows no dialogue. */
+export function firstVisibleLineIn(play: HTMLElement, headingId: string): string | null {
+  let found: string | null = null;
+  walkRanges(play, (el, range) => {
+    if (found !== null || range !== headingId) return;
+    if (el.matches('p.line') && !el.classList.contains(HIDDEN_SCENE_CLASS)) {
+      found = el.getAttribute('data-nid');
+    }
+  });
+  return found;
+}
+
 /**
  * `data-nid` → id de plage (`h-<n>` ou `LEAD_RANGE_ID`), pour la boucle du moteur
  * audio : il ne voit qu'une liste plate de tirades et n'a aucun autre moyen de

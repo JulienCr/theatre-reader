@@ -53,6 +53,7 @@ import {
 } from './state';
 import {
   applyVisibility,
+  firstVisibleLineIn,
   lineFilterHidden,
   rangeIndex,
   visibleAnchor,
@@ -457,15 +458,9 @@ export function Chrome({
     setSheet(null);
     const heading = document.getElementById(id);
     if (!heading) return;
-    // Le curseur suit : première tirade visible après l'en-tête.
-    let first: HTMLElement | null = null;
-    for (let el = heading.nextElementSibling; el; el = el.nextElementSibling) {
-      if (el.matches('p.line[data-nid]') && !el.classList.contains(HIDDEN_SCENE_CLASS)) {
-        first = el as HTMLElement;
-        break;
-      }
-    }
-    const nid = first?.getAttribute('data-nid');
+    // The cursor follows, but only within the chosen scene: a scene with no visible
+    // dialogue leaves it where it is rather than jumping into a later one.
+    const nid = firstVisibleLineIn(document.querySelector<HTMLElement>('.play') ?? document.body, id);
     if (nid) playerRef.current?.seek(nid);
     heading.scrollIntoView({ block: 'start' });
   };

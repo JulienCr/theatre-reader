@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
-import { applyVisibility, lineFilterHidden, rangeIndex, visibleAnchor } from './visibility';
+import { applyVisibility, firstVisibleLineIn, lineFilterHidden, rangeIndex, visibleAnchor } from './visibility';
 
 /**
  * Imite la sortie de `renderBody` : préambule sans `data-nid`, puis les nœuds de
@@ -248,5 +248,17 @@ describe('visibleAnchor', () => {
   it('rend null pour un nid inconnu ou absent', () => {
     expect(visibleAnchor(play, 'nope#0')).toBeNull();
     expect(visibleAnchor(play, null)).toBeNull();
+  });
+});
+
+describe('firstVisibleLineIn (scene menu jump)', () => {
+  it('returns the first line of the chosen scene', () => {
+    expect(firstVisibleLineIn(play, 'h-4')).toBe('b1#0');
+  });
+
+  it('skips hidden lines but never leaks into the next scene', () => {
+    play.querySelector('[data-nid="b1#0"]')!.classList.add('scene--hidden');
+    expect(firstVisibleLineIn(play, 'h-4')).toBeNull();
+    expect(firstVisibleLineIn(play, 'h-6')).toBe('m1#0');
   });
 });
