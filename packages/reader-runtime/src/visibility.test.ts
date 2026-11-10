@@ -12,14 +12,14 @@ const BODY =
   '<header class="play-header"><h1 class="title">Pièce</h1></header>' +
   '<section class="distribution"><h2 class="dist-heading">Distribution</h2></section>' +
   '<nav class="toc"><h2 class="toc-heading">Sommaire</h2></nav>' +
-  '<p class="line" data-cid="narrateur" data-nid="lead#0">Avant tout.</p>' +
+  '<p class="line" data-cid="narrateur" data-nid="lead#0"><span class="speech">Avant tout.</span></p>' +
   '<h2 class="act" id="h-1" data-nid="a1#0">ACTE I.</h2>' +
-  '<p class="line" data-cid="narrateur" data-nid="p1#0">Prologue.</p>' +
-  '<p class="line" data-cid="gerald" data-nid="p2#0">Encore.</p>' +
+  '<p class="line" data-cid="narrateur" data-nid="p1#0"><span class="speech">Prologue.</span></p>' +
+  '<p class="line" data-cid="gerald" data-nid="p2#0"><span class="speech">Encore.</span></p>' +
   '<h3 class="scene" id="h-4" data-nid="s1#0">SCENE I.</h3>' +
-  '<p class="line" data-cid="benji" data-nid="b1#0">Me voilà.</p>' +
+  '<p class="line" data-cid="benji" data-nid="b1#0"><span class="speech">Me voilà.</span></p>' +
   '<h3 class="scene" id="h-6" data-nid="s2#0">SCENE II.</h3>' +
-  '<p class="line" data-cid="michel" data-nid="m1#0">Seul.</p>' +
+  '<p class="line" data-cid="michel" data-nid="m1#0"><span class="speech">Seul.</span></p>' +
   '</article>';
 
 const visibility = (headings: string[], ranges: string[]): SceneVisibility => ({
@@ -275,6 +275,11 @@ describe('nearestVisibleLine (resume cursor)', () => {
     expect(nid('m1#0')).toBe('b1#0');
   });
 
+  it('ignore une réplique faite de didascalies seules, que le moteur n\'indexe pas', () => {
+    play.querySelector('[data-nid="b1#0"]')!.innerHTML = '<span class="didascalie">(silence)</span>';
+    expect(nid('b1#0')).toBe('m1#0');
+  });
+
   it('rend null pour un nid inconnu ou sans aucune tirade visible', () => {
     expect(nid('nope#0')).toBeUndefined();
     hide('lead#0', 'p1#0', 'p2#0', 'b1#0', 'm1#0');
@@ -291,5 +296,10 @@ describe('firstVisibleLineIn (scene menu jump)', () => {
     play.querySelector('[data-nid="b1#0"]')!.classList.add('scene--hidden');
     expect(firstVisibleLineIn(play, 'h-4')).toBeNull();
     expect(firstVisibleLineIn(play, 'h-6')).toBe('m1#0');
+  });
+
+  it('skips a parenthetical-only line, which the player does not index', () => {
+    play.querySelector('[data-nid="b1#0"]')!.innerHTML = '<span class="didascalie">(silence)</span>';
+    expect(firstVisibleLineIn(play, 'h-4')).toBeNull();
   });
 });

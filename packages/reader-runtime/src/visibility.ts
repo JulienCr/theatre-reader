@@ -9,7 +9,7 @@
  * Séparé de Chrome.tsx pour être testable : la config vitest racine ne ramasse que
  * les `.test.ts` sous `packages`, sans transformation JSX.
  */
-import { HIDDEN_SCENE_CLASS } from '@theatre/audio-player';
+import { HIDDEN_SCENE_CLASS, spokenText } from '@theatre/audio-player';
 import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
 
 /** Les deux seuls en-têtes émis par `renderBody` (cf. @theatre/core render.ts). */
@@ -142,16 +142,16 @@ export function visibleAnchor(play: HTMLElement, nid: string | null): HTMLElemen
   return nid === null ? null : nearestAccepted(play, nid, isVisibleNode);
 }
 
+/** Whether the audio engine indexes `el`: a visible `p.line` with a speaker and spoken text. */
+const isIndexedLine = (el: Element): boolean =>
+  isVisibleNode(el) && el.matches('p.line[data-cid]') && spokenText(el as HTMLElement) !== '';
+
 /**
- * Like `visibleAnchor` minus the speaking line, but restricted to what the audio engine indexes
- * (visible `p.line` with a speaker): a heading or stage direction is never a valid `seek` target.
+ * Like `visibleAnchor` minus the speaking line, but restricted to what the audio engine indexes:
+ * a heading, a stage direction or a parenthetical-only line is never a valid `seek` target.
  */
 export function nearestVisibleLine(play: HTMLElement, nid: string): HTMLElement | null {
-  return nearestAccepted(
-    play,
-    nid,
-    (el) => isVisibleNode(el) && el.matches('p.line[data-cid]'),
-  );
+  return nearestAccepted(play, nid, isIndexedLine);
 }
 
 /** `data-nid` of the first visible line in the range opened by heading `headingId`, or null if that range shows no dialogue. */
@@ -159,7 +159,7 @@ export function firstVisibleLineIn(play: HTMLElement, headingId: string): string
   let found: string | null = null;
   walkRanges(play, (el, range) => {
     if (found !== null || range !== headingId) return;
-    if (el.matches('p.line') && !el.classList.contains(HIDDEN_SCENE_CLASS)) {
+    if (isIndexedLine(el)) {
       found = el.getAttribute('data-nid');
     }
   });
