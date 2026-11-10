@@ -452,9 +452,24 @@ export function StudyMode({
                         return (
                           <li key={p.id}>
                             <span className="study-progress__where">
-                              {p.actLabel} {p.sceneLabel && `· ${p.sceneLabel}`} · tirades{' '}
-                              {p.fromTirade}
-                              {p.toTirade !== p.fromTirade && `→${p.toTirade}`}
+                              <span>
+                                {p.actLabel} {p.sceneLabel && `· ${p.sceneLabel}`} · tirades{' '}
+                                {p.fromTirade}
+                                {p.toTirade !== p.fromTirade && `→${p.toTirade}`}
+                              </span>
+                              {/* Le numéro seul ne dit pas où l'on est : on cite aussi le début
+                                  de la première tirade et celui de la dernière. */}
+                              <span className="study-block__quotes">
+                                <span className="study-block__text">« {p.preview} »</span>
+                                {p.fromTirade !== p.toTirade && (
+                                  <>
+                                    <span className="study-block__arrow" aria-hidden="true">
+                                      →
+                                    </span>
+                                    <span className="study-block__text">« {p.previewEnd} »</span>
+                                  </>
+                                )}
+                              </span>
                             </span>
                             <span className="study-progress__level">
                               {st.seen === 0

@@ -24,6 +24,7 @@ import { importPdf } from '@theatre/import';
 import { exportPdf } from './export';
 import { createLogger, formatRequestLine } from './logger';
 import { exportReaderHtml } from './reader-export';
+import { vocabularyFor } from './vocabulary';
 import {
   deleteStudy,
   listPlays,
@@ -175,6 +176,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     const found = await loadPlay(req.params.slug);
     if (!found) return reply.code(404).send({ error: 'introuvable' });
     return found;
+  });
+
+  app.get<{ Params: { slug: string } }>('/api/plays/:slug/vocabulary', async (req, reply) => {
+    const found = await loadPlay(req.params.slug);
+    if (!found) return reply.code(404).send({ error: 'introuvable' });
+    return { vocabulary: await vocabularyFor(found.fountain, found.meta.characters) };
   });
 
   app.put<{ Params: { slug: string }; Body: SavBody }>('/api/plays/:slug', async (req, reply) => {

@@ -12,7 +12,8 @@
  * au-delà de ces quelques mots.
  */
 import { align, similarity, type Op } from './align';
-import { FILLERS, splitWords, type Token } from './normalize';
+import { FILLERS, isInterjection, splitWords, type Token } from './normalize';
+import { forgivenDel, forgivenIns } from './leniency';
 import { canonicalizeNumbers } from './numbers';
 import { blocks, weightOf } from './weight';
 
@@ -59,6 +60,10 @@ interface Profile {
   /** Poids de mots en trop toléré, en part de la tirade, avant de refuser. */
   maxNoise: number;
   ignoreFillers: boolean;
+  /** Admet les équivalences de registre (`ouais`/`oui`) : cf. `SOFT_CLASSES` dans variants.ts. */
+  softVariants: boolean;
+  /** Un « ne » manquant ne coûte rien (il s'avale à l'oral, la négation tient au second terme). */
+  forgiveNe: boolean;
   strictBlocking: boolean;
   /** `ok` exige alors zéro écart — c'est ce que « fidélité au texte » veut dire. */
   okRequiresPerfect: boolean;
@@ -79,6 +84,8 @@ const PROFILES: Record<Tolerance, Profile> = {
     ok: 0.9,
     maxNoise: 0.5,
     ignoreFillers: true,
+    forgiveNe: true,
+    softVariants: true,
     strictBlocking: false,
     okRequiresPerfect: false,
   },
@@ -90,6 +97,8 @@ const PROFILES: Record<Tolerance, Profile> = {
     ok: 0.97,
     maxNoise: 0.3,
     ignoreFillers: false,
+    forgiveNe: false,
+    softVariants: false,
     strictBlocking: true,
     okRequiresPerfect: true,
   },
@@ -122,6 +131,25 @@ function scoreOps(expected: Token[], heard: Token[], ops: Op[], p: Profile): Sco
   let lastExpected = -1;
   let reached = 0;
 
+  const matchedE = new Set<number>();
+  const matchedH = new Set<number>();
+  for (const op of ops) {
+    if (op.type === 'match' || op.type === 'merge' || op.type === 'split') {
+      matchedE.add(op.e);
+      matchedH.add(op.h);
+      if (op.type === 'merge') matchedH.add(op.h + 1);
+      if (op.type === 'split') matchedE.add(op.e + 1);
+    }
+  }
+
+  /** A heard word with no counterpart in the text: extra speech unless a rule forgives it. */
+  const countExtra = (h: Token, index: number): void => {
+    if (p.ignoreFillers && FILLERS.has(h.key)) return;
+    if (forgivenIns(heard, index, matchedH)) return;
+    added.push({ text: h.raw, after: lastExpected });
+    extra += weightOf(h);
+  };
+
   for (const op of ops) {
     switch (op.type) {
       case 'match':
@@ -131,6 +159,14 @@ function scoreOps(expected: Token[], heard: Token[], ops: Op[], p: Profile): Sco
         break;
       case 'sub': {
         const e = expected[op.e]!;
+        if (isInterjection(e.key)) {
+          // The interjection is optional, but the word heard in its place is not the play's text.
+          words[op.e]!.status = 'ok';
+          lastExpected = op.e;
+          reached = Math.max(reached, op.e + 1);
+          countExtra(heard[op.h]!, op.h);
+          break;
+        }
         words[op.e] = { text: e.raw, status: 'replaced', heard: heard[op.h]!.raw };
         lost += weightOf(e);
         blocked ||= blocks(e, p.strictBlocking);
@@ -141,6 +177,12 @@ function scoreOps(expected: Token[], heard: Token[], ops: Op[], p: Profile): Sco
       }
       case 'del': {
         const e = expected[op.e]!;
+        if (forgivenDel(expected, op.e, matchedE, p.forgiveNe)) {
+          words[op.e]!.status = 'ok';
+          lastExpected = op.e;
+          reached = Math.max(reached, op.e + 1);
+          break;
+        }
         lost += weightOf(e);
         blocked ||= blocks(e, p.strictBlocking);
         lastExpected = op.e;
@@ -162,13 +204,9 @@ function scoreOps(expected: Token[], heard: Token[], ops: Op[], p: Profile): Sco
         lastExpected = op.e + 1;
         reached = Math.max(reached, op.e + 2);
         break;
-      case 'ins': {
-        const h = heard[op.h]!;
-        if (p.ignoreFillers && FILLERS.has(h.key)) break;
-        added.push({ text: h.raw, after: lastExpected });
-        extra += weightOf(h);
+      case 'ins':
+        countExtra(heard[op.h]!, op.h);
         break;
-      }
       case 'skip':
         // L'amorce d'une autocorrection : ni comptée, ni montrée. La personne s'est
         // reprise d'elle-même, lui rappeler son faux départ n'apprend rien.
@@ -191,10 +229,15 @@ export function evaluate(
   const words: EvaluatedWord[] = expected.map((t) => ({ text: t.raw, status: 'missing' }));
   if (!expected.length) return { verdict: 'ok', score: 1, words, added: [] };
   if (!heard.length) return { verdict: 'no-speech', score: 0, words, added: [] };
+  // A tirade made only of interjections ("Hum.") cannot be checked: whatever was said counts.
+  if (expected.every((t) => isInterjection(t.key))) {
+    return { verdict: 'ok', score: 1, words: words.map((w) => ({ ...w, status: 'ok' as const })), added: [] };
+  }
 
   const ops = align(expected, heard, {
     maxSkip: Math.min(p.maxSkipAbs, Math.max(p.minSkip, Math.ceil(expected.length * p.maxSkipRatio))),
     matchSim: p.matchSim,
+    soft: p.softVariants,
   });
 
   const scored = scoreOps(expected, heard, ops, p);
@@ -245,7 +288,7 @@ const PLAUSIBLE_SIM = 0.5;
  * en trop qu'aucune suite n'explique (`ins`), ou substitutions trop lointaines
  * pour être une variante du bon mot — jusqu'au dernier point de contact réel.
  */
-function trimUnreached(expected: Token[], heard: Token[], ops: Op[]): Op[] {
+function trimUnreached(expected: Token[], heard: Token[], ops: Op[], soft: boolean): Op[] {
   let end = ops.length;
   while (end > 0) {
     const op = ops[end - 1]!;
@@ -253,7 +296,7 @@ function trimUnreached(expected: Token[], heard: Token[], ops: Op[]): Op[] {
       end--;
       continue;
     }
-    if (op.type === 'sub' && similarity(expected[op.e]!, heard[op.h]!) < PLAUSIBLE_SIM) {
+    if (op.type === 'sub' && similarity(expected[op.e]!, heard[op.h]!, soft) < PLAUSIBLE_SIM) {
       end--;
       continue;
     }
@@ -279,12 +322,14 @@ export function evaluatePrefix(
 
   if (!heard.length) return { reached: 0, total, verdict: 'no-speech' };
   if (!expected.length) return { reached: 0, total: 0, verdict: 'ok' };
+  if (expected.every((t) => isInterjection(t.key))) return { reached: total, total, verdict: 'ok' };
 
   const ops = align(expected, heard, {
     maxSkip: Math.min(p.maxSkipAbs, Math.max(p.minSkip, Math.ceil(expected.length * p.maxSkipRatio))),
     matchSim: p.matchSim,
+    soft: p.softVariants,
   });
-  const trimmed = trimUnreached(expected, heard, ops);
+  const trimmed = trimUnreached(expected, heard, ops, p.softVariants);
 
   const { lost, extra, blocked, reached } = scoreOps(expected, heard, trimmed, p);
   if (reached === 0) return { reached: 0, total, verdict: 'fail' };

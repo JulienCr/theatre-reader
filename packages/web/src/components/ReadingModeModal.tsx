@@ -9,13 +9,18 @@
  */
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { Character } from '@theatre/core';
-import type { ReadingSettings } from '@theatre/audio-player';
+import type { MaskStyle, ReadingSettings } from '@theatre/audio-player';
 
-const OPTIONS: { key: keyof ReadingSettings; label: string; hint: string }[] = [
-  { key: 'mask', label: 'Masquer mes répliques', hint: 'Floutées à l\'écran jusqu\'à ce qu\'elles soient dites.' },
+const OPTIONS: { key: Exclude<keyof ReadingSettings, 'maskStyle'>; label: string; hint: string }[] = [
+  { key: 'mask', label: 'Masquer mes répliques', hint: 'Cachées à l\'écran jusqu\'à ce qu\'elles soient dites.' },
   { key: 'playMine', label: 'Me faire répéter', hint: 'À la reprise, le TTS lit ma réplique (contrôle mémoire).' },
   { key: 'autoAdvance', label: 'Avancement automatique', hint: 'Reprise auto après la durée de ma réplique (sans clic).' },
   { key: 'tick', label: 'Bip quand c\'est à moi', hint: 'Petit son au moment de la pause.' },
+];
+
+const MASK_STYLES: { value: MaskStyle; label: string }[] = [
+  { value: 'blur', label: 'Flou' },
+  { value: 'bar', label: 'Barre noire' },
 ];
 
 export function ReadingModeModal({
@@ -112,6 +117,19 @@ export function ReadingModeModal({
               </span>
             </label>
           ))}
+          <div className="reading-mode-seg" role="group" aria-label="Style du masque">
+            {MASK_STYLES.map((m) => (
+              <button
+                key={m.value}
+                className={settings.maskStyle === m.value ? 'on' : ''}
+                aria-pressed={settings.maskStyle === m.value}
+                disabled={!settings.mask}
+                onClick={() => onSettings({ maskStyle: m.value })}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
         </fieldset>
 
         <label

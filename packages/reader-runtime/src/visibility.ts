@@ -154,6 +154,22 @@ export function nearestVisibleLine(play: HTMLElement, nid: string): HTMLElement 
   return nearestAccepted(play, nid, isIndexedLine);
 }
 
+/**
+ * Where a jump to tirade `nid` lands: `line` to scroll to, `seekNid` for the engine cursor.
+ * They differ when the tirade holds only a stage direction (never indexed): the cursor then goes
+ * to the nearest indexed tirade, or is `null` when none is visible (the caller must stop playback).
+ * `line` is `null` when `nid` is unknown or hidden by a display filter.
+ */
+export function tiradeJumpTarget(
+  play: HTMLElement,
+  nid: string,
+): { line: HTMLElement | null; seekNid: string | null } {
+  const line = play.querySelector<HTMLElement>(`p.line[data-nid="${nid}"]`);
+  if (!line || line.closest(`.${HIDDEN_SCENE_CLASS}`)) return { line: null, seekNid: null };
+  const indexed = isIndexedLine(line) ? line : nearestVisibleLine(play, nid);
+  return { line, seekNid: indexed?.getAttribute('data-nid') ?? null };
+}
+
 /** `data-nid` of the first visible line in the range opened by heading `headingId`, or null if that range shows no dialogue. */
 export function firstVisibleLineIn(play: HTMLElement, headingId: string): string | null {
   let found: string | null = null;
