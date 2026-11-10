@@ -14,3 +14,5 @@ packages/web/dist/
 textes/
 # Binaire du correcteur orthographique compilé à la volée (server/src/spell.ts).
 .cache/
+# Exports générés (scripts/export-role, etc.) — non publiés
+output/

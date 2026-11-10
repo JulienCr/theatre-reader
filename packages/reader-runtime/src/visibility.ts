@@ -9,7 +9,7 @@
  * Séparé de Chrome.tsx pour être testable : la config vitest racine ne ramasse que
  * les `.test.ts` sous `packages`, sans transformation JSX.
  */
-import { HIDDEN_SCENE_CLASS } from '@theatre/audio-player';
+import { HIDDEN_SCENE_CLASS, spokenText } from '@theatre/audio-player';
 import { LEAD_RANGE_ID, type SceneVisibility } from '@theatre/core';
 
 /** Les deux seuls en-têtes émis par `renderBody` (cf. @theatre/core render.ts). */
@@ -113,24 +113,57 @@ export function lineFilterHidden(
   return out;
 }
 
-/** Element to keep in view after a visibility change: the speaking line, else `nid`, else the nearest visible node after it, else before it. */
-export function visibleAnchor(play: HTMLElement, nid: string | null): HTMLElement | null {
-  const speaking = play.querySelector<HTMLElement>('.line--speaking');
-  if (speaking && !speaking.classList.contains(HIDDEN_SCENE_CLASS)) return speaking;
-  if (nid === null) return null;
+const isVisibleNode = (el: Element): boolean =>
+  el.hasAttribute('data-nid') && !el.classList.contains(HIDDEN_SCENE_CLASS);
+
+/** `nid` itself if it passes `accept`, else the nearest node after it that does, else the nearest before it. */
+function nearestAccepted(
+  play: HTMLElement,
+  nid: string,
+  accept: (el: Element) => boolean,
+): HTMLElement | null {
   const from = (Array.from(play.children) as HTMLElement[]).find(
     (el) => el.getAttribute('data-nid') === nid,
   );
   if (!from) return null;
-  if (!from.classList.contains(HIDDEN_SCENE_CLASS)) return from;
-  const isVisible = (el: Element): boolean =>
-    el.hasAttribute('data-nid') && !el.classList.contains(HIDDEN_SCENE_CLASS);
+  if (accept(from)) return from;
   for (const step of ['nextElementSibling', 'previousElementSibling'] as const) {
     for (let el = from[step]; el; el = el[step]) {
-      if (isVisible(el)) return el as HTMLElement;
+      if (accept(el)) return el as HTMLElement;
     }
   }
   return null;
+}
+
+/** Element to keep in view after a visibility change: the speaking line, else `nid`, else the nearest visible node after it, else before it. */
+export function visibleAnchor(play: HTMLElement, nid: string | null): HTMLElement | null {
+  const speaking = play.querySelector<HTMLElement>('.line--speaking');
+  if (speaking && !speaking.classList.contains(HIDDEN_SCENE_CLASS)) return speaking;
+  return nid === null ? null : nearestAccepted(play, nid, isVisibleNode);
+}
+
+/** Whether the audio engine indexes `el`: a visible `p.line` with a speaker and spoken text. */
+const isIndexedLine = (el: Element): boolean =>
+  isVisibleNode(el) && el.matches('p.line[data-cid]') && spokenText(el as HTMLElement) !== '';
+
+/**
+ * Like `visibleAnchor` minus the speaking line, but restricted to what the audio engine indexes:
+ * a heading, a stage direction or a parenthetical-only line is never a valid `seek` target.
+ */
+export function nearestVisibleLine(play: HTMLElement, nid: string): HTMLElement | null {
+  return nearestAccepted(play, nid, isIndexedLine);
+}
+
+/** `data-nid` of the first visible line in the range opened by heading `headingId`, or null if that range shows no dialogue. */
+export function firstVisibleLineIn(play: HTMLElement, headingId: string): string | null {
+  let found: string | null = null;
+  walkRanges(play, (el, range) => {
+    if (found !== null || range !== headingId) return;
+    if (isIndexedLine(el)) {
+      found = el.getAttribute('data-nid');
+    }
+  });
+  return found;
 }
 
 /**

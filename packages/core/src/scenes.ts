@@ -21,7 +21,7 @@
  * DOM à partir de la même sortie. Une règle réécrite de chaque côté est exactement
  * ce qui a laissé passer le trou ci-dessus.
  */
-import type { Node, Play } from './ast';
+import type { Character, Node, Play } from './ast';
 
 /** Tête de pièce (avant tout en-tête), contenu propre d'un acte, ou scène. */
 export type SceneRangeKind = 'lead' | 'act' | 'scene';
@@ -266,4 +266,44 @@ export function filterScenesByRoles(play: Play, roleIds: string[]): Play {
     for (let x = r.from; x < r.to; x++) kept.push(play.nodes[x]!);
   }
   return kept.length === play.nodes.length ? play : { ...play, nodes: kept };
+}
+
+/**
+ * Ne garde, parmi les répliques, que celles d'UN personnage — au niveau de la
+ * réplique et non de la plage (contrairement à `filterScenesByRoles`, qui garde
+ * toute la scène dès qu'on y joue). Les en-têtes d'acte/scène et les didascalies
+ * isolées restent toujours : ce sont les repères de structure, pas du dialogue
+ * d'un autre personnage.
+ *
+ * `placeholderName` : si fourni, une réplique d'un autre personnage devient une
+ * didascalie `« — <nom> — »` au lieu de disparaître, pour garder une trace de
+ * qui parlait à cet endroit.
+ */
+export function filterLinesByCharacter(
+  play: Play,
+  characterId: string,
+  placeholderName?: (characterId: string) => string,
+): Play {
+  const kept: Node[] = [];
+  for (const n of play.nodes) {
+    if (n.type !== 'line' || n.characterId === characterId) {
+      kept.push(n);
+      continue;
+    }
+    if (placeholderName) {
+      kept.push({ type: 'stage', text: `— ${placeholderName(n.characterId)} —` });
+    }
+  }
+  return { ...play, nodes: kept };
+}
+
+/** Résout un personnage par id, nom canonique ou alias (insensible à la casse). */
+export function findCharacter(characters: Character[], query: string): Character | undefined {
+  const q = query.trim().toLowerCase();
+  return characters.find(
+    (c) =>
+      c.id.toLowerCase() === q ||
+      c.canonicalName.toLowerCase() === q ||
+      c.aliases.some((a) => a.toLowerCase() === q),
+  );
 }

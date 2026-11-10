@@ -706,6 +706,12 @@ mark.reader-hit--current {
   background: var(--paper-raised);
   cursor: pointer;
 }
+/* Largeur figée et chiffres tabulaires : sans ça, passer de « 1× » à « 1,5× » élargit
+   le bouton et décale tout ce qui suit dans la barre à chaque clic. */
+.reader-audio button.reader-rate-btn {
+  min-width: 46px;
+  font-variant-numeric: tabular-nums;
+}
 .reader-audio button.reader-mode-btn.on {
   background: var(--accent);
   color: var(--accent-ink);

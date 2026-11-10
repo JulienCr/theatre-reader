@@ -24,6 +24,7 @@ export {
 // Ré-exporté ici pour que les hôtes (chrome du lecteur, app mobile) n'aient pas à
 // dépendre de @theatre/voice-match juste pour nommer le niveau de tolérance.
 export type { Evaluation, EvaluatedWord, Tolerance, VoiceCommand } from '@theatre/voice-match';
+export { loadRate, nextRate, RATES, saveRate } from './rate';
 
 export interface AudioTirade {
   nodeId: string;
@@ -181,6 +182,15 @@ export interface Player {
   destroy(): void;
 }
 
+/** Spoken text of a `p.line`; empty for a parenthetical-only line, which is never indexed. */
+export function spokenText(line: HTMLElement): string {
+  return Array.from(line.querySelectorAll<HTMLElement>('.speech'))
+    .map((s) => s.textContent ?? '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function collectTirades(container: HTMLElement): AudioTirade[] {
   const out: AudioTirade[] = [];
   const seen = new Set<string>();
@@ -192,11 +202,7 @@ function collectTirades(container: HTMLElement): AudioTirade[] {
     if (el.closest(`.${HIDDEN_SCENE_CLASS}`)) return;
     // Paged.js peut fragmenter une même réplique sur 2 pages : on garde la 1re.
     if (seen.has(nodeId)) return;
-    const text = Array.from(el.querySelectorAll<HTMLElement>('.speech'))
-      .map((s) => s.textContent ?? '')
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const text = spokenText(el);
     if (!text) return;
     seen.add(nodeId);
     out.push({ nodeId, characterId, element: el, text });
